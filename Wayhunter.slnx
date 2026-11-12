@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Wayhunter.Api/Wayhunter.Api.csproj" />
+    <Project Path="src/Wayhunter.Application/Wayhunter.Application.csproj" />
+    <Project Path="src/Wayhunter.Domain/Wayhunter.Domain.csproj" />
+    <Project Path="src/Wayhunter.Infrastructure/Wayhunter.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Wayhunter.IntegrationTests/Wayhunter.IntegrationTests.csproj" />
+    <Project Path="tests/Wayhunter.UnitTests/Wayhunter.UnitTests.csproj" />
+  </Folder>
+</Solution>

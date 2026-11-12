@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Wayhunter.Application/Wayhunter.Application.csproj" />
+    <ProjectReference Include="../Wayhunter.Domain/Wayhunter.Domain.csproj" />
+  </ItemGroup>
+</Project>
