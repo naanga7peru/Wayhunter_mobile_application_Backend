@@ -13,5 +13,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Wayhunter.Application\Wayhunter.Application.csproj" />
+    <ProjectReference Include="..\..\src\Wayhunter.Infrastructure\Wayhunter.Infrastructure.csproj" />
   </ItemGroup>
 </Project>
