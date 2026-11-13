@@ -10,4 +10,7 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
     <ProjectReference Include="../../src/Wayhunter.Domain/Wayhunter.Domain.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Wayhunter.Application\Wayhunter.Application.csproj" />
+  </ItemGroup>
 </Project>
