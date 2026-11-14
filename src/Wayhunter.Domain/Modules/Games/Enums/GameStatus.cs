@@ -6,5 +6,6 @@ public enum GameStatus
     PendingApproval,
     Published,
     Rejected,
-    Expired
+    Expired,
+    Draft
 }
