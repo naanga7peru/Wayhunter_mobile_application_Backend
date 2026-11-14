@@ -1,7 +1,8 @@
+
 using System;
 using System.Collections.Generic;
-using System.Text;
-
+using System.Linq;
+using Wayhunter.Domain.Modules.TravelPlanning.Enums;
 
 namespace Wayhunter.Domain.Modules.TravelPlanning.Entities;
 
@@ -20,6 +21,10 @@ public sealed class TripPlan
     public decimal BudgetLkr { get; private set; }
     public string VehicleType { get; private set; }
     public int Headcount { get; private set; }
+
+    // Draft lifecycle belongs to M2.
+    public TripDraftStatus DraftStatus { get; private set; }
+        = TripDraftStatus.Draft;
 
     public IReadOnlyList<TripStop> Stops => _stops.AsReadOnly();
 
@@ -64,12 +69,51 @@ public sealed class TripPlan
         Headcount = headcount;
     }
 
+    public void UpdateDetails(
+        string tripName,
+        DateOnly startDate,
+        DateOnly endDate,
+        decimal budgetLkr,
+        string vehicleType,
+        int headcount)
+    {
+        EnsureEditable();
+
+        if (string.IsNullOrWhiteSpace(tripName))
+            throw new ArgumentException("Trip name is required.");
+
+        if (endDate < startDate)
+            throw new ArgumentException(
+                "End date cannot be before start date.");
+
+        if (budgetLkr < 0)
+            throw new ArgumentException(
+                "Budget cannot be negative.");
+
+        if (string.IsNullOrWhiteSpace(vehicleType))
+            throw new ArgumentException(
+                "Vehicle type is required.");
+
+        if (headcount < 1)
+            throw new ArgumentException(
+                "Headcount must be at least 1.");
+
+        TripName = tripName.Trim();
+        StartDate = startDate;
+        EndDate = endDate;
+        BudgetLkr = budgetLkr;
+        VehicleType = vehicleType.Trim();
+        Headcount = headcount;
+    }
+
     public TripStop AddStop(
         string name,
         string? placeId = null,
         double? latitude = null,
         double? longitude = null)
     {
+        EnsureEditable();
+
         var stop = new TripStop(
             Id,
             _stops.Count,
@@ -79,12 +123,13 @@ public sealed class TripPlan
             longitude);
 
         _stops.Add(stop);
-
         return stop;
     }
 
     public bool RemoveStop(Guid stopId)
     {
+        EnsureEditable();
+
         var stop = _stops.FirstOrDefault(s => s.Id == stopId);
 
         if (stop is null)
@@ -97,5 +142,24 @@ public sealed class TripPlan
 
         return true;
     }
-}
 
+    // Cancel a draft without deleting its records.
+    // Repeated cancellation causes no additional change.
+    public bool Cancel()
+    {
+        if (DraftStatus == TripDraftStatus.Cancelled)
+            return false;
+
+        DraftStatus = TripDraftStatus.Cancelled;
+        return true;
+    }
+
+    private void EnsureEditable()
+    {
+        if (DraftStatus == TripDraftStatus.Cancelled)
+        {
+            throw new InvalidOperationException(
+                "Cancelled trip plans cannot be edited.");
+        }
+    }
+}
