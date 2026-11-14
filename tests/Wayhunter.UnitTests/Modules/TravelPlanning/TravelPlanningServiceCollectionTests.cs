@@ -1,4 +1,4 @@
-
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Application.Modules.TravelPlanning.Commands;
@@ -16,6 +16,9 @@ public sealed class TravelPlanningServiceCollectionTests
     public void AddTravelPlanningModule_ShouldRegisterAllServices()
     {
         var services = new ServiceCollection();
+
+        services.AddSingleton<IConfiguration>(
+            new ConfigurationBuilder().Build());
 
         services.AddTravelPlanningModule();
 
@@ -50,6 +53,9 @@ public sealed class TravelPlanningServiceCollectionTests
     public async Task Repository_ShouldPersistAcrossScopes()
     {
         var services = new ServiceCollection();
+
+        services.AddSingleton<IConfiguration>(
+            new ConfigurationBuilder().Build());
 
         services.AddTravelPlanningModule();
 
