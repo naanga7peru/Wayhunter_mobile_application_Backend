@@ -42,10 +42,10 @@ public sealed class LiveTripSessionService : ILiveTripSessionService
             normalizedTripPlanId,
             cancellationToken);
 
+        // Sequential repeated Start is idempotent.
         if (existing != null)
         {
-            throw new InvalidOperationException(
-                "This trip already has an active or paused session.");
+            return existing;
         }
 
         var session = LiveTripSession.Start(
@@ -53,11 +53,35 @@ public sealed class LiveTripSessionService : ILiveTripSessionService
             normalizedTripPlanId,
             _timeProvider.GetUtcNow());
 
-        await _repository.AddAsync(
-            session,
-            cancellationToken);
+        try
+        {
+            await _repository.AddAsync(
+                session,
+                cancellationToken);
 
-        return session;
+            return session;
+        }
+        catch (InvalidOperationException)
+            when (!cancellationToken.IsCancellationRequested)
+        {
+            // Best-effort recovery from an in-memory
+            // duplicate-open-session collision.
+            //
+            // SQL persistence needs its own atomic
+            // unique constraint and exception handling.
+            var concurrentSession =
+                await _repository.GetOpenByTripPlanIdAsync(
+                    normalizedTripPlanId,
+                    cancellationToken);
+
+            if (concurrentSession != null)
+            {
+                return concurrentSession;
+            }
+
+            // Do not hide unrelated repository failures.
+            throw;
+        }
     }
 
     public async Task<LiveTripSession> PauseAsync(

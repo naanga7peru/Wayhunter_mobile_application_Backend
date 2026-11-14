@@ -1,9 +1,11 @@
 using Wayhunter.Api.Contracts.Responses;
+using Wayhunter.Api.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Starter only: M1 must implement real authentication and Admin RBAC.
 builder.Services.AddControllers();
+builder.Services.AddTravelPlanningModule();
 builder.Services.AddSingleton(TimeProvider.System);
 
 // Restrict browser access to explicitly configured localhost origins in development.
@@ -15,6 +17,9 @@ if (builder.Environment.IsDevelopment())
 }
 
 var app = builder.Build();
+
+app.UseMiddleware<Wayhunter.Api.Middleware.CorrelationIdMiddleware>();
+
 if (app.Environment.IsDevelopment()) app.UseCors("LocalDevelopment");
 app.MapControllers();
 app.Run();
