@@ -97,4 +97,29 @@ public sealed class AdvertisementConfigurationTests
         Assert.False(placement.IsNullable);
     }
 
+    [Fact]
+    public void Advertisement_Status_ShouldMapToInteger()
+    {
+        using var context = CreateContext();
+
+        var entity = context.Model.FindEntityType(
+            typeof(Advertisement));
+
+        Assert.NotNull(entity);
+
+        var status = entity.FindProperty(
+            nameof(Advertisement.Status));
+
+        Assert.NotNull(status);
+
+        // Status is stored as an integer
+        Assert.Equal(
+            typeof(int),
+            status.GetProviderClrType());
+
+        // Status cannot be null
+        Assert.False(status.IsNullable);
+    }
+
+
 }
