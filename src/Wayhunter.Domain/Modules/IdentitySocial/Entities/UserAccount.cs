@@ -63,6 +63,31 @@ public sealed class UserAccount
             createdAtUtc);
     }
 
+
+    public void UpdateDisplayName(string newDisplayName)
+    {
+        if (string.IsNullOrWhiteSpace(newDisplayName))
+        {
+            throw new ArgumentException(
+                "Display name is required.",
+                nameof(newDisplayName));
+        }
+
+        var normalizedName = newDisplayName.Trim();
+
+        if (normalizedName.Length > 200)
+        {
+            throw new ArgumentException(
+                "Display name cannot exceed 200 characters.",
+                nameof(newDisplayName));
+        }
+
+        // Only the display name changes.
+        // UserId remains permanently unchanged.
+        DisplayName = normalizedName;
+    }
+
+
     public void ActivateAfterVerifiedOtp(
         DateTimeOffset verifiedAtUtc)
     {
