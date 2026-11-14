@@ -14,13 +14,15 @@ public static class TravelPlanningServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        // Temporary in-memory repository for development.
-        // Singleton keeps trip data across requests.
+        // Register server-side Maps configuration.
+        services.AddTravelPlanningMapsConfiguration();
+
+        // Temporary in-memory Trip repository.
+        // SQL integration awaits shared migration approval.
         services.AddSingleton<
             ITripPlanRepository,
             InMemoryTripPlanRepository>();
 
-        // M2 Application Services
         services.AddScoped<CreateTripPlanService>();
         services.AddScoped<GetTripPlanService>();
         services.AddScoped<UpdateTripPlanService>();
