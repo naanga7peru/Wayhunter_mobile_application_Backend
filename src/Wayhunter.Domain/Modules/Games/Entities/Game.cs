@@ -41,6 +41,25 @@ public sealed class Game
     { get; private set; }
 
     // =====================================
+    // M5-MS03-T05 - MODERATION PROPERTIES
+    // =====================================
+
+    public bool IsFlaggedForReview
+    { get; private set; }
+
+    public string? FlagReason
+    { get; private set; }
+
+    public string? RejectionReason
+    { get; private set; }
+
+    public string? DisabledReason
+    { get; private set; }
+
+    public DateTimeOffset? LastModeratedAtUtc
+    { get; private set; }
+
+    // =====================================
     // GAME DRAFT STAGES AND HINTS
     // =====================================
 
@@ -55,7 +74,7 @@ public sealed class Game
         _draftHints.AsReadOnly();
 
     // =====================================
-    // EXISTING CONSTRUCTOR
+    // CONSTRUCTOR
     // =====================================
 
     public Game(Guid id, string creatorUserId)
@@ -230,7 +249,7 @@ public sealed class Game
     }
 
     // =====================================
-    // NEW: SUBMIT DRAFT FOR ADMIN REVIEW
+    // SUBMIT DRAFT FOR ADMIN REVIEW
     // M5-MS03-T01
     // =====================================
 
@@ -238,15 +257,12 @@ public sealed class Game
         string actorUserId,
         DateTimeOffset submittedAtUtc)
     {
-        // Only a draft may be submitted.
-        // Repeated submissions are rejected.
         if (Status != GameStatus.Draft)
         {
             throw new InvalidOperationException(
                 "Only draft games can be submitted.");
         }
 
-        // Only the original creator may submit.
         if (!string.Equals(
             actorUserId,
             CreatorUserId,
@@ -264,7 +280,6 @@ public sealed class Game
 
         RequireUtc(submittedAtUtc);
 
-        // Validate minimum game details.
         if (string.IsNullOrWhiteSpace(Title))
         {
             throw new InvalidOperationException(
@@ -283,7 +298,6 @@ public sealed class Game
                 "At least one game stage is required.");
         }
 
-        // Every stage must have a corresponding clue.
         foreach (var step in _draftSteps)
         {
             if (!_draftHints.Exists(
@@ -294,13 +308,13 @@ public sealed class Game
             }
         }
 
-        // Update state only after all checks pass.
         SubmittedAtUtc = submittedAtUtc;
         Status = GameStatus.PendingApproval;
     }
 
     // =====================================
-    // EXISTING ADMIN APPROVAL
+    // ADMIN APPROVAL
+    // M5-MS03-T04
     // =====================================
 
     public void ApproveCreation(
@@ -310,18 +324,26 @@ public sealed class Game
             throw new InvalidOperationException(
                 "Only pending games can be approved.");
 
+        // M5-MS03-T05: Block flagged games.
+        if (IsFlaggedForReview)
+        {
+            throw new InvalidOperationException(
+                "Flagged game requires Admin review clearance.");
+        }
+
         RequireUtc(approvedAtUtc);
 
         ApprovedAtUtc = approvedAtUtc;
 
-        // Exactly 30 days after Admin approval.
+        // Exactly 30 days after approval.
         ExpiresAtUtc = approvedAtUtc.AddHours(30 * 24);
 
         Status = GameStatus.Published;
     }
 
     // =====================================
-    // EXISTING ADMIN REJECTION
+    // LEGACY ADMIN REJECTION
+    // PRESERVED FOR EXISTING CALLERS
     // =====================================
 
     public void RejectCreation()
@@ -334,6 +356,132 @@ public sealed class Game
     }
 
     // =====================================
+    // M5-MS03-T05 - REJECT WITH REASON
+    // =====================================
+
+    public void RejectCreation(
+        string reason,
+        DateTimeOffset rejectedAtUtc)
+    {
+        if (Status != GameStatus.PendingApproval ||
+            !SubmittedAtUtc.HasValue)
+        {
+            throw new InvalidOperationException(
+                "Only submitted pending games can be rejected.");
+        }
+
+        string cleanReason =
+            ValidateModerationReason(reason);
+
+        RequireUtc(rejectedAtUtc);
+
+        if (rejectedAtUtc < SubmittedAtUtc.Value)
+        {
+            throw new InvalidOperationException(
+                "Rejection cannot precede submission.");
+        }
+
+        RejectionReason = cleanReason;
+        LastModeratedAtUtc = rejectedAtUtc;
+        Status = GameStatus.Rejected;
+    }
+
+    // =====================================
+    // M5-MS03-T05 - FLAG SUSPICIOUS GAME
+    // =====================================
+
+    public void FlagForReview(
+        string reason,
+        DateTimeOffset flaggedAtUtc)
+    {
+        if (Status != GameStatus.PendingApproval &&
+            Status != GameStatus.Published)
+        {
+            throw new InvalidOperationException(
+                "Only pending or published games can be flagged.");
+        }
+
+        if (IsFlaggedForReview)
+        {
+            throw new InvalidOperationException(
+                "Game is already flagged for review.");
+        }
+
+        string cleanReason =
+            ValidateModerationReason(reason);
+
+        RequireUtc(flaggedAtUtc);
+
+        if (SubmittedAtUtc.HasValue &&
+            flaggedAtUtc < SubmittedAtUtc.Value)
+        {
+            throw new InvalidOperationException(
+                "Flag timestamp cannot precede submission.");
+        }
+
+        FlagReason = cleanReason;
+        IsFlaggedForReview = true;
+        LastModeratedAtUtc = flaggedAtUtc;
+    }
+
+    // =====================================
+    // M5-MS03-T05 - DISABLE PUBLISHED GAME
+    // =====================================
+
+    public void DisableGame(
+        string reason,
+        DateTimeOffset disabledAtUtc)
+    {
+        if (Status != GameStatus.Published)
+        {
+            throw new InvalidOperationException(
+                "Only published games can be disabled.");
+        }
+
+        string cleanReason =
+            ValidateModerationReason(reason);
+
+        RequireUtc(disabledAtUtc);
+
+        if (!ApprovedAtUtc.HasValue ||
+            disabledAtUtc < ApprovedAtUtc.Value)
+        {
+            throw new InvalidOperationException(
+                "Disable timestamp cannot precede approval.");
+        }
+
+        DisabledReason = cleanReason;
+        LastModeratedAtUtc = disabledAtUtc;
+        Status = GameStatus.Disabled;
+    }
+
+    // =====================================
+    // VALIDATE MODERATION REASON
+    // =====================================
+
+    private static string ValidateModerationReason(
+        string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new ArgumentException(
+                "Moderation reason is required.",
+                nameof(reason));
+        }
+
+        string cleanReason = reason.Trim();
+
+        if (cleanReason.Length > 1000)
+        {
+            throw new ArgumentException(
+                "Moderation reason cannot exceed 1000 characters.",
+                nameof(reason));
+        }
+
+        return cleanReason;
+    }
+
+    // =====================================
     // GAME PLAY ELIGIBILITY
     // =====================================
 
@@ -342,6 +490,7 @@ public sealed class Game
         RequireUtc(nowUtc);
 
         return Status == GameStatus.Published
+            && !IsFlaggedForReview
             && WinnerUserId == null
             && ExpiresAtUtc.HasValue
             && nowUtc < ExpiresAtUtc.Value;
@@ -365,7 +514,7 @@ public sealed class Game
 
         if (!CanPlay(nowUtc))
             throw new InvalidOperationException(
-                "Game expired, closed or already won.");
+                "Game expired, disabled, flagged, closed or already won.");
 
         WinnerUserId = playerUserId;
     }
@@ -386,7 +535,6 @@ public sealed class Game
             return false;
         }
 
-        // Keep archived records for history.
         Status = GameStatus.Expired;
 
         return true;
