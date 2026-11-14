@@ -14,6 +14,7 @@ public sealed class UserAccount
 
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public DateTimeOffset? VerifiedAtUtc { get; private set; }
+    public DateTimeOffset? DeletionRequestedAtUtc { get; private set; }
 
     private UserAccount(
         string userId,
@@ -52,7 +53,7 @@ public sealed class UserAccount
         if (createdAtUtc == default ||
             createdAtUtc.Offset != TimeSpan.Zero)
             throw new ArgumentException(
-                "A valid UTC creation time is required.");
+                "Valid UTC creation time is required.");
 
         return new UserAccount(
             Guid.NewGuid().ToString("D"),
@@ -69,7 +70,8 @@ public sealed class UserAccount
             throw new InvalidOperationException(
                 "Only pending accounts can be verified.");
 
-        if (verifiedAtUtc.Offset != TimeSpan.Zero ||
+        if (verifiedAtUtc == default ||
+            verifiedAtUtc.Offset != TimeSpan.Zero ||
             verifiedAtUtc < CreatedAtUtc)
             throw new ArgumentException(
                 "Invalid verification time.");
@@ -85,5 +87,32 @@ public sealed class UserAccount
                 "Only active accounts can be suspended.");
 
         Status = UserAccountStatus.Suspended;
+    }
+
+    public void Reactivate()
+    {
+        if (Status != UserAccountStatus.Suspended)
+            throw new InvalidOperationException(
+                "Only suspended accounts can be reactivated.");
+
+        Status = UserAccountStatus.Active;
+    }
+
+    public void RequestDeletion(
+        DateTimeOffset requestedAtUtc)
+    {
+        if (Status != UserAccountStatus.Active &&
+            Status != UserAccountStatus.Suspended)
+            throw new InvalidOperationException(
+                "Deletion request not allowed in current status.");
+
+        if (requestedAtUtc == default ||
+            requestedAtUtc.Offset != TimeSpan.Zero ||
+            requestedAtUtc < CreatedAtUtc)
+            throw new ArgumentException(
+                "Valid UTC deletion request time is required.");
+
+        Status = UserAccountStatus.DeletionRequested;
+        DeletionRequestedAtUtc = requestedAtUtc;
     }
 }
