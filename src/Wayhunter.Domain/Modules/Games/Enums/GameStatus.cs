@@ -7,5 +7,9 @@ public enum GameStatus
     Published,
     Rejected,
     Expired,
-    Draft
+    Draft,
+
+    // M5-MS03-T05
+    // Disabled games must not be playable.
+    Disabled
 }

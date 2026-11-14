@@ -17,7 +17,7 @@ using Wayhunter.Domain.Modules.Games.Enums;
 
 namespace Wayhunter.Infrastructure.Persistence.Repositories.Games;
 
-public sealed class InMemoryGameSubmissionStore
+public sealed partial class InMemoryGameSubmissionStore
     : IGameSubmissionStore, IGameApprovalStore
 {
     private readonly object _gate = new();
