@@ -1,4 +1,6 @@
 
+using Wayhunter.Domain.Modules.HomeAdsAnalytics.Enums;
+
 namespace Wayhunter.Domain.Modules.HomeAdsAnalytics.Entities;
 
 public sealed class Advertisement
@@ -10,6 +12,9 @@ public sealed class Advertisement
     public DateTimeOffset StartAtUtc { get; private set; }
     public DateTimeOffset EndAtUtc { get; private set; }
     public bool IsEnabled { get; private set; }
+
+    // Where the advertisement should appear
+    public AdvertisementPlacement Placement { get; private set; }
 
     public Advertisement(
         Guid id,
@@ -41,7 +46,24 @@ public sealed class Advertisement
         DestinationUrl = destinationUrl;
         StartAtUtc = startAtUtc;
         EndAtUtc = endAtUtc;
+
         IsEnabled = false;
+
+        // Default placement
+        Placement = AdvertisementPlacement.HomeBanner;
+    }
+
+    public void SetPlacement(AdvertisementPlacement placement)
+    {
+        if (!Enum.IsDefined(placement) ||
+            placement == AdvertisementPlacement.Unspecified)
+        {
+            throw new ArgumentException(
+                "Invalid advertisement placement.",
+                nameof(placement));
+        }
+
+        Placement = placement;
     }
 
     public void Enable()
