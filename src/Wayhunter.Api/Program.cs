@@ -17,6 +17,9 @@ if (builder.Environment.IsDevelopment())
 }
 
 var app = builder.Build();
+
+app.UseMiddleware<Wayhunter.Api.Middleware.CorrelationIdMiddleware>();
+
 if (app.Environment.IsDevelopment()) app.UseCors("LocalDevelopment");
 app.MapControllers();
 app.Run();
