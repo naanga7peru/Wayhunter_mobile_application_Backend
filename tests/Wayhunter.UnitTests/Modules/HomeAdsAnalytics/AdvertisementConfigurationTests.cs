@@ -70,5 +70,31 @@ public sealed class AdvertisementConfigurationTests
             "datetimeoffset",
             entity.FindProperty(nameof(Advertisement.EndAtUtc))!
                 .GetColumnType());
+
     }
+
+    [Fact]
+    public void Advertisement_Placement_ShouldMapToInteger()
+    {
+        using var context = CreateContext();
+
+        var entity = context.Model.FindEntityType(
+            typeof(Advertisement));
+
+        Assert.NotNull(entity);
+
+        var placement = entity.FindProperty(
+            nameof(Advertisement.Placement));
+
+        Assert.NotNull(placement);
+
+        // Placement is stored as an integer
+        Assert.Equal(
+            typeof(int),
+            placement.GetProviderClrType());
+
+        // Placement cannot be null
+        Assert.False(placement.IsNullable);
+    }
+
 }

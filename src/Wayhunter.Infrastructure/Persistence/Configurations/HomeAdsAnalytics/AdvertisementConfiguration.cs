@@ -53,6 +53,12 @@ public sealed class AdvertisementConfiguration
         builder.Property(ad => ad.IsEnabled)
             .IsRequired();
 
+        // Advertisement Placement
+        // HomeBanner = 1, SponsoredPoi = 2
+        builder.Property(ad => ad.Placement)
+            .HasConversion<int>()
+            .IsRequired();
+
         // Optimize active ad searches
         builder.HasIndex(ad => new
         {
