@@ -59,15 +59,26 @@ public sealed class AdvertisementConfiguration
             .HasConversion<int>()
             .IsRequired();
 
-
         // Advertisement Lifecycle Status
-        // Draft = 0, Active = 1, Paused = 2, Archived = 3
+        // Draft = 0, Active = 1
+        // Paused = 2, Archived = 3
         builder.Property(ad => ad.Status)
             .HasConversion<int>()
             .IsRequired();
 
+        // Advertisement Impression Counter
+        builder.Property(ad => ad.ImpressionCount)
+            .HasColumnType("bigint")
+            .HasDefaultValue(0L)
+            .IsRequired();
 
-        // Optimize active ad searches
+        // Advertisement Click Counter
+        builder.Property(ad => ad.ClickCount)
+            .HasColumnType("bigint")
+            .HasDefaultValue(0L)
+            .IsRequired();
+
+        // Optimize active advertisement searches
         builder.HasIndex(ad => new
         {
             ad.IsEnabled,

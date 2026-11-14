@@ -120,6 +120,33 @@ public sealed class AdvertisementConfigurationTests
         // Status cannot be null
         Assert.False(status.IsNullable);
     }
+    [Fact]
+    public void Advertisement_Counters_ShouldHaveCorrectMapping()
+    {
+        using var context = CreateContext();
+
+        var entity = context.Model.FindEntityType(
+            typeof(Advertisement));
+
+        Assert.NotNull(entity);
+
+        var impression = entity.FindProperty(
+            nameof(Advertisement.ImpressionCount));
+
+        var click = entity.FindProperty(
+            nameof(Advertisement.ClickCount));
+
+        Assert.NotNull(impression);
+        Assert.NotNull(click);
+
+        Assert.Equal("bigint", impression.GetColumnType());
+        Assert.Equal(0L, impression.GetDefaultValue());
+        Assert.False(impression.IsNullable);
+
+        Assert.Equal("bigint", click.GetColumnType());
+        Assert.Equal(0L, click.GetDefaultValue());
+        Assert.False(click.IsNullable);
+    }
 
 
 }
