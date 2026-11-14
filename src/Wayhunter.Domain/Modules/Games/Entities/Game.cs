@@ -7,9 +7,9 @@ namespace Wayhunter.Domain.Modules.Games.Entities;
 
 public sealed class Game
 {
-    // ============================
+    // =====================================
     // GAME BASIC DETAILS
-    // ============================
+    // =====================================
 
     public Guid Id { get; }
 
@@ -24,19 +24,25 @@ public sealed class Game
     public GameStatus Status { get; private set; }
         = GameStatus.PendingApproval;
 
-    // ============================
-    // APPROVAL AND EXPIRY
-    // ============================
+    // =====================================
+    // SUBMISSION, APPROVAL AND EXPIRY
+    // =====================================
 
-    public DateTimeOffset? ApprovedAtUtc { get; private set; }
+    public DateTimeOffset? SubmittedAtUtc
+    { get; private set; }
 
-    public DateTimeOffset? ExpiresAtUtc { get; private set; }
+    public DateTimeOffset? ApprovedAtUtc
+    { get; private set; }
 
-    public string? WinnerUserId { get; private set; }
+    public DateTimeOffset? ExpiresAtUtc
+    { get; private set; }
 
-    // ============================
+    public string? WinnerUserId
+    { get; private set; }
+
+    // =====================================
     // GAME DRAFT STAGES AND HINTS
-    // ============================
+    // =====================================
 
     private readonly List<GameStep> _draftSteps = new();
 
@@ -48,9 +54,9 @@ public sealed class Game
     public IReadOnlyList<GameHint> DraftHints =>
         _draftHints.AsReadOnly();
 
-    // ============================
+    // =====================================
     // EXISTING CONSTRUCTOR
-    // ============================
+    // =====================================
 
     public Game(Guid id, string creatorUserId)
     {
@@ -66,9 +72,9 @@ public sealed class Game
         CreatorUserId = creatorUserId;
     }
 
-    // ============================
+    // =====================================
     // CREATE GAME DRAFT
-    // ============================
+    // =====================================
 
     public static Game CreateDraft(
         Guid id,
@@ -92,9 +98,9 @@ public sealed class Game
         return game;
     }
 
-    // ============================
+    // =====================================
     // UPDATE GAME DRAFT
-    // ============================
+    // =====================================
 
     public void UpdateDraft(
         string actorUserId,
@@ -141,21 +147,19 @@ public sealed class Game
         DurationMinutes = durationMinutes;
     }
 
-    // ============================
+    // =====================================
     // REPLACE GAME DRAFT STAGES
-    // ============================
+    // =====================================
 
     public void ReplaceDraftStages(
         string actorUserId,
         IReadOnlyList<GameStep> steps,
         IReadOnlyList<GameHint> hints)
     {
-        // Only drafts can be edited
         if (Status != GameStatus.Draft)
             throw new InvalidOperationException(
                 "Only draft games can change stages.");
 
-        // Only the creator can edit stages
         if (!string.Equals(
             actorUserId,
             CreatorUserId,
@@ -168,7 +172,6 @@ public sealed class Game
         ArgumentNullException.ThrowIfNull(steps);
         ArgumentNullException.ThrowIfNull(hints);
 
-        // At least one stage required
         if (steps.Count == 0)
             throw new ArgumentException(
                 "At least one stage is required.");
@@ -177,7 +180,6 @@ public sealed class Game
         var stepNumbers = new HashSet<int>();
         var hintStepIds = new HashSet<Guid>();
 
-        // Validate each stage
         foreach (var step in steps)
         {
             if (step is null || step.GameId != Id)
@@ -192,7 +194,6 @@ public sealed class Game
             }
         }
 
-        // Validate stage order: 1, 2, 3...
         for (int number = 1;
              number <= steps.Count;
              number++)
@@ -202,7 +203,6 @@ public sealed class Game
                     "Stage numbers must start at 1 without gaps.");
         }
 
-        // Validate each hint belongs to a stage
         foreach (var hint in hints)
         {
             if (hint is null ||
@@ -215,7 +215,6 @@ public sealed class Game
             hintStepIds.Add(hint.GameStepId);
         }
 
-        // Every stage requires at least one hint
         foreach (var step in steps)
         {
             if (!hintStepIds.Contains(step.Id))
@@ -223,7 +222,6 @@ public sealed class Game
                     "Every stage must have a hint.");
         }
 
-        // Replace only after all validation succeeds
         _draftSteps.Clear();
         _draftSteps.AddRange(steps);
 
@@ -231,9 +229,79 @@ public sealed class Game
         _draftHints.AddRange(hints);
     }
 
-    // ============================
-    // ADMIN GAME APPROVAL
-    // ============================
+    // =====================================
+    // NEW: SUBMIT DRAFT FOR ADMIN REVIEW
+    // M5-MS03-T01
+    // =====================================
+
+    public void SubmitForAdminReview(
+        string actorUserId,
+        DateTimeOffset submittedAtUtc)
+    {
+        // Only a draft may be submitted.
+        // Repeated submissions are rejected.
+        if (Status != GameStatus.Draft)
+        {
+            throw new InvalidOperationException(
+                "Only draft games can be submitted.");
+        }
+
+        // Only the original creator may submit.
+        if (!string.Equals(
+            actorUserId,
+            CreatorUserId,
+            StringComparison.Ordinal))
+        {
+            throw new UnauthorizedAccessException(
+                "Only the creator can submit this game.");
+        }
+
+        if (submittedAtUtc == default)
+        {
+            throw new ArgumentException(
+                "Submission timestamp is required.");
+        }
+
+        RequireUtc(submittedAtUtc);
+
+        // Validate minimum game details.
+        if (string.IsNullOrWhiteSpace(Title))
+        {
+            throw new InvalidOperationException(
+                "Game title is required before submission.");
+        }
+
+        if (DurationMinutes is null or <= 0)
+        {
+            throw new InvalidOperationException(
+                "Game duration is required before submission.");
+        }
+
+        if (_draftSteps.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "At least one game stage is required.");
+        }
+
+        // Every stage must have a corresponding clue.
+        foreach (var step in _draftSteps)
+        {
+            if (!_draftHints.Exists(
+                hint => hint.GameStepId == step.Id))
+            {
+                throw new InvalidOperationException(
+                    "Every stage requires a clue.");
+            }
+        }
+
+        // Update state only after all checks pass.
+        SubmittedAtUtc = submittedAtUtc;
+        Status = GameStatus.PendingApproval;
+    }
+
+    // =====================================
+    // EXISTING ADMIN APPROVAL
+    // =====================================
 
     public void ApproveCreation(
         DateTimeOffset approvedAtUtc)
@@ -246,15 +314,15 @@ public sealed class Game
 
         ApprovedAtUtc = approvedAtUtc;
 
-        // Exactly 30 days after Admin approval
+        // Exactly 30 days after Admin approval.
         ExpiresAtUtc = approvedAtUtc.AddHours(30 * 24);
 
         Status = GameStatus.Published;
     }
 
-    // ============================
-    // ADMIN GAME REJECTION
-    // ============================
+    // =====================================
+    // EXISTING ADMIN REJECTION
+    // =====================================
 
     public void RejectCreation()
     {
@@ -265,9 +333,9 @@ public sealed class Game
         Status = GameStatus.Rejected;
     }
 
-    // ============================
+    // =====================================
     // GAME PLAY ELIGIBILITY
-    // ============================
+    // =====================================
 
     public bool CanPlay(DateTimeOffset nowUtc)
     {
@@ -279,11 +347,10 @@ public sealed class Game
             && nowUtc < ExpiresAtUtc.Value;
     }
 
-    // ============================
+    // =====================================
     // APPROVE VERIFIED WINNER
-    // ============================
+    // =====================================
 
-    // Call only after Admin verifies the winning attempt
     public void ApproveVerifiedWinner(
         string playerUserId,
         DateTimeOffset nowUtc)
@@ -303,9 +370,9 @@ public sealed class Game
         WinnerUserId = playerUserId;
     }
 
-    // ============================
+    // =====================================
     // ARCHIVE EXPIRED GAME
-    // ============================
+    // =====================================
 
     public bool ArchiveIfExpired(
         DateTimeOffset nowUtc)
@@ -319,15 +386,15 @@ public sealed class Game
             return false;
         }
 
-        // Retain Game record for history
+        // Keep archived records for history.
         Status = GameStatus.Expired;
 
         return true;
     }
 
-    // ============================
-    // UTC TIME VALIDATION
-    // ============================
+    // =====================================
+    // UTC TIMESTAMP VALIDATION
+    // =====================================
 
     private static void RequireUtc(
         DateTimeOffset value)
