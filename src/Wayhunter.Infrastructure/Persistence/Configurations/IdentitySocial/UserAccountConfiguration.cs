@@ -50,7 +50,12 @@ public sealed class UserAccountConfiguration
             .HasColumnType("datetimeoffset")
             .IsRequired(false);
 
-        // Unique email index belongs to M1-MS02-T02.
-        // Do not add it before schema review.
+
+        // M1-MS02-T02: Proposed unique email constraint.
+        // Requires Schema Freeze and DB Coordinator review.
+        builder.HasIndex(user => user.NormalizedEmail)
+            .IsUnique()
+            .HasDatabaseName("UX_Users_NormalizedEmail");
+
     }
 }
