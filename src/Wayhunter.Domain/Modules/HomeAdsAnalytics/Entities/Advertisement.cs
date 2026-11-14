@@ -16,6 +16,9 @@ public sealed class Advertisement
     // Where the advertisement should appear
     public AdvertisementPlacement Placement { get; private set; }
 
+    // Current advertisement status
+    public AdvertisementStatus Status { get; private set; }
+
     public Advertisement(
         Guid id,
         string title,
@@ -51,6 +54,9 @@ public sealed class Advertisement
 
         // Default placement
         Placement = AdvertisementPlacement.HomeBanner;
+
+        // Default status
+        Status = AdvertisementStatus.Draft;
     }
 
     public void SetPlacement(AdvertisementPlacement placement)
@@ -68,11 +74,29 @@ public sealed class Advertisement
 
     public void Enable()
     {
+        if (Status == AdvertisementStatus.Archived)
+        {
+            throw new InvalidOperationException(
+                "Archived advertisements cannot be activated.");
+        }
+
         IsEnabled = true;
+        Status = AdvertisementStatus.Active;
     }
 
     public void Disable()
     {
         IsEnabled = false;
+
+        if (Status == AdvertisementStatus.Active)
+        {
+            Status = AdvertisementStatus.Paused;
+        }
+    }
+
+    public void Archive()
+    {
+        IsEnabled = false;
+        Status = AdvertisementStatus.Archived;
     }
 }
