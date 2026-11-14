@@ -59,31 +59,37 @@ public sealed class LiveTripSessionServiceTests
             () => service.StartAsync("  "));
     }
 
+    // NEW: Repeated Start returns the same Active session.
     [Fact]
-    public async Task Duplicate_Active_Trip_Should_Fail()
+    public async Task Repeated_Start_Should_Return_Existing_Active_Session()
     {
         var (service, repository) = CreateService();
 
-        await service.StartAsync("plan-001");
+        var first = await service.StartAsync("plan-001");
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.StartAsync("plan-001"));
+        var second = await service.StartAsync("  plan-001  ");
 
+        Assert.Equal(first.SessionId, second.SessionId);
+        Assert.Same(first, second);
+        Assert.Equal(LiveTripStatus.Active, second.Status);
         Assert.Equal(1, repository.AddCount);
     }
 
+    // NEW: Repeated Start returns the same Paused session.
     [Fact]
-    public async Task Duplicate_Paused_Trip_Should_Fail()
+    public async Task Repeated_Start_Should_Return_Existing_Paused_Session()
     {
         var (service, repository) = CreateService();
 
-        var session = await service.StartAsync("plan-001");
+        var first = await service.StartAsync("plan-001");
 
-        await service.PauseAsync(session.SessionId);
+        await service.PauseAsync(first.SessionId);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.StartAsync("plan-001"));
+        var second = await service.StartAsync("plan-001");
 
+        Assert.Equal(first.SessionId, second.SessionId);
+        Assert.Same(first, second);
+        Assert.Equal(LiveTripStatus.Paused, second.Status);
         Assert.Equal(1, repository.AddCount);
     }
 
@@ -151,6 +157,7 @@ public sealed class LiveTripSessionServiceTests
         var session = await service.StartAsync("plan-001");
 
         var first = await service.FinishAsync(session.SessionId);
+
         var firstFinishTime = first.FinishedAtUtc;
 
         var second = await service.FinishAsync(session.SessionId);
@@ -195,12 +202,11 @@ public sealed class LiveTripSessionServiceTests
 
     // Fake repository for unit testing only.
     // This does not connect to SQL Server.
-
     private sealed class FakeLiveTripSessionRepository
         : ILiveTripSessionRepository
     {
-        private readonly Dictionary<Guid, LiveTripSession> _sessions
-            = new();
+        private readonly Dictionary<Guid, LiveTripSession>
+            _sessions = new();
 
         public int AddCount { get; private set; }
 
@@ -210,7 +216,11 @@ public sealed class LiveTripSessionServiceTests
             Guid sessionId,
             CancellationToken cancellationToken = default)
         {
-            _sessions.TryGetValue(sessionId, out var session);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            _sessions.TryGetValue(
+                sessionId,
+                out var session);
 
             return Task.FromResult<LiveTripSession?>(session);
         }
@@ -219,12 +229,15 @@ public sealed class LiveTripSessionServiceTests
             string tripPlanId,
             CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             foreach (var session in _sessions.Values)
             {
                 if (session.TripPlanId == tripPlanId &&
                     session.Status != LiveTripStatus.Finished)
                 {
-                    return Task.FromResult<LiveTripSession?>(session);
+                    return Task.FromResult<LiveTripSession?>(
+                        session);
                 }
             }
 
@@ -235,6 +248,8 @@ public sealed class LiveTripSessionServiceTests
             LiveTripSession session,
             CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             _sessions.Add(session.SessionId, session);
             AddCount++;
 
@@ -245,6 +260,8 @@ public sealed class LiveTripSessionServiceTests
             LiveTripSession session,
             CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             _sessions[session.SessionId] = session;
             UpdateCount++;
 

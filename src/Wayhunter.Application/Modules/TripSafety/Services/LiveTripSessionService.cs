@@ -42,10 +42,11 @@ public sealed class LiveTripSessionService : ILiveTripSessionService
             normalizedTripPlanId,
             cancellationToken);
 
+        // NEW: Repeated Start returns the existing session.
+        // Do not create another Active or Paused session.
         if (existing != null)
         {
-            throw new InvalidOperationException(
-                "This trip already has an active or paused session.");
+            return existing;
         }
 
         var session = LiveTripSession.Start(
