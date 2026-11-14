@@ -19,6 +19,10 @@ public sealed class Advertisement
     // Current advertisement status
     public AdvertisementStatus Status { get; private set; }
 
+    // Advertisement engagement counters
+    public long ImpressionCount { get; private set; }
+    public long ClickCount { get; private set; }
+
     public Advertisement(
         Guid id,
         string title,
@@ -57,6 +61,10 @@ public sealed class Advertisement
 
         // Default status
         Status = AdvertisementStatus.Draft;
+
+        // Default engagement counters
+        ImpressionCount = 0;
+        ClickCount = 0;
     }
 
     public void SetPlacement(AdvertisementPlacement placement)
@@ -98,5 +106,23 @@ public sealed class Advertisement
     {
         IsEnabled = false;
         Status = AdvertisementStatus.Archived;
+    }
+
+    // Record one advertisement impression
+    public void RecordImpression()
+    {
+        checked
+        {
+            ImpressionCount++;
+        }
+    }
+
+    // Record one advertisement click
+    public void RecordClick()
+    {
+        checked
+        {
+            ClickCount++;
+        }
     }
 }
