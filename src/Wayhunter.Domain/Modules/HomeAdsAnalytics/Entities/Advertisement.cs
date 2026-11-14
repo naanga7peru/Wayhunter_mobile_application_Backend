@@ -1,4 +1,6 @@
 
+using Wayhunter.Domain.Modules.HomeAdsAnalytics.Enums;
+
 namespace Wayhunter.Domain.Modules.HomeAdsAnalytics.Entities;
 
 public sealed class Advertisement
@@ -10,6 +12,16 @@ public sealed class Advertisement
     public DateTimeOffset StartAtUtc { get; private set; }
     public DateTimeOffset EndAtUtc { get; private set; }
     public bool IsEnabled { get; private set; }
+
+    // Where the advertisement should appear
+    public AdvertisementPlacement Placement { get; private set; }
+
+    // Current advertisement status
+    public AdvertisementStatus Status { get; private set; }
+
+    // Advertisement engagement counters
+    public long ImpressionCount { get; private set; }
+    public long ClickCount { get; private set; }
 
     public Advertisement(
         Guid id,
@@ -41,16 +53,76 @@ public sealed class Advertisement
         DestinationUrl = destinationUrl;
         StartAtUtc = startAtUtc;
         EndAtUtc = endAtUtc;
+
         IsEnabled = false;
+
+        // Default placement
+        Placement = AdvertisementPlacement.HomeBanner;
+
+        // Default status
+        Status = AdvertisementStatus.Draft;
+
+        // Default engagement counters
+        ImpressionCount = 0;
+        ClickCount = 0;
+    }
+
+    public void SetPlacement(AdvertisementPlacement placement)
+    {
+        if (!Enum.IsDefined(placement) ||
+            placement == AdvertisementPlacement.Unspecified)
+        {
+            throw new ArgumentException(
+                "Invalid advertisement placement.",
+                nameof(placement));
+        }
+
+        Placement = placement;
     }
 
     public void Enable()
     {
+        if (Status == AdvertisementStatus.Archived)
+        {
+            throw new InvalidOperationException(
+                "Archived advertisements cannot be activated.");
+        }
+
         IsEnabled = true;
+        Status = AdvertisementStatus.Active;
     }
 
     public void Disable()
     {
         IsEnabled = false;
+
+        if (Status == AdvertisementStatus.Active)
+        {
+            Status = AdvertisementStatus.Paused;
+        }
+    }
+
+    public void Archive()
+    {
+        IsEnabled = false;
+        Status = AdvertisementStatus.Archived;
+    }
+
+    // Record one advertisement impression
+    public void RecordImpression()
+    {
+        checked
+        {
+            ImpressionCount++;
+        }
+    }
+
+    // Record one advertisement click
+    public void RecordClick()
+    {
+        checked
+        {
+            ClickCount++;
+        }
     }
 }
