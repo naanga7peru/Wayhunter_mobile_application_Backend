@@ -1,8 +1,16 @@
 
+using System;
 using Wayhunter.Domain.Modules.CoinsWallet.Enums;
 
 namespace Wayhunter.Domain.Modules.CoinsWallet.Rules;
 
+/// <summary>
+/// M6 sample voucher policy.
+/// Final debit occurs only with successful
+/// voucher issuance/fulfillment.
+///
+/// Policy validation does not perform SQL transactions.
+/// </summary>
 public static class SampleVoucherPolicy
 {
     public const decimal ReferenceValueLkr = 100m;
@@ -16,21 +24,45 @@ public static class SampleVoucherPolicy
         SampleVoucherAction action)
     {
         ValidateAction(action);
+
         return action == SampleVoucherAction.Request;
     }
 
+    /// <summary>
+    /// Identifies fulfillment-stage actions that may
+    /// finalize a debit.
+    ///
+    /// Approval alone never debits Coins.
+    /// Issue and RetryIssue still require:
+    /// - An approved request
+    /// - An active 10,000-Coin reservation
+    /// - Successful issuance
+    /// - A durable exactly-once transaction guard
+    ///
+    /// Returning true does NOT authorize an
+    /// unconditional second debit.
+    /// </summary>
     public static bool IsFinalDebitTrigger(
         SampleVoucherAction action)
     {
         ValidateAction(action);
-        return action == SampleVoucherAction.AdminApprove;
+
+        return action is
+            SampleVoucherAction.Issue or
+            SampleVoucherAction.RetryIssue;
     }
 
+    /// <summary>
+    /// Determines whether issuance may begin.
+    /// A committed debit is NOT a prerequisite.
+    /// Debit and successful issuance must be
+    /// finalized atomically by the transaction layer.
+    /// </summary>
     public static bool CanIssue(
         bool adminApproved,
-        bool debitCommitted)
+        bool reservationHeld)
     {
-        return adminApproved && debitCommitted;
+        return adminApproved && reservationHeld;
     }
 
     public static bool CanDisplayVoucher(
@@ -47,7 +79,9 @@ public static class SampleVoucherPolicy
         SampleVoucherAction action)
     {
         if (!Enum.IsDefined(action))
+        {
             throw new ArgumentOutOfRangeException(
                 nameof(action));
+        }
     }
 }

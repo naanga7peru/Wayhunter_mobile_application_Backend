@@ -265,6 +265,7 @@ public sealed class CoinLedgerRollbackConcurrencyTests
             wallet.ReadBalance().SpendableCoins);
     }
 
+
     [Fact]
     public void FailedApproval_DoesNotConsumeRequestId()
     {
@@ -275,25 +276,28 @@ public sealed class CoinLedgerRollbackConcurrencyTests
         var before = wallet.ReadBalance();
         var entryCount = wallet.ReadEntries().Count;
 
-        Assert.False(wallet.TryApproveSampleVoucher(
-            requestId));
+        Assert.False(wallet.TryApproveSampleVoucher(requestId));
 
         Assert.Equal(before, wallet.ReadBalance());
         Assert.Equal(entryCount, wallet.ReadEntries().Count);
 
-        Assert.True(wallet.TryReserveSampleVoucher(
-            requestId));
+        Assert.True(wallet.TryReserveSampleVoucher(requestId));
+        Assert.True(wallet.TryApproveSampleVoucher(requestId));
 
-        Assert.True(wallet.TryApproveSampleVoucher(
-            requestId));
+        // Approval itself does not debit.
+        Assert.Equal(10200, wallet.ReadBalance().PostedCoins);
+        Assert.Equal(10000, wallet.ReadBalance().ReservedCoins);
 
-        Assert.Equal(
-            200,
-            wallet.ReadBalance().PostedCoins);
+        Assert.False(
+            wallet.TryIssueSampleVoucher(requestId, false));
 
-        Assert.Equal(
-            0,
-            wallet.ReadBalance().ReservedCoins);
+        Assert.Equal(10200, wallet.ReadBalance().PostedCoins);
+
+        Assert.True(
+            wallet.TryIssueSampleVoucher(requestId, true));
+
+        Assert.Equal(200, wallet.ReadBalance().PostedCoins);
+        Assert.Equal(0, wallet.ReadBalance().ReservedCoins);
 
         Assert.Single(
             wallet.ReadEntries(),
@@ -333,26 +337,44 @@ public sealed class CoinLedgerRollbackConcurrencyTests
             x => x.DeltaCoins < 0);
     }
 
+
     [Fact]
-    public void ConcurrentApproval_DebitsExactlyOnce()
+    public void ConcurrentApprovalAndIssuance_DebitExactlyOnce()
     {
         var wallet = CreateWallet();
         FundWallet(wallet);
 
         var requestId = Guid.NewGuid();
 
-        Assert.True(wallet.TryReserveSampleVoucher(
-            requestId));
+        Assert.True(wallet.TryReserveSampleVoucher(requestId));
 
-        var results = new bool[32];
+        var approvals = new bool[32];
 
-        Parallel.For(0, results.Length, i =>
+        Parallel.For(0, approvals.Length, i =>
         {
-            results[i] = wallet.TryApproveSampleVoucher(
-                requestId);
+            approvals[i] =
+                wallet.TryApproveSampleVoucher(requestId);
         });
 
-        Assert.Equal(1, results.Count(x => x));
+        Assert.Equal(1, approvals.Count(x => x));
+
+        // Hold remains after concurrent approvals.
+        Assert.Equal(10200, wallet.ReadBalance().PostedCoins);
+        Assert.Equal(10000, wallet.ReadBalance().ReservedCoins);
+
+        Assert.DoesNotContain(
+            wallet.ReadEntries(),
+            x => x.DeltaCoins < 0);
+
+        var issuances = new bool[32];
+
+        Parallel.For(0, issuances.Length, i =>
+        {
+            issuances[i] =
+                wallet.TryIssueSampleVoucher(requestId, true);
+        });
+
+        Assert.Equal(1, issuances.Count(x => x));
 
         var balance = wallet.ReadBalance();
 
@@ -366,16 +388,17 @@ public sealed class CoinLedgerRollbackConcurrencyTests
             x => x.DeltaCoins == -10000);
     }
 
+
+
     [Fact]
-    public void ConcurrentApprovalAndCancellation_HaveOneWinner()
+    public void ConcurrentApprovalAndCancellation_StayConsistent()
     {
         var wallet = CreateWallet();
         FundWallet(wallet);
 
         var requestId = Guid.NewGuid();
 
-        Assert.True(wallet.TryReserveSampleVoucher(
-            requestId));
+        Assert.True(wallet.TryReserveSampleVoucher(requestId));
 
         bool approved = false;
         bool cancelled = false;
@@ -387,16 +410,30 @@ public sealed class CoinLedgerRollbackConcurrencyTests
             () => cancelled =
                 wallet.TryCancelSampleVoucher(requestId));
 
-        // Exactly one terminal action succeeds.
+        // Only one state transition wins.
         Assert.True(approved ^ cancelled);
 
-        var balance = wallet.ReadBalance();
+        // Neither approval nor cancellation debits Coins.
+        Assert.Equal(10200, wallet.ReadBalance().PostedCoins);
 
-        Assert.Equal(0, balance.ReservedCoins);
+        Assert.DoesNotContain(
+            wallet.ReadEntries(),
+            x => x.DeltaCoins < 0);
 
         if (approved)
         {
-            Assert.Equal(200, balance.PostedCoins);
+            Assert.Equal(
+                10000,
+                wallet.ReadBalance().ReservedCoins);
+
+            Assert.False(
+                wallet.TryCancelSampleVoucher(requestId));
+
+            Assert.True(
+                wallet.TryIssueSampleVoucher(requestId, true));
+
+            Assert.Equal(200, wallet.ReadBalance().PostedCoins);
+            Assert.Equal(0, wallet.ReadBalance().ReservedCoins);
 
             Assert.Single(
                 wallet.ReadEntries(),
@@ -404,18 +441,16 @@ public sealed class CoinLedgerRollbackConcurrencyTests
         }
         else
         {
-            Assert.Equal(10200, balance.PostedCoins);
+            Assert.Equal(0, wallet.ReadBalance().ReservedCoins);
 
-            Assert.DoesNotContain(
-                wallet.ReadEntries(),
-                x => x.DeltaCoins < 0);
+            Assert.False(
+                wallet.TryIssueSampleVoucher(requestId, true));
+
+            Assert.Equal(10200, wallet.ReadBalance().PostedCoins);
         }
 
-        Assert.False(wallet.TryApproveSampleVoucher(
-            requestId));
-
-        Assert.False(wallet.TryCancelSampleVoucher(
-            requestId));
+        Assert.False(wallet.TryApproveSampleVoucher(requestId));
+        Assert.False(wallet.TryCancelSampleVoucher(requestId));
     }
 
     [Fact]
@@ -491,5 +526,8 @@ public sealed class CoinLedgerRollbackConcurrencyTests
 
         Assert.Equal(before, wallet.ReadBalance());
         Assert.Empty(wallet.ReadEntries());
+
+        Assert.Throws<ArgumentException>(() =>
+    wallet.TryIssueSampleVoucher(Guid.Empty, true));
     }
 }

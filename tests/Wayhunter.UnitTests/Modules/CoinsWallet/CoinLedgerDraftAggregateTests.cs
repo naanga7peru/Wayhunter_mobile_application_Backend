@@ -165,54 +165,75 @@ public class CoinLedgerDraftAggregateTests
     }
 
     [Fact]
-    public void AdminApproval_PostsDebitAndConsumesHold()
+    public void AdminApproval_KeepsHoldUntilVoucherIssued()
     {
         var wallet = FundWallet();
         var requestId = Guid.NewGuid();
 
-        Assert.True(wallet.TryReserveSampleVoucher(
-            requestId));
+        Assert.True(wallet.TryReserveSampleVoucher(requestId));
+        Assert.True(wallet.TryApproveSampleVoucher(requestId));
 
-        Assert.True(wallet.TryApproveSampleVoucher(
-            requestId));
+        var approved = wallet.ReadBalance();
 
-        var balance = wallet.ReadBalance();
+        Assert.Equal(10200, approved.PostedCoins);
+        Assert.Equal(10000, approved.ReservedCoins);
+        Assert.Equal(200, approved.SpendableCoins);
 
-        Assert.Equal(200, balance.PostedCoins);
-        Assert.Equal(0, balance.ReservedCoins);
-        Assert.Equal(200, balance.SpendableCoins);
+        Assert.DoesNotContain(
+            wallet.ReadEntries(),
+            x => x.DeltaCoins < 0);
 
-        // Spending must not reduce lifetime earned.
-        Assert.Equal(
-            10200,
-            balance.LifetimeEarnedCoins);
+        // Failed fulfillment must not debit.
+        Assert.False(
+            wallet.TryIssueSampleVoucher(requestId, false));
+
+        Assert.Equal(approved, wallet.ReadBalance());
+
+        // Successful fulfillment commits the debit.
+        Assert.True(
+            wallet.TryIssueSampleVoucher(requestId, true));
+
+        var issued = wallet.ReadBalance();
+
+        Assert.Equal(200, issued.PostedCoins);
+        Assert.Equal(0, issued.ReservedCoins);
+        Assert.Equal(200, issued.SpendableCoins);
+        Assert.Equal(10200, issued.LifetimeEarnedCoins);
 
         Assert.Single(
-       wallet.ReadEntries(),
-       x => x.DeltaCoins == -10000);
+            wallet.ReadEntries(),
+            x => x.DeltaCoins == -10000 &&
+                 x.SourceRecordId.StartsWith("voucher-issued:"));
     }
+
 
     [Fact]
-    public void RepeatedApproval_DoesNotDoubleDebit()
+    public void RepeatedApprovalAndIssue_DebitExactlyOnce()
     {
         var wallet = FundWallet();
         var requestId = Guid.NewGuid();
 
-        wallet.TryReserveSampleVoucher(requestId);
+        Assert.True(wallet.TryReserveSampleVoucher(requestId));
 
-        Assert.True(wallet.TryApproveSampleVoucher(
-            requestId));
+        Assert.True(wallet.TryApproveSampleVoucher(requestId));
+        Assert.False(wallet.TryApproveSampleVoucher(requestId));
 
-        Assert.False(wallet.TryApproveSampleVoucher(
-            requestId));
+        Assert.Equal(10200, wallet.ReadBalance().PostedCoins);
+        Assert.Equal(10000, wallet.ReadBalance().ReservedCoins);
 
-        Assert.Equal(200,
-            wallet.ReadBalance().PostedCoins);
+        Assert.True(wallet.TryIssueSampleVoucher(requestId, true));
+
+        // Duplicate issuance cannot debit again.
+        Assert.False(wallet.TryIssueSampleVoucher(requestId, true));
+
+        Assert.Equal(200, wallet.ReadBalance().PostedCoins);
+        Assert.Equal(0, wallet.ReadBalance().ReservedCoins);
 
         Assert.Single(
-     wallet.ReadEntries(),
-     x => x.DeltaCoins < 0);
+            wallet.ReadEntries(),
+            x => x.DeltaCoins == -10000);
     }
+
 
     [Fact]
     public void Cancellation_ReleasesReservation()
