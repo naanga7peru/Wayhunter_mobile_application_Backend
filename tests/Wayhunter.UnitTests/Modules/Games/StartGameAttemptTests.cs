@@ -446,5 +446,51 @@ public sealed class StartGameAttemptTests
         Assert.Equal(19, resumedCount);
     }
 
+    // =====================================
+    // M5-MS05-T03
+    // RESUME BEFORE ORIGINAL START TIME
+    // =====================================
+
+    [Fact]
+    public async Task ResumeBeforeOriginalStart_ShouldReject()
+    {
+        // Arrange
+        var (store, game, approvedAt) =
+            await CreatePublishedGameAsync();
+
+        var startedAt =
+            approvedAt.AddMinutes(5);
+
+        var attempt = await store.StartOrResumeAsync(
+            game.Id,
+            "player-001",
+            startedAt);
+
+        // Simulate a request timestamp earlier
+        // than the original attempt start time.
+        var earlierTime =
+            startedAt.AddSeconds(-1);
+
+        // Act + Assert
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => store.StartOrResumeAsync(
+                game.Id,
+                "player-001",
+                earlierTime));
+
+        // Original attempt must remain valid.
+        var resumed = await store.StartOrResumeAsync(
+            game.Id,
+            "player-001",
+            startedAt);
+
+        Assert.Equal(
+            attempt.AttemptId,
+            resumed.AttemptId);
+
+        Assert.True(resumed.ResumedExistingAttempt);
+    }
+
+
 
 }
