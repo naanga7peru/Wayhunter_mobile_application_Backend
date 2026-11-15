@@ -1,4 +1,6 @@
 
+using Wayhunter.Domain.Modules.HomeAdsAnalytics.Enums;
+
 namespace Wayhunter.Application.Modules.HomeAdsAnalytics.Dtos;
 
 public sealed record AdvertisementDto
@@ -16,4 +18,12 @@ public sealed record AdvertisementDto
     public DateTimeOffset EndAtUtc { get; init; }
 
     public bool IsEnabled { get; init; }
+
+    // HomeBanner or SponsoredPoi
+    public AdvertisementPlacement Placement { get; init; }
+        = AdvertisementPlacement.Unspecified;
+
+    // Draft, Active, Paused or Archived
+    public AdvertisementStatus Status { get; init; }
+        = AdvertisementStatus.Draft;
 }

@@ -1,6 +1,7 @@
 
 using System;
 using Wayhunter.Domain.Modules.Games.Entities;
+using Wayhunter.Domain.Modules.Games.Enums;
 using Wayhunter.Domain.Modules.Games.Services;
 using Xunit;
 
@@ -220,4 +221,76 @@ public sealed class GamePlayRulesTests
                 s.Game, s.Attempt, s.Progress,
                 futureEvidence, "player-1", s.Now));
     }
+
+    // =====================================
+    // M5-MS05-T05
+    // RETRY AFTER FIRST REJECTION
+    // =====================================
+
+    [Fact]
+    public void FirstRejection_ShouldAllowCurrentStageRetry()
+    {
+        var s = ValidScenario();
+
+        // Submit Stage 1 evidence.
+        s.Progress.SubmitEvidence(1);
+
+        // Admin rejects the evidence.
+        s.Progress.RejectEvidence();
+
+        Assert.Equal(1, s.Progress.RejectedEvidenceCount);
+
+        Assert.Equal(
+            GameProgressStatus.InProgress,
+            s.Progress.Status);
+
+        // Domain eligibility must allow
+        // another submission for Stage 1.
+        GamePlayRules.EnsureCanSubmitEvidence(
+            s.Game,
+            s.Attempt,
+            s.Progress,
+            s.Evidence,
+            "player-1",
+            s.Now);
+
+        Assert.Equal(1, s.Progress.CurrentStepNumber);
+    }
+
+    // =====================================
+    // M5-MS05-T05
+    // THIRD REJECTION BLOCKS EVIDENCE
+    // =====================================
+
+    [Fact]
+    public void ThreeRejections_ShouldBlockEvidenceEligibility()
+    {
+        var s = ValidScenario();
+
+        for (int i = 0; i < 3; i++)
+        {
+            s.Progress.SubmitEvidence(1);
+            s.Progress.RejectEvidence();
+        }
+
+        Assert.Equal(3, s.Progress.RejectedEvidenceCount);
+
+        Assert.Equal(
+            GameProgressStatus.Rejected,
+            s.Progress.Status);
+
+        // Rejected attempt must not pass
+        // GamePlayRules evidence validation.
+        Assert.Throws<InvalidOperationException>(
+            () => GamePlayRules.EnsureCanSubmitEvidence(
+                s.Game,
+                s.Attempt,
+                s.Progress,
+                s.Evidence,
+                "player-1",
+                s.Now));
+
+        Assert.Equal(1, s.Progress.CurrentStepNumber);
+    }
+
 }

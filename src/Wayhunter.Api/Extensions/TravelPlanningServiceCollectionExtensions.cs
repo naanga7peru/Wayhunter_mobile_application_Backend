@@ -1,4 +1,5 @@
 
+using System;
 using Microsoft.Extensions.DependencyInjection;
 using Wayhunter.Application.Modules.TravelPlanning.Commands;
 using Wayhunter.Application.Modules.TravelPlanning.Interfaces;
@@ -14,11 +15,15 @@ public static class TravelPlanningServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        // Register server-side Maps configuration.
+        // Server-side Maps configuration.
         services.AddTravelPlanningMapsConfiguration();
 
+        // Server-side AI provider configuration.
+        // Actual AI provider implementation is added later.
+        services.AddTravelPlanningAiConfiguration();
+
         // Temporary in-memory Trip repository.
-        // SQL integration awaits shared migration approval.
+        // SQL integration awaits migration approval.
         services.AddSingleton<
             ITripPlanRepository,
             InMemoryTripPlanRepository>();
