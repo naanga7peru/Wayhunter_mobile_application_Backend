@@ -4,6 +4,7 @@ using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using Wayhunter.Domain.Modules.TravelPlanning.Entities;
 using Wayhunter.Domain.Modules.TripSafety.Entities;
+using Wayhunter.Infrastructure.Persistence.Configurations.IdentitySocial;
 using Wayhunter.Infrastructure.Persistence.Configurations.TravelPlanning;
 using Wayhunter.Infrastructure.Persistence.Configurations.TripSafety;
 using Xunit;
@@ -14,7 +15,6 @@ public sealed class LiveTripSessionConfigurationTests
 {
     // EF Core metadata tests only.
     // No real database connection or migration.
-
     private sealed class MappingTestDbContext : DbContext
     {
         public MappingTestDbContext(
@@ -28,12 +28,18 @@ public sealed class LiveTripSessionConfigurationTests
         {
             base.OnModelCreating(modelBuilder);
 
+            // M1 mapping required by M2 owner FK.
+            modelBuilder.ApplyConfiguration(
+                new UserAccountConfiguration());
+
+            // M2 mappings.
             modelBuilder.ApplyConfiguration(
                 new TripPlanConfiguration());
 
             modelBuilder.ApplyConfiguration(
                 new TripStopConfiguration());
 
+            // M3 Live Trip mapping.
             modelBuilder.ApplyConfiguration(
                 new LiveTripSessionConfiguration());
         }
@@ -89,7 +95,9 @@ public sealed class LiveTripSessionConfigurationTests
             nameof(LiveTripSession.SessionId),
             property.Name);
 
-        Assert.Equal(typeof(Guid), property.ClrType);
+        Assert.Equal(
+            typeof(Guid),
+            property.ClrType);
     }
 
     [Fact]
@@ -107,7 +115,10 @@ public sealed class LiveTripSessionConfigurationTests
 
         Assert.NotNull(property);
 
-        Assert.Equal(typeof(Guid), property.ClrType);
+        Assert.Equal(
+            typeof(Guid),
+            property.ClrType);
+
         Assert.False(property.IsNullable);
 
         Assert.Equal(
@@ -158,7 +169,8 @@ public sealed class LiveTripSessionConfigurationTests
 
         Assert.NotNull(entity);
 
-        var index = Assert.Single(entity.GetIndexes());
+        var index = Assert.Single(
+            entity.GetIndexes());
 
         Assert.True(index.IsUnique);
 
@@ -251,7 +263,9 @@ public sealed class LiveTripSessionConfigurationTests
 
         Assert.NotNull(entity);
 
-        Assert.Equal("Trips", entity.GetTableName());
+        Assert.Equal(
+            "Trips",
+            entity.GetTableName());
 
         var primaryKey = entity.FindPrimaryKey();
 
@@ -260,7 +274,12 @@ public sealed class LiveTripSessionConfigurationTests
         var property = Assert.Single(
             primaryKey.Properties);
 
-        Assert.Equal(nameof(TripPlan.Id), property.Name);
-        Assert.Equal(typeof(Guid), property.ClrType);
+        Assert.Equal(
+            nameof(TripPlan.Id),
+            property.Name);
+
+        Assert.Equal(
+            typeof(Guid),
+            property.ClrType);
     }
 }

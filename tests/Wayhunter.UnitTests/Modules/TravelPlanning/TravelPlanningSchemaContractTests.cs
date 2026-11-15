@@ -4,6 +4,7 @@ using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using Wayhunter.Domain.Modules.TravelPlanning.Entities;
 using Wayhunter.Domain.Modules.TripSafety.Entities;
+using Wayhunter.Infrastructure.Persistence.Configurations.IdentitySocial;
 using Wayhunter.Infrastructure.Persistence.Configurations.TravelPlanning;
 using Xunit;
 
@@ -28,6 +29,11 @@ public sealed class TravelPlanningSchemaContractTests
         protected override void OnModelCreating(
             ModelBuilder modelBuilder)
         {
+            // M1 UserAccount primary key mapping.
+            modelBuilder.ApplyConfiguration(
+                new UserAccountConfiguration());
+
+            // M2 mappings.
             modelBuilder.ApplyConfiguration(
                 new TripPlanConfiguration());
 
@@ -82,8 +88,14 @@ public sealed class TravelPlanningSchemaContractTests
         Assert.NotNull(endDate);
         Assert.NotNull(budget);
 
-        Assert.Equal("date", startDate.GetColumnType());
-        Assert.Equal("date", endDate.GetColumnType());
+        Assert.Equal(
+            "date",
+            startDate.GetColumnType());
+
+        Assert.Equal(
+            "date",
+            endDate.GetColumnType());
+
         Assert.Equal(
             "decimal(18,2)",
             budget.GetColumnType());
@@ -149,9 +161,17 @@ public sealed class TravelPlanningSchemaContractTests
         Assert.True(latitude.IsNullable);
         Assert.True(longitude.IsNullable);
 
-        Assert.Equal(256, placeId.GetMaxLength());
-        Assert.Equal("float", latitude.GetColumnType());
-        Assert.Equal("float", longitude.GetColumnType());
+        Assert.Equal(
+            256,
+            placeId.GetMaxLength());
+
+        Assert.Equal(
+            "float",
+            latitude.GetColumnType());
+
+        Assert.Equal(
+            "float",
+            longitude.GetColumnType());
     }
 
     [Fact]

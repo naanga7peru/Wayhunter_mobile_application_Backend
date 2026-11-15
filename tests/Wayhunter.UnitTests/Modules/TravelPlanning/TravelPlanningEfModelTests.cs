@@ -3,6 +3,7 @@ using System;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using Wayhunter.Domain.Modules.TravelPlanning.Entities;
+using Wayhunter.Infrastructure.Persistence.Configurations.IdentitySocial;
 using Wayhunter.Infrastructure.Persistence.Configurations.TravelPlanning;
 using Xunit;
 
@@ -27,9 +28,15 @@ public sealed class TravelPlanningEfModelTests
         protected override void OnModelCreating(
             ModelBuilder modelBuilder)
         {
+            // M1 mapping required by Trips.OwnerUserId FK.
+            modelBuilder.ApplyConfiguration(
+                new UserAccountConfiguration());
+
+            // M2 Trip Plan mapping.
             modelBuilder.ApplyConfiguration(
                 new TripPlanConfiguration());
 
+            // M2 Trip Stop mapping.
             modelBuilder.ApplyConfiguration(
                 new TripStopConfiguration());
         }
@@ -50,6 +57,7 @@ public sealed class TravelPlanningEfModelTests
         var primaryKey = trip.FindPrimaryKey();
 
         Assert.NotNull(primaryKey);
+
         Assert.Equal(
             nameof(TripPlan.Id),
             Assert.Single(primaryKey.Properties).Name);
