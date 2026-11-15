@@ -2,7 +2,9 @@
 using System;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
+using Wayhunter.Domain.Modules.TravelPlanning.Entities;
 using Wayhunter.Domain.Modules.TripSafety.Entities;
+using Wayhunter.Infrastructure.Persistence.Configurations.TravelPlanning;
 using Wayhunter.Infrastructure.Persistence.Configurations.TripSafety;
 using Xunit;
 
@@ -11,7 +13,8 @@ namespace Wayhunter.UnitTests.Modules.TripSafety;
 public sealed class LiveTripSessionConfigurationTests
 {
     // EF Core metadata tests only.
-    // No database connection or migration is executed.
+    // No real database connection or migration.
+
     private sealed class MappingTestDbContext : DbContext
     {
         public MappingTestDbContext(
@@ -23,6 +26,14 @@ public sealed class LiveTripSessionConfigurationTests
         protected override void OnModelCreating(
             ModelBuilder modelBuilder)
         {
+            base.OnModelCreating(modelBuilder);
+
+            modelBuilder.ApplyConfiguration(
+                new TripPlanConfiguration());
+
+            modelBuilder.ApplyConfiguration(
+                new TripStopConfiguration());
+
             modelBuilder.ApplyConfiguration(
                 new LiveTripSessionConfiguration());
         }
@@ -71,14 +82,14 @@ public sealed class LiveTripSessionConfigurationTests
 
         Assert.NotNull(primaryKey);
 
-        var keyProperty = Assert.Single(
+        var property = Assert.Single(
             primaryKey.Properties);
 
         Assert.Equal(
             nameof(LiveTripSession.SessionId),
-            keyProperty.Name);
+            property.Name);
 
-        Assert.Equal(typeof(Guid), keyProperty.ClrType);
+        Assert.Equal(typeof(Guid), property.ClrType);
     }
 
     [Fact]
@@ -97,7 +108,6 @@ public sealed class LiveTripSessionConfigurationTests
         Assert.NotNull(property);
 
         Assert.Equal(typeof(Guid), property.ClrType);
-
         Assert.False(property.IsNullable);
 
         Assert.Equal(
@@ -163,5 +173,94 @@ public sealed class LiveTripSessionConfigurationTests
         Assert.Equal(
             "[Status] IN (1, 2)",
             index.GetFilter());
+    }
+
+    [Fact]
+    public void Should_Configure_M2_M3_Foreign_Key()
+    {
+        using var context = CreateContext();
+
+        var entity = context.Model.FindEntityType(
+            typeof(LiveTripSession));
+
+        Assert.NotNull(entity);
+
+        var foreignKey = Assert.Single(
+            entity.GetForeignKeys());
+
+        Assert.Equal(
+            typeof(TripPlan),
+            foreignKey.PrincipalEntityType.ClrType);
+
+        Assert.Equal(
+            nameof(LiveTripSession.TripPlanId),
+            Assert.Single(foreignKey.Properties).Name);
+
+        Assert.Equal(
+            nameof(TripPlan.Id),
+            Assert.Single(
+                foreignKey.PrincipalKey.Properties).Name);
+
+        Assert.True(foreignKey.IsRequired);
+    }
+
+    [Fact]
+    public void Should_Use_NoAction_Delete_Behavior()
+    {
+        using var context = CreateContext();
+
+        var entity = context.Model.FindEntityType(
+            typeof(LiveTripSession));
+
+        Assert.NotNull(entity);
+
+        var foreignKey = Assert.Single(
+            entity.GetForeignKeys());
+
+        // Proposed behavior; requires team approval.
+        Assert.Equal(
+            DeleteBehavior.NoAction,
+            foreignKey.DeleteBehavior);
+    }
+
+    [Fact]
+    public void Should_Configure_Foreign_Key_Name()
+    {
+        using var context = CreateContext();
+
+        var entity = context.Model.FindEntityType(
+            typeof(LiveTripSession));
+
+        Assert.NotNull(entity);
+
+        var foreignKey = Assert.Single(
+            entity.GetForeignKeys());
+
+        Assert.Equal(
+            "FK_TripSafety_LiveTripSessions_Trips_TripPlanId",
+            foreignKey.GetConstraintName());
+    }
+
+    [Fact]
+    public void Should_Map_M2_Principal_To_Trips_Table()
+    {
+        using var context = CreateContext();
+
+        var entity = context.Model.FindEntityType(
+            typeof(TripPlan));
+
+        Assert.NotNull(entity);
+
+        Assert.Equal("Trips", entity.GetTableName());
+
+        var primaryKey = entity.FindPrimaryKey();
+
+        Assert.NotNull(primaryKey);
+
+        var property = Assert.Single(
+            primaryKey.Properties);
+
+        Assert.Equal(nameof(TripPlan.Id), property.Name);
+        Assert.Equal(typeof(Guid), property.ClrType);
     }
 }
