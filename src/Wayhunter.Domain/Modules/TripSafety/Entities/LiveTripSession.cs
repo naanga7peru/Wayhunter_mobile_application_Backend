@@ -8,7 +8,8 @@ public sealed class LiveTripSession
 {
     public Guid SessionId { get; }
 
-    public string TripPlanId { get; }
+    // Aligned with M2 TripPlan.Id
+    public Guid TripPlanId { get; }
 
     public LiveTripStatus Status { get; private set; }
 
@@ -18,7 +19,7 @@ public sealed class LiveTripSession
 
     private LiveTripSession(
         Guid sessionId,
-        string tripPlanId,
+        Guid tripPlanId,
         DateTimeOffset startedAtUtc)
     {
         SessionId = sessionId;
@@ -29,20 +30,20 @@ public sealed class LiveTripSession
 
     public static LiveTripSession Start(
         Guid sessionId,
-        string tripPlanId,
+        Guid tripPlanId,
         DateTimeOffset serverTimeUtc)
     {
         if (sessionId == Guid.Empty)
         {
             throw new ArgumentException(
-                "Session ID cannot be empty.",
+                "Valid Session ID is required.",
                 nameof(sessionId));
         }
 
-        if (string.IsNullOrWhiteSpace(tripPlanId))
+        if (tripPlanId == Guid.Empty)
         {
             throw new ArgumentException(
-                "Trip Plan ID is required.",
+                "Valid Trip Plan ID is required.",
                 nameof(tripPlanId));
         }
 
@@ -55,7 +56,7 @@ public sealed class LiveTripSession
 
         return new LiveTripSession(
             sessionId,
-            tripPlanId.Trim(),
+            tripPlanId,
             serverTimeUtc);
     }
 

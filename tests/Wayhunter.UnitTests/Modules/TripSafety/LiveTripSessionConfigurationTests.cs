@@ -3,7 +3,6 @@ using System;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using Wayhunter.Domain.Modules.TripSafety.Entities;
-using Wayhunter.Domain.Modules.TripSafety.Enums;
 using Wayhunter.Infrastructure.Persistence.Configurations.TripSafety;
 using Xunit;
 
@@ -11,7 +10,7 @@ namespace Wayhunter.UnitTests.Modules.TripSafety;
 
 public sealed class LiveTripSessionConfigurationTests
 {
-    // This context is ONLY for checking EF Core model metadata.
+    // EF Core metadata tests only.
     // No database connection or migration is executed.
     private sealed class MappingTestDbContext : DbContext
     {
@@ -78,10 +77,12 @@ public sealed class LiveTripSessionConfigurationTests
         Assert.Equal(
             nameof(LiveTripSession.SessionId),
             keyProperty.Name);
+
+        Assert.Equal(typeof(Guid), keyProperty.ClrType);
     }
 
     [Fact]
-    public void Should_Configure_TripPlanId_As_Required()
+    public void Should_Configure_TripPlanId_As_Required_Guid()
     {
         using var context = CreateContext();
 
@@ -94,8 +95,16 @@ public sealed class LiveTripSessionConfigurationTests
             nameof(LiveTripSession.TripPlanId));
 
         Assert.NotNull(property);
+
+        Assert.Equal(typeof(Guid), property.ClrType);
+
         Assert.False(property.IsNullable);
-        Assert.Equal(128, property.GetMaxLength());
+
+        Assert.Equal(
+            "uniqueidentifier",
+            property.GetColumnType());
+
+        Assert.Null(property.GetMaxLength());
     }
 
     [Fact]

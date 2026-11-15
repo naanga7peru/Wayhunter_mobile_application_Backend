@@ -17,25 +17,28 @@ public sealed class TripStartReminderDispatchService
             ?? throw new ArgumentNullException(nameof(sender));
     }
 
-    // This method dispatches a reminder notification only.
-    // It does not create, resume or modify a trip session.
+    // Dispatches a reminder notification only.
+    // Does not create, resume or modify a trip session.
     //
     // Caller must verify:
     // - Trip ownership and intended recipient
     // - Notification preferences
     // - Reminder eligibility and due time
     // - Current trip state
+    //
+    // TripPlanId uses Guid to match M2 TripPlan.Id.
+
     public async Task DispatchAsync(
-        string? tripPlanId,
+        Guid tripPlanId,
         string? recipientUserId,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (string.IsNullOrWhiteSpace(tripPlanId))
+        if (tripPlanId == Guid.Empty)
         {
             throw new ArgumentException(
-                "Trip Plan ID is required.",
+                "Valid Trip Plan ID is required.",
                 nameof(tripPlanId));
         }
 
@@ -47,7 +50,7 @@ public sealed class TripStartReminderDispatchService
         }
 
         await _sender.SendAsync(
-            tripPlanId.Trim(),
+            tripPlanId,
             recipientUserId.Trim(),
             cancellationToken);
     }

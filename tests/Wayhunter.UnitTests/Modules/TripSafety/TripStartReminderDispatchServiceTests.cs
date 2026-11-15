@@ -12,12 +12,15 @@ namespace Wayhunter.UnitTests.Modules.TripSafety;
 
 public sealed class TripStartReminderDispatchServiceTests
 {
+    private static readonly Guid TripPlanId =
+        Guid.Parse("11111111-1111-4111-8111-111111111111");
+
     private sealed class FakeReminderSender
         : ITripStartReminderSender
     {
         public int SendCount { get; private set; }
 
-        public string? LastTripPlanId { get; private set; }
+        public Guid? LastTripPlanId { get; private set; }
 
         public string? LastRecipientUserId { get; private set; }
 
@@ -26,7 +29,7 @@ public sealed class TripStartReminderDispatchServiceTests
         public bool ShouldFail { get; set; }
 
         public Task SendAsync(
-            string tripPlanId,
+            Guid tripPlanId,
             string recipientUserId,
             CancellationToken cancellationToken = default)
         {
@@ -63,16 +66,16 @@ public sealed class TripStartReminderDispatchServiceTests
             sender);
 
         await service.DispatchAsync(
-            "plan-001",
+            TripPlanId,
             "user-001");
 
         Assert.Equal(1, sender.SendCount);
-        Assert.Equal("plan-001", sender.LastTripPlanId);
+        Assert.Equal(TripPlanId, sender.LastTripPlanId);
         Assert.Equal("user-001", sender.LastRecipientUserId);
     }
 
     [Fact]
-    public async Task Reminder_Should_Trim_Ids()
+    public async Task Reminder_Should_Trim_Recipient_UserId()
     {
         var sender = new FakeReminderSender();
 
@@ -80,19 +83,15 @@ public sealed class TripStartReminderDispatchServiceTests
             sender);
 
         await service.DispatchAsync(
-            "  plan-001  ",
+            TripPlanId,
             "  user-001  ");
 
-        Assert.Equal("plan-001", sender.LastTripPlanId);
+        Assert.Equal(TripPlanId, sender.LastTripPlanId);
         Assert.Equal("user-001", sender.LastRecipientUserId);
     }
 
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    public async Task Missing_TripPlanId_Should_Fail(
-        string? tripPlanId)
+    [Fact]
+    public async Task Empty_TripPlanId_Should_Fail()
     {
         var sender = new FakeReminderSender();
 
@@ -101,7 +100,7 @@ public sealed class TripStartReminderDispatchServiceTests
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
             service.DispatchAsync(
-                tripPlanId,
+                Guid.Empty,
                 "user-001"));
 
         Assert.Equal(0, sender.SendCount);
@@ -121,7 +120,7 @@ public sealed class TripStartReminderDispatchServiceTests
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
             service.DispatchAsync(
-                "plan-001",
+                TripPlanId,
                 recipientUserId));
 
         Assert.Equal(0, sender.SendCount);
@@ -138,22 +137,19 @@ public sealed class TripStartReminderDispatchServiceTests
         var reminderService =
             new TripStartReminderDispatchService(sender);
 
-        // No trip session exists before reminder.
         var before =
             await repository.GetOpenByTripPlanIdAsync(
-                "plan-001");
+                TripPlanId);
 
         Assert.Null(before);
 
         await reminderService.DispatchAsync(
-            "plan-001",
+            TripPlanId,
             "user-001");
 
-        // Notification dispatch must not create
-        // an active trip session.
         var after =
             await repository.GetOpenByTripPlanIdAsync(
-                "plan-001");
+                TripPlanId);
 
         Assert.Null(after);
         Assert.Equal(1, sender.SendCount);
@@ -170,7 +166,7 @@ public sealed class TripStartReminderDispatchServiceTests
             TimeProvider.System);
 
         var session =
-            await tripService.StartAsync("plan-001");
+            await tripService.StartAsync(TripPlanId);
 
         await tripService.PauseAsync(session.SessionId);
 
@@ -180,7 +176,7 @@ public sealed class TripStartReminderDispatchServiceTests
             new TripStartReminderDispatchService(sender);
 
         await reminderService.DispatchAsync(
-            "plan-001",
+            TripPlanId,
             "user-001");
 
         var stored =
@@ -206,7 +202,7 @@ public sealed class TripStartReminderDispatchServiceTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => service.DispatchAsync(
-                "plan-001",
+                TripPlanId,
                 "user-001",
                 cts.Token));
 
@@ -226,7 +222,7 @@ public sealed class TripStartReminderDispatchServiceTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.DispatchAsync(
-                "plan-001",
+                TripPlanId,
                 "user-001"));
 
         Assert.Equal(0, sender.SendCount);
@@ -243,11 +239,12 @@ public sealed class TripStartReminderDispatchServiceTests
         using var cts = new CancellationTokenSource();
 
         await service.DispatchAsync(
-            "plan-001",
+            TripPlanId,
             "user-001",
             cts.Token);
 
         Assert.Equal(cts.Token, sender.LastToken);
+        Assert.Equal(TripPlanId, sender.LastTripPlanId);
         Assert.Equal(1, sender.SendCount);
     }
 }

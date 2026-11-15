@@ -12,15 +12,21 @@ namespace Wayhunter.UnitTests.Modules.TripSafety;
 
 public sealed class InMemoryLiveTripSessionRepositoryTests
 {
+    private static readonly Guid TripPlanId =
+        Guid.Parse("11111111-1111-4111-8111-111111111111");
+
+    private static readonly Guid AnotherTripPlanId =
+        Guid.Parse("22222222-2222-4222-8222-222222222222");
+
     private static readonly DateTimeOffset StartTime =
         new(2026, 11, 13, 8, 0, 0, TimeSpan.Zero);
 
     private static LiveTripSession CreateSession(
-        string tripPlanId = "plan-001")
+        Guid? tripPlanId = null)
     {
         return LiveTripSession.Start(
             Guid.NewGuid(),
-            tripPlanId,
+            tripPlanId ?? TripPlanId,
             StartTime);
     }
 
@@ -32,11 +38,12 @@ public sealed class InMemoryLiveTripSessionRepositoryTests
 
         await repository.AddAsync(session);
 
-        var saved = await repository.GetByIdAsync(session.SessionId);
+        var saved = await repository.GetByIdAsync(
+            session.SessionId);
 
         Assert.NotNull(saved);
         Assert.Equal(session.SessionId, saved.SessionId);
-        Assert.Equal("plan-001", saved.TripPlanId);
+        Assert.Equal(TripPlanId, saved.TripPlanId);
     }
 
     [Fact]
@@ -44,7 +51,8 @@ public sealed class InMemoryLiveTripSessionRepositoryTests
     {
         var repository = new InMemoryLiveTripSessionRepository();
 
-        var result = await repository.GetByIdAsync(Guid.NewGuid());
+        var result = await repository.GetByIdAsync(
+            Guid.NewGuid());
 
         Assert.Null(result);
     }
@@ -58,7 +66,7 @@ public sealed class InMemoryLiveTripSessionRepositoryTests
         await repository.AddAsync(session);
 
         var result = await repository.GetOpenByTripPlanIdAsync(
-            "plan-001");
+            TripPlanId);
 
         Assert.NotNull(result);
         Assert.Equal(LiveTripStatus.Active, result.Status);
@@ -75,7 +83,7 @@ public sealed class InMemoryLiveTripSessionRepositoryTests
         await repository.AddAsync(session);
 
         var result = await repository.GetOpenByTripPlanIdAsync(
-            "plan-001");
+            TripPlanId);
 
         Assert.NotNull(result);
         Assert.Equal(LiveTripStatus.Paused, result.Status);
@@ -92,7 +100,7 @@ public sealed class InMemoryLiveTripSessionRepositoryTests
         await repository.AddAsync(session);
 
         var result = await repository.GetOpenByTripPlanIdAsync(
-            "plan-001");
+            TripPlanId);
 
         Assert.Null(result);
     }
@@ -114,8 +122,8 @@ public sealed class InMemoryLiveTripSessionRepositoryTests
     {
         var repository = new InMemoryLiveTripSessionRepository();
 
-        var first = CreateSession("plan-001");
-        var second = CreateSession("plan-001");
+        var first = CreateSession(TripPlanId);
+        var second = CreateSession(TripPlanId);
 
         await repository.AddAsync(first);
 
@@ -128,10 +136,10 @@ public sealed class InMemoryLiveTripSessionRepositoryTests
     {
         var repository = new InMemoryLiveTripSessionRepository();
 
-        var first = CreateSession("plan-001");
+        var first = CreateSession(TripPlanId);
         first.Pause();
 
-        var second = CreateSession("plan-001");
+        var second = CreateSession(TripPlanId);
 
         await repository.AddAsync(first);
 
@@ -144,17 +152,17 @@ public sealed class InMemoryLiveTripSessionRepositoryTests
     {
         var repository = new InMemoryLiveTripSessionRepository();
 
-        var first = CreateSession("plan-001");
+        var first = CreateSession(TripPlanId);
         first.Finish(StartTime.AddHours(1));
 
         await repository.AddAsync(first);
 
-        var second = CreateSession("plan-001");
+        var second = CreateSession(TripPlanId);
 
         await repository.AddAsync(second);
 
         var result = await repository.GetOpenByTripPlanIdAsync(
-            "plan-001");
+            TripPlanId);
 
         Assert.NotNull(result);
         Assert.Equal(second.SessionId, result.SessionId);
@@ -182,7 +190,8 @@ public sealed class InMemoryLiveTripSessionRepositoryTests
 
         await repository.UpdateAsync(session);
 
-        var saved = await repository.GetByIdAsync(session.SessionId);
+        var saved = await repository.GetByIdAsync(
+            session.SessionId);
 
         Assert.NotNull(saved);
         Assert.Equal(LiveTripStatus.Paused, saved.Status);
@@ -195,7 +204,7 @@ public sealed class InMemoryLiveTripSessionRepositoryTests
 
         await Assert.ThrowsAsync<ArgumentException>(
             async () => await repository.GetOpenByTripPlanIdAsync(
-                "  "));
+                Guid.Empty));
     }
 
     [Fact]
@@ -212,5 +221,31 @@ public sealed class InMemoryLiveTripSessionRepositoryTests
             async () => await repository.AddAsync(
                 session,
                 cancellation.Token));
+    }
+
+    [Fact]
+    public async Task Different_TripPlans_Can_Have_Open_Sessions()
+    {
+        var repository = new InMemoryLiveTripSessionRepository();
+
+        var first = CreateSession(TripPlanId);
+        var second = CreateSession(AnotherTripPlanId);
+
+        await repository.AddAsync(first);
+        await repository.AddAsync(second);
+
+        var firstResult =
+            await repository.GetOpenByTripPlanIdAsync(TripPlanId);
+
+        var secondResult =
+            await repository.GetOpenByTripPlanIdAsync(
+                AnotherTripPlanId);
+
+        Assert.NotNull(firstResult);
+        Assert.NotNull(secondResult);
+
+        Assert.NotEqual(
+            firstResult.SessionId,
+            secondResult.SessionId);
     }
 }

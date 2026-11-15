@@ -9,6 +9,9 @@ namespace Wayhunter.UnitTests.Modules.TripSafety;
 
 public sealed class TripSessionDtoTests
 {
+    private static readonly Guid TripPlanId =
+        Guid.Parse("11111111-1111-4111-8111-111111111111");
+
     private static readonly DateTimeOffset StartTime =
         new(2026, 11, 14, 8, 0, 0, TimeSpan.Zero);
 
@@ -16,7 +19,7 @@ public sealed class TripSessionDtoTests
     {
         return LiveTripSession.Start(
             Guid.NewGuid(),
-            "trip-001",
+            TripPlanId,
             StartTime);
     }
 
@@ -28,7 +31,7 @@ public sealed class TripSessionDtoTests
         var dto = TripSessionDto.FromDomain(session);
 
         Assert.Equal(session.SessionId, dto.SessionId);
-        Assert.Equal("trip-001", dto.TripPlanId);
+        Assert.Equal(TripPlanId, dto.TripPlanId);
         Assert.Equal(LiveTripStatus.Active, dto.Status);
         Assert.Equal(StartTime, dto.StartedAtUtc);
         Assert.Null(dto.FinishedAtUtc);
@@ -43,6 +46,7 @@ public sealed class TripSessionDtoTests
 
         var dto = TripSessionDto.FromDomain(session);
 
+        Assert.Equal(TripPlanId, dto.TripPlanId);
         Assert.Equal(LiveTripStatus.Paused, dto.Status);
         Assert.Null(dto.FinishedAtUtc);
     }
@@ -58,6 +62,7 @@ public sealed class TripSessionDtoTests
 
         var dto = TripSessionDto.FromDomain(session);
 
+        Assert.Equal(TripPlanId, dto.TripPlanId);
         Assert.Equal(LiveTripStatus.Finished, dto.Status);
         Assert.Equal(StartTime, dto.StartedAtUtc);
         Assert.Equal(finishTime, dto.FinishedAtUtc);

@@ -10,6 +10,12 @@ namespace Wayhunter.UnitTests.Modules.TripSafety;
 
 public sealed class ActiveSessionLocationEventValidatorTests
 {
+    private static readonly Guid TripPlanId =
+        Guid.Parse("11111111-1111-4111-8111-111111111111");
+
+    private static readonly Guid AnotherTripPlanId =
+        Guid.Parse("22222222-2222-4222-8222-222222222222");
+
     private static readonly DateTimeOffset StartTime =
         new(2026, 11, 14, 8, 0, 0, TimeSpan.Zero);
 
@@ -17,7 +23,7 @@ public sealed class ActiveSessionLocationEventValidatorTests
     {
         return LiveTripSession.Start(
             Guid.NewGuid(),
-            "plan-001",
+            TripPlanId,
             StartTime);
     }
 
@@ -28,13 +34,13 @@ public sealed class ActiveSessionLocationEventValidatorTests
 
         var error = Record.Exception(() =>
             ActiveSessionLocationEventValidator
-                .EnsureCanPublish(session, "plan-001"));
+                .EnsureCanPublish(session, TripPlanId));
 
         Assert.Null(error);
     }
 
     [Fact]
-    public void TripPlanId_With_Spaces_Should_Pass()
+    public void Same_TripPlanId_Should_Pass()
     {
         var session = CreateSession();
 
@@ -42,7 +48,7 @@ public sealed class ActiveSessionLocationEventValidatorTests
             ActiveSessionLocationEventValidator
                 .EnsureCanPublish(
                     session,
-                    "  plan-001  "));
+                    session.TripPlanId));
 
         Assert.Null(error);
     }
@@ -55,7 +61,7 @@ public sealed class ActiveSessionLocationEventValidatorTests
 
         Assert.Throws<InvalidOperationException>(() =>
             ActiveSessionLocationEventValidator
-                .EnsureCanPublish(session, "plan-001"));
+                .EnsureCanPublish(session, TripPlanId));
     }
 
     [Fact]
@@ -68,7 +74,7 @@ public sealed class ActiveSessionLocationEventValidatorTests
 
         var error = Record.Exception(() =>
             ActiveSessionLocationEventValidator
-                .EnsureCanPublish(session, "plan-001"));
+                .EnsureCanPublish(session, TripPlanId));
 
         Assert.Null(error);
         Assert.Equal(LiveTripStatus.Active, session.Status);
@@ -83,7 +89,7 @@ public sealed class ActiveSessionLocationEventValidatorTests
 
         Assert.Throws<InvalidOperationException>(() =>
             ActiveSessionLocationEventValidator
-                .EnsureCanPublish(session, "plan-001"));
+                .EnsureCanPublish(session, TripPlanId));
     }
 
     [Fact]
@@ -91,21 +97,17 @@ public sealed class ActiveSessionLocationEventValidatorTests
     {
         Assert.Throws<KeyNotFoundException>(() =>
             ActiveSessionLocationEventValidator
-                .EnsureCanPublish(null, "plan-001"));
+                .EnsureCanPublish(null, TripPlanId));
     }
 
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    public void Missing_TripPlanId_Should_Fail(
-        string? tripPlanId)
+    [Fact]
+    public void Empty_TripPlanId_Should_Fail()
     {
         var session = CreateSession();
 
         Assert.Throws<ArgumentException>(() =>
             ActiveSessionLocationEventValidator
-                .EnsureCanPublish(session, tripPlanId));
+                .EnsureCanPublish(session, Guid.Empty));
     }
 
     [Fact]
@@ -115,17 +117,9 @@ public sealed class ActiveSessionLocationEventValidatorTests
 
         Assert.Throws<UnauthorizedAccessException>(() =>
             ActiveSessionLocationEventValidator
-                .EnsureCanPublish(session, "plan-002"));
-    }
-
-    [Fact]
-    public void TripPlanId_Should_Be_Case_Sensitive()
-    {
-        var session = CreateSession();
-
-        Assert.Throws<UnauthorizedAccessException>(() =>
-            ActiveSessionLocationEventValidator
-                .EnsureCanPublish(session, "PLAN-001"));
+                .EnsureCanPublish(
+                    session,
+                    AnotherTripPlanId));
     }
 
     [Fact]
@@ -135,9 +129,10 @@ public sealed class ActiveSessionLocationEventValidatorTests
         var originalId = session.SessionId;
 
         ActiveSessionLocationEventValidator
-            .EnsureCanPublish(session, "plan-001");
+            .EnsureCanPublish(session, TripPlanId);
 
         Assert.Equal(originalId, session.SessionId);
+        Assert.Equal(TripPlanId, session.TripPlanId);
         Assert.Equal(LiveTripStatus.Active, session.Status);
         Assert.Null(session.FinishedAtUtc);
     }

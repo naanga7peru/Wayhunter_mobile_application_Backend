@@ -8,18 +8,16 @@ public static class GroupLiveLocationPublishValidator
 {
     // This is a validation rule, not an API endpoint.
     //
-    // isAuthorizedTripParticipant must come from
-    // trusted backend ownership/membership checks.
-    // Never accept that bool from the mobile client.
+    // Participant authorization must be checked
+    // using trusted backend data.
     //
-    // GPS consent must be loaded for the authenticated
-    // user and session. Invitation acceptance alone
-    // must never enable location sharing.
+    // Invitation acceptance alone must never
+    // enable GPS sharing.
 
     public static void EnsureCanPublish(
         LiveTripSession? session,
         TripGpsConsent? consent,
-        string? expectedTripPlanId,
+        Guid expectedTripPlanId,
         string? authenticatedUserId,
         bool isAuthorizedTripParticipant)
     {
@@ -35,8 +33,6 @@ public static class GroupLiveLocationPublishValidator
                 "User is not an authorized trip participant.");
         }
 
-        // Reuse the existing session validation.
-        // Paused and Finished trips are blocked.
         ActiveSessionLocationEventValidator.EnsureCanPublish(
             session,
             expectedTripPlanId);
