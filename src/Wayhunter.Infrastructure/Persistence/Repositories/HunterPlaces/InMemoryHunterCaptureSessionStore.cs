@@ -8,8 +8,16 @@ using Wayhunter.Domain.Modules.HunterPlaces.Rules;
 
 namespace Wayhunter.Infrastructure.Persistence.Repositories.HunterPlaces;
 
+/// <summary>
+/// In-memory Hunter capture-session prototype.
+/// Not a production database implementation.
+///
+/// Session consumption and revocation are synchronized
+/// by the same lock.
+/// </summary>
 public sealed class InMemoryHunterCaptureSessionStore
-    : IHunterCaptureSessionStore
+    : IHunterCaptureSessionStore,
+      IHunterCaptureSessionRevocationStore
 {
     private readonly object _gate = new();
 
@@ -27,6 +35,8 @@ public sealed class InMemoryHunterCaptureSessionStore
         public required DateTimeOffset ExpiresAtUtc { get; init; }
 
         public bool IsConsumed { get; set; }
+
+        public bool IsRevoked { get; set; }
     }
 
     public Task<Guid> CreateAsync(
@@ -73,7 +83,8 @@ public sealed class InMemoryHunterCaptureSessionStore
                 SubmissionId = hunterSubmissionId,
                 IssuedAtUtc = issuedAtUtc,
                 ExpiresAtUtc = expiresAtUtc,
-                IsConsumed = false
+                IsConsumed = false,
+                IsRevoked = false
             });
 
             return Task.FromResult(sessionId);
@@ -101,7 +112,14 @@ public sealed class InMemoryHunterCaptureSessionStore
             cancellationToken.ThrowIfCancellationRequested();
 
             if (!_sessions.TryGetValue(
-                captureSessionId, out var session))
+                    captureSessionId,
+                    out var session))
+            {
+                return Task.FromResult(false);
+            }
+
+            // Revoked sessions must never be consumed.
+            if (session.IsRevoked)
             {
                 return Task.FromResult(false);
             }
@@ -127,11 +145,83 @@ public sealed class InMemoryHunterCaptureSessionStore
                 return Task.FromResult(false);
             }
 
-            // Check and update happen under one lock.
-            // Only one concurrent caller can consume this session.
+            // Validation and consumption are atomic
+            // relative to revocation in this store.
             session.IsConsumed = true;
 
             return Task.FromResult(true);
+        }
+    }
+
+    public Task<int> RevokeBySubmissionIdAsync(
+        Guid hunterSubmissionId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (hunterSubmissionId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Submission ID is required.",
+                nameof(hunterSubmissionId));
+        }
+
+        lock (_gate)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var revokedCount = 0;
+
+            foreach (var session in _sessions.Values)
+            {
+                if (session.SubmissionId != hunterSubmissionId ||
+                    session.IsConsumed ||
+                    session.IsRevoked)
+                {
+                    continue;
+                }
+
+                session.IsRevoked = true;
+                revokedCount++;
+            }
+
+            return Task.FromResult(revokedCount);
+        }
+    }
+
+    public Task<int> RevokeByHunterIdAsync(
+        Guid hunterId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (hunterId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Hunter ID is required.",
+                nameof(hunterId));
+        }
+
+        lock (_gate)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var revokedCount = 0;
+
+            foreach (var session in _sessions.Values)
+            {
+                if (session.HunterId != hunterId ||
+                    session.IsConsumed ||
+                    session.IsRevoked)
+                {
+                    continue;
+                }
+
+                session.IsRevoked = true;
+                revokedCount++;
+            }
+
+            return Task.FromResult(revokedCount);
         }
     }
 }
