@@ -2,6 +2,8 @@
 using System;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Wayhunter.Domain.Modules.HomeAdsAnalytics.Entities;
 using Wayhunter.Infrastructure.Persistence.DbContexts;
 using Xunit;
@@ -10,18 +12,32 @@ namespace Wayhunter.UnitTests.Modules.HomeAdsAnalytics;
 
 public sealed class AdvertisementConfigurationTests
 {
+    // Model inspection only.
+    // No SQL Server connection is opened.
+    private const string ModelConnection =
+        "Server=localhost;Database=ModelInspectionOnly;Trusted_Connection=True;";
+
     private static HomeAdsAnalyticsDbContext CreateContext()
     {
-        // Only EF model inspection. No SQL connection is opened.
         var options =
             new DbContextOptionsBuilder<HomeAdsAnalyticsDbContext>()
-                .UseSqlServer(
-                    "Server=localhost;Database=ModelInspectionOnly;Trusted_Connection=True;")
+                .UseSqlServer(ModelConnection)
                 .Options;
 
         return new HomeAdsAnalyticsDbContext(options);
     }
 
+    private static WayhunterSharedDbContext CreateSharedContext()
+    {
+        var options =
+            new DbContextOptionsBuilder<WayhunterSharedDbContext>()
+                .UseSqlServer(ModelConnection)
+                .Options;
+
+        return new WayhunterSharedDbContext(options);
+    }
+
+    // TEST 01 - Advertisement Table and Primary Key
     [Fact]
     public void Advertisement_ShouldMapToAdvertisementsTable()
     {
@@ -31,16 +47,21 @@ public sealed class AdvertisementConfigurationTests
             typeof(Advertisement));
 
         Assert.NotNull(entity);
-        Assert.Equal("Advertisements", entity.GetTableName());
+
+        Assert.Equal(
+            "Advertisements",
+            entity.GetTableName());
 
         var primaryKey = entity.FindPrimaryKey();
 
         Assert.NotNull(primaryKey);
+
         Assert.Equal(
             nameof(Advertisement.Id),
             Assert.Single(primaryKey.Properties).Name);
     }
 
+    // TEST 02 - Advertisement Column Configuration
     [Fact]
     public void Advertisement_ShouldHaveCorrectColumnConfiguration()
     {
@@ -53,26 +74,30 @@ public sealed class AdvertisementConfigurationTests
 
         Assert.Equal(
             200,
-            entity.FindProperty(nameof(Advertisement.Title))!
+            entity.FindProperty(
+                nameof(Advertisement.Title))!
                 .GetMaxLength());
 
         Assert.Equal(
             2048,
-            entity.FindProperty(nameof(Advertisement.ImageUrl))!
+            entity.FindProperty(
+                nameof(Advertisement.ImageUrl))!
                 .GetMaxLength());
 
         Assert.Equal(
             "datetimeoffset",
-            entity.FindProperty(nameof(Advertisement.StartAtUtc))!
+            entity.FindProperty(
+                nameof(Advertisement.StartAtUtc))!
                 .GetColumnType());
 
         Assert.Equal(
             "datetimeoffset",
-            entity.FindProperty(nameof(Advertisement.EndAtUtc))!
+            entity.FindProperty(
+                nameof(Advertisement.EndAtUtc))!
                 .GetColumnType());
-
     }
 
+    // TEST 03 - Placement Integer Mapping
     [Fact]
     public void Advertisement_Placement_ShouldMapToInteger()
     {
@@ -88,15 +113,14 @@ public sealed class AdvertisementConfigurationTests
 
         Assert.NotNull(placement);
 
-        // Placement is stored as an integer
         Assert.Equal(
             typeof(int),
             placement.GetProviderClrType());
 
-        // Placement cannot be null
         Assert.False(placement.IsNullable);
     }
 
+    // TEST 04 - Status Integer Mapping
     [Fact]
     public void Advertisement_Status_ShouldMapToInteger()
     {
@@ -112,14 +136,14 @@ public sealed class AdvertisementConfigurationTests
 
         Assert.NotNull(status);
 
-        // Status is stored as an integer
         Assert.Equal(
             typeof(int),
             status.GetProviderClrType());
 
-        // Status cannot be null
         Assert.False(status.IsNullable);
     }
+
+    // TEST 05 - Impression and Click Counters
     [Fact]
     public void Advertisement_Counters_ShouldHaveCorrectMapping()
     {
@@ -139,14 +163,124 @@ public sealed class AdvertisementConfigurationTests
         Assert.NotNull(impression);
         Assert.NotNull(click);
 
-        Assert.Equal("bigint", impression.GetColumnType());
-        Assert.Equal(0L, impression.GetDefaultValue());
+        Assert.Equal(
+            "bigint",
+            impression.GetColumnType());
+
+        Assert.Equal(
+            0L,
+            impression.GetDefaultValue());
+
         Assert.False(impression.IsNullable);
 
-        Assert.Equal("bigint", click.GetColumnType());
-        Assert.Equal(0L, click.GetDefaultValue());
+        Assert.Equal(
+            "bigint",
+            click.GetColumnType());
+
+        Assert.Equal(
+            0L,
+            click.GetDefaultValue());
+
         Assert.False(click.IsNullable);
     }
 
+    // TEST 06 - Active Advertisement Index
+    [Fact]
+    public void Advertisement_ShouldHaveActiveWindowIndex()
+    {
+        using var context = CreateContext();
 
+        var entity = context.Model.FindEntityType(
+            typeof(Advertisement));
+
+        Assert.NotNull(entity);
+
+        var index = Assert.Single(
+            entity.GetIndexes(),
+            candidate =>
+                candidate.GetDatabaseName() ==
+                "IX_Advertisements_Enabled_Window");
+
+        Assert.Equal(
+            new[]
+            {
+                nameof(Advertisement.IsEnabled),
+                nameof(Advertisement.StartAtUtc),
+                nameof(Advertisement.EndAtUtc)
+            },
+            index.Properties.Select(
+                property => property.Name));
+    }
+
+    // TEST 07 - Valid SQL Date Window Constraint
+    // EF Core 10 requires the design-time model.
+    [Fact]
+    public void Advertisement_ShouldHaveValidWindowConstraint()
+    {
+        using var context = CreateContext();
+
+        var designTimeModel = context
+            .GetService<IDesignTimeModel>()
+            .Model;
+
+        var entity = designTimeModel.FindEntityType(
+            typeof(Advertisement));
+
+        Assert.NotNull(entity);
+
+        var constraint = Assert.Single(
+            entity.GetCheckConstraints(),
+            candidate =>
+                candidate.Name ==
+                "CK_Advertisements_ValidWindow");
+
+        Assert.Equal(
+            "[EndAtUtc] > [StartAtUtc]",
+            constraint.Sql);
+    }
+
+    // TEST 08 - Shared DbContext Advertisement Mapping
+    // Verifies shared migration model readiness only.
+    [Fact]
+    public void SharedContext_ShouldIncludeAdvertisementMapping()
+    {
+        using var context = CreateSharedContext();
+
+        var designTimeModel = context
+            .GetService<IDesignTimeModel>()
+            .Model;
+
+        var entity = designTimeModel.FindEntityType(
+            typeof(Advertisement));
+
+        Assert.NotNull(entity);
+
+        Assert.Equal(
+            "Advertisements",
+            entity.GetTableName());
+
+        var primaryKey = entity.FindPrimaryKey();
+
+        Assert.NotNull(primaryKey);
+
+        Assert.Equal(
+            nameof(Advertisement.Id),
+            Assert.Single(primaryKey.Properties).Name);
+
+        var constraint = Assert.Single(
+            entity.GetCheckConstraints(),
+            candidate =>
+                candidate.Name ==
+                "CK_Advertisements_ValidWindow");
+
+        Assert.Equal(
+            "[EndAtUtc] > [StartAtUtc]",
+            constraint.Sql);
+
+        Assert.Contains(
+            entity.GetIndexes(),
+            index =>
+                index.GetDatabaseName() ==
+                "IX_Advertisements_Enabled_Window");
+    }
 }
