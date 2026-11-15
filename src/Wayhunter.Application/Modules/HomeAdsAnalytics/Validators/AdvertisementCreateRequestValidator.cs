@@ -34,6 +34,20 @@ public static class AdvertisementCreateRequestValidator
             return false;
         }
 
+        // Both dates are required and must be UTC.
+        if (request.StartAtUtc == default ||
+            request.EndAtUtc == default)
+        {
+            return false;
+        }
+
+        // Reject non-UTC offsets such as +05:30.
+        if (request.StartAtUtc.Offset != TimeSpan.Zero ||
+            request.EndAtUtc.Offset != TimeSpan.Zero)
+        {
+            return false;
+        }
+
         // End date must be after start date.
         if (request.EndAtUtc <= request.StartAtUtc)
             return false;

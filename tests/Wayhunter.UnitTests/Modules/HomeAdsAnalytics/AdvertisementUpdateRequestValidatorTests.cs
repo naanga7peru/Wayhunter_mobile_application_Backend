@@ -132,4 +132,45 @@ public sealed class AdvertisementUpdateRequestValidatorTests
         Assert.False(
             AdvertisementUpdateRequestValidator.IsValid(request));
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void MissingUtcDate_ShouldBeRejected(
+        bool missingStart)
+    {
+        var original = CreateValidRequest();
+
+        var request = missingStart
+            ? original with { StartAtUtc = default }
+            : original with { EndAtUtc = default };
+
+        Assert.False(
+            AdvertisementUpdateRequestValidator.IsValid(request));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void NonUtcOffset_ShouldBeRejected(
+        bool invalidStart)
+    {
+        var original = CreateValidRequest();
+
+        var offset = TimeSpan.FromMinutes(330);
+
+        var request = invalidStart
+            ? original with
+            {
+                StartAtUtc = original.StartAtUtc.ToOffset(offset)
+            }
+            : original with
+            {
+                EndAtUtc = original.EndAtUtc.ToOffset(offset)
+            };
+
+        Assert.False(
+            AdvertisementUpdateRequestValidator.IsValid(request));
+    }
+
 }

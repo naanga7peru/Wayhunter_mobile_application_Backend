@@ -120,4 +120,39 @@ public sealed class AdvertisementCreateRequestValidatorTests
         Assert.False(
             AdvertisementCreateRequestValidator.IsValid(request));
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void MissingUtcDate_ShouldBeRejected(bool missingStart)
+    {
+        var original = CreateValidRequest();
+
+        var request = missingStart
+            ? original with { StartAtUtc = default }
+            : original with { EndAtUtc = default };
+
+        Assert.False(
+            AdvertisementCreateRequestValidator.IsValid(request));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void NonUtcOffset_ShouldBeRejected(bool invalidStart)
+    {
+        var original = CreateValidRequest();
+
+        var nonUtcDate = new DateTimeOffset(
+            2026, 11, 15, 10, 0, 0,
+            TimeSpan.FromMinutes(330));
+
+        var request = invalidStart
+            ? original with { StartAtUtc = nonUtcDate }
+            : original with { EndAtUtc = nonUtcDate };
+
+        Assert.False(
+            AdvertisementCreateRequestValidator.IsValid(request));
+    }
+
 }
