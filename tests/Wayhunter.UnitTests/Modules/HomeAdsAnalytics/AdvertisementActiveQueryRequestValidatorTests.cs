@@ -134,4 +134,22 @@ public sealed class AdvertisementActiveQueryRequestValidatorTests
         Assert.False(
             AdvertisementActiveQueryRequestValidator.IsValid(request));
     }
+
+    [Theory]
+    [InlineData("London")]
+    [InlineData("Paris")]
+    [InlineData("Atlantis")]
+    public void NonSriLankanDistrict_ShouldBeRejected(
+        string district)
+    {
+        var request = new AdvertisementActiveQueryRequest
+        {
+            District = district
+        };
+
+        Assert.False(
+            AdvertisementActiveQueryRequestValidator.IsValid(
+                request));
+    }
+
 }

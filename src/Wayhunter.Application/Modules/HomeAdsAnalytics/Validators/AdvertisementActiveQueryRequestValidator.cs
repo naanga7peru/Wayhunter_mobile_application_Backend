@@ -13,7 +13,7 @@ public static class AdvertisementActiveQueryRequestValidator
         if (request is null)
             return false;
 
-        // Date/time is optional, but must be UTC if supplied.
+        // Date/time is optional, but must be UTC.
         if (request.AtUtc.HasValue)
         {
             var atUtc = request.AtUtc.Value;
@@ -26,7 +26,6 @@ public static class AdvertisementActiveQueryRequestValidator
         }
 
         // Placement is optional.
-        // Only supported placement values are allowed.
         if (request.Placement.HasValue)
         {
             var placement = request.Placement.Value;
@@ -39,28 +38,13 @@ public static class AdvertisementActiveQueryRequestValidator
         }
 
         // District is optional.
+        // If supplied, it must be a valid Sri Lankan district.
         if (request.District is not null)
         {
-            var district = request.District;
-
-            if (string.IsNullOrWhiteSpace(district))
-                return false;
-
-            if (district.Length > 100)
-                return false;
-
-            if (district != district.Trim())
-                return false;
-
-            // Allow letters, spaces, and hyphens only.
-            foreach (char character in district)
+            if (!AdvertisementDistrictValidator.IsValid(
+                    request.District))
             {
-                if (!char.IsLetter(character) &&
-                    character != ' ' &&
-                    character != '-')
-                {
-                    return false;
-                }
+                return false;
             }
         }
 
