@@ -31,11 +31,12 @@ public sealed class AdvertisementService
             await _repository.GetAllAsync(cancellationToken);
 
         return advertisements
-            .Where(ad =>
-                ad.IsEnabled &&
-                ad.StartAtUtc <= nowUtc &&
-                nowUtc < ad.EndAtUtc)
-            .ToArray();
+    .Where(ad =>
+        ad.IsEnabled &&
+        ad.Status == AdvertisementStatus.Active &&
+        ad.StartAtUtc <= nowUtc &&
+        nowUtc < ad.EndAtUtc)
+    .ToArray();
     }
 
     // Existing: Get active advertisements by placement

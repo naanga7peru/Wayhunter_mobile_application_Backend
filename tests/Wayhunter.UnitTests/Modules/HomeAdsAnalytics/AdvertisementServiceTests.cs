@@ -162,7 +162,7 @@ public sealed class AdvertisementServiceTests
                 (AdvertisementPlacement)placement));
     }
 
-    // New Test 11
+    // Existing Test 11
     [Fact]
     public async Task EmptyQuery_ShouldReturnOnlyActiveAds()
     {
@@ -183,7 +183,7 @@ public sealed class AdvertisementServiceTests
         Assert.Equal(activeAd.Id, returnedAd.Id);
     }
 
-    // New Tests 12 and 13
+    // Existing Tests 12 and 13
     [Theory]
     [InlineData(AdvertisementPlacement.HomeBanner)]
     [InlineData(AdvertisementPlacement.SponsoredPoi)]
@@ -216,7 +216,7 @@ public sealed class AdvertisementServiceTests
         Assert.Equal(placement, returnedAd.Placement);
     }
 
-    // New Test 14
+    // Existing Test 14
     [Fact]
     public async Task Query_ShouldUseSpecifiedUtcTime()
     {
@@ -238,7 +238,7 @@ public sealed class AdvertisementServiceTests
         Assert.Single(result);
     }
 
-    // New Test 15
+    // Existing Test 15
     [Fact]
     public async Task NullQuery_ShouldBeRejected()
     {
@@ -250,7 +250,7 @@ public sealed class AdvertisementServiceTests
                 Now));
     }
 
-    // New Test 16
+    // Existing Test 16
     [Fact]
     public async Task InvalidPlacementQuery_ShouldBeRejected()
     {
@@ -267,7 +267,7 @@ public sealed class AdvertisementServiceTests
                 Now));
     }
 
-    // New Test 17
+    // Existing Test 17
     [Fact]
     public async Task DistrictQuery_ShouldRejectUntilSupported()
     {
@@ -284,7 +284,7 @@ public sealed class AdvertisementServiceTests
                 Now));
     }
 
-    // New Test 18
+    // Existing Test 18
     [Fact]
     public async Task InvalidDistrictQuery_ShouldBeRejected()
     {
@@ -301,7 +301,29 @@ public sealed class AdvertisementServiceTests
                 Now));
     }
 
-    // Existing Helper Method
+    // NEW Tests 19, 20 and 21
+    // Draft, Paused, Archived must never be displayed.
+    [Theory]
+    [InlineData(AdvertisementStatus.Draft)]
+    [InlineData(AdvertisementStatus.Paused)]
+    [InlineData(AdvertisementStatus.Archived)]
+    public async Task NonActiveStatus_ShouldNotBeDisplayed(
+        AdvertisementStatus status)
+    {
+        var ad = CreateAd() with
+        {
+            Status = status,
+            IsEnabled = true
+        };
+
+        var service = CreateService(ad);
+
+        var result = await service.GetActiveAsync(Now);
+
+        Assert.Empty(result);
+    }
+
+    // Existing Helper Method - Updated Status
     private static AdvertisementDto CreateAd(
         bool enabled = true,
         int startMinutes = -10,
@@ -314,7 +336,10 @@ public sealed class AdvertisementServiceTests
             ImageUrl = "https://example.com/test.jpg",
             StartAtUtc = Now.AddMinutes(startMinutes),
             EndAtUtc = Now.AddMinutes(endMinutes),
-            IsEnabled = enabled
+            IsEnabled = enabled,
+            Status = enabled
+                ? AdvertisementStatus.Active
+                : AdvertisementStatus.Paused
         };
     }
 
