@@ -20,9 +20,8 @@ public sealed class HomeAdsAnalyticsServiceRegistrationTests
         services.AddHomeAdsAnalyticsFoundation();
 
         var registration = Assert.Single(
-            services.Where(x =>
-                x.ServiceType == typeof(IAdvertisementRepository)));
-
+    services,
+    x => x.ServiceType == typeof(IAdvertisementRepository));
         Assert.Equal(
             ServiceLifetime.Scoped,
             registration.Lifetime);
@@ -40,8 +39,8 @@ public sealed class HomeAdsAnalyticsServiceRegistrationTests
         services.AddHomeAdsAnalyticsFoundation();
 
         var registration = Assert.Single(
-            services.Where(x =>
-                x.ServiceType == typeof(AdvertisementService)));
+    services,
+    x => x.ServiceType == typeof(AdvertisementService));
 
         Assert.Equal(
             ServiceLifetime.Scoped,
