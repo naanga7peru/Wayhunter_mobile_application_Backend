@@ -491,6 +491,108 @@ public sealed class StartGameAttemptTests
         Assert.True(resumed.ResumedExistingAttempt);
     }
 
+    // =====================================
+    // M5-MS05-T07
+    // RECONNECT PRESERVES ATTEMPT
+    // =====================================
 
+    [Fact]
+    public async Task ReconnectNearDeadline_ShouldPreserveOriginalAttempt()
+    {
+        var (store, game, approvedAt) =
+            await CreatePublishedGameAsync();
+
+        var startedAt = approvedAt.AddMinutes(5);
+
+        var first = await store.StartOrResumeAsync(
+            game.Id,
+            "player-001",
+            startedAt);
+
+        // Reconnect one minute before deadline.
+        var reconnectAt =
+            first.DeadlineUtc.AddMinutes(-1);
+
+        var resumed = await store.StartOrResumeAsync(
+            game.Id,
+            "player-001",
+            reconnectAt);
+
+        Assert.True(resumed.ResumedExistingAttempt);
+        Assert.Equal(first.AttemptId, resumed.AttemptId);
+        Assert.Equal(first.StartedAtUtc, resumed.StartedAtUtc);
+        Assert.Equal(first.DeadlineUtc, resumed.DeadlineUtc);
+    }
+
+    // =====================================
+    // EXPIRED RECONNECT CANNOT RESET TIMER
+    // =====================================
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task ReconnectAfterDeadline_ShouldReject(
+        int secondsAfterDeadline)
+    {
+        var (store, game, approvedAt) =
+            await CreatePublishedGameAsync();
+
+        var startedAt = approvedAt.AddMinutes(5);
+
+        var first = await store.StartOrResumeAsync(
+            game.Id,
+            "player-001",
+            startedAt);
+
+        var reconnectAt =
+            first.DeadlineUtc.AddSeconds(
+                secondsAfterDeadline);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => store.StartOrResumeAsync(
+                game.Id,
+                "player-001",
+                reconnectAt));
+    }
+
+    // =====================================
+    // NON-UTC RECONNECT MUST BE REJECTED
+    // =====================================
+
+    [Fact]
+    public async Task ReconnectWithNonUtcTime_ShouldReject()
+    {
+        var (store, game, approvedAt) =
+            await CreatePublishedGameAsync();
+
+        var startedAt = approvedAt.AddMinutes(5);
+
+        var first = await store.StartOrResumeAsync(
+            game.Id,
+            "player-001",
+            startedAt);
+
+        // Same instant, different UTC offset.
+        var nonUtcReconnectTime =
+            startedAt.AddMinutes(10).ToOffset(
+                TimeSpan.FromHours(5.5));
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => store.StartOrResumeAsync(
+                game.Id,
+                "player-001",
+                nonUtcReconnectTime));
+
+        // The rejected request must not alter
+        // the original attempt or deadline.
+        var resumed = await store.StartOrResumeAsync(
+            game.Id,
+            "player-001",
+            startedAt.AddMinutes(10));
+
+        Assert.Equal(first.AttemptId, resumed.AttemptId);
+        Assert.Equal(first.DeadlineUtc, resumed.DeadlineUtc);
+        Assert.True(resumed.ResumedExistingAttempt);
+    }
 
 }
