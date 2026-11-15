@@ -32,7 +32,8 @@ public sealed class AdvertisementRepository : IAdvertisementRepository
                 StartAtUtc = ad.StartAtUtc,
                 EndAtUtc = ad.EndAtUtc,
                 IsEnabled = ad.IsEnabled,
-                Placement = ad.Placement
+                Placement = ad.Placement,
+                Status = ad.Status
             })
             .ToListAsync(cancellationToken);
 
@@ -56,7 +57,8 @@ public sealed class AdvertisementRepository : IAdvertisementRepository
                 StartAtUtc = ad.StartAtUtc,
                 EndAtUtc = ad.EndAtUtc,
                 IsEnabled = ad.IsEnabled,
-                Placement = ad.Placement
+                Placement = ad.Placement,
+                Status = ad.Status
             })
             .FirstOrDefaultAsync(cancellationToken);
     }

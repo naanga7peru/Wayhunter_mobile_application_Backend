@@ -22,4 +22,8 @@ public sealed record AdvertisementDto
     // HomeBanner or SponsoredPoi
     public AdvertisementPlacement Placement { get; init; }
         = AdvertisementPlacement.Unspecified;
+
+    // Draft, Active, Paused or Archived
+    public AdvertisementStatus Status { get; init; }
+        = AdvertisementStatus.Draft;
 }
