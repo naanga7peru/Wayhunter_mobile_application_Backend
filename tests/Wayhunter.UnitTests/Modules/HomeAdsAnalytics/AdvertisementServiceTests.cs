@@ -17,7 +17,7 @@ public sealed class AdvertisementServiceTests
     private static readonly DateTimeOffset Now =
         new(2026, 11, 13, 12, 0, 0, TimeSpan.Zero);
 
-    // Existing Test 1
+    // TEST 01 - Active advertisement
     [Fact]
     public async Task ActiveAd_IsReturned()
     {
@@ -29,7 +29,7 @@ public sealed class AdvertisementServiceTests
         Assert.Equal(ad.Id, result[0].Id);
     }
 
-    // Existing Test 2
+    // TEST 02 - Disabled advertisement
     [Fact]
     public async Task DisabledAd_IsExcluded()
     {
@@ -40,7 +40,7 @@ public sealed class AdvertisementServiceTests
         Assert.Empty(result);
     }
 
-    // Existing Test 3
+    // TEST 03 - Future advertisement
     [Fact]
     public async Task FutureAd_IsExcluded()
     {
@@ -53,7 +53,7 @@ public sealed class AdvertisementServiceTests
         Assert.Empty(result);
     }
 
-    // Existing Test 4
+    // TEST 04 - Expired advertisement
     [Fact]
     public async Task ExpiredAd_IsExcluded()
     {
@@ -66,7 +66,7 @@ public sealed class AdvertisementServiceTests
         Assert.Empty(result);
     }
 
-    // Existing Test 5
+    // TEST 05 - Exact expiry boundary
     [Fact]
     public async Task AdAtExactExpiry_IsExcluded()
     {
@@ -79,7 +79,7 @@ public sealed class AdvertisementServiceTests
         Assert.Empty(result);
     }
 
-    // Existing Test 6
+    // TEST 06 - Home banner placement
     [Fact]
     public async Task HomeBanner_ShouldReturnOnlyHomeBannerAds()
     {
@@ -104,7 +104,7 @@ public sealed class AdvertisementServiceTests
         Assert.Equal(homeAd.Id, returnedAd.Id);
     }
 
-    // Existing Test 7
+    // TEST 07 - Sponsored POI placement
     [Fact]
     public async Task SponsoredPoi_ShouldReturnOnlySponsoredPoiAds()
     {
@@ -129,7 +129,7 @@ public sealed class AdvertisementServiceTests
         Assert.Equal(poiAd.Id, returnedAd.Id);
     }
 
-    // Existing Test 8
+    // TEST 08 - Disabled placement
     [Fact]
     public async Task DisabledAd_ShouldNotAppearInPlacementResults()
     {
@@ -147,7 +147,7 @@ public sealed class AdvertisementServiceTests
         Assert.Empty(result);
     }
 
-    // Existing Tests 9 and 10
+    // TESTS 09-10 - Invalid placement
     [Theory]
     [InlineData(0)]
     [InlineData(999)]
@@ -162,7 +162,7 @@ public sealed class AdvertisementServiceTests
                 (AdvertisementPlacement)placement));
     }
 
-    // Existing Test 11
+    // TEST 11 - Empty query
     [Fact]
     public async Task EmptyQuery_ShouldReturnOnlyActiveAds()
     {
@@ -181,7 +181,7 @@ public sealed class AdvertisementServiceTests
         Assert.Equal(activeAd.Id, returnedAd.Id);
     }
 
-    // Existing Tests 12 and 13
+    // TESTS 12-13 - Query placement filtering
     [Theory]
     [InlineData(AdvertisementPlacement.HomeBanner)]
     [InlineData(AdvertisementPlacement.SponsoredPoi)]
@@ -214,7 +214,7 @@ public sealed class AdvertisementServiceTests
         Assert.Equal(placement, returnedAd.Placement);
     }
 
-    // Existing Test 14
+    // TEST 14 - Query UTC time
     [Fact]
     public async Task Query_ShouldUseSpecifiedUtcTime()
     {
@@ -236,7 +236,7 @@ public sealed class AdvertisementServiceTests
         Assert.Single(result);
     }
 
-    // Existing Test 15
+    // TEST 15 - Null query
     [Fact]
     public async Task NullQuery_ShouldBeRejected()
     {
@@ -248,7 +248,7 @@ public sealed class AdvertisementServiceTests
                 Now));
     }
 
-    // Existing Test 16
+    // TEST 16 - Invalid placement query
     [Fact]
     public async Task InvalidPlacementQuery_ShouldBeRejected()
     {
@@ -265,7 +265,7 @@ public sealed class AdvertisementServiceTests
                 Now));
     }
 
-    // Existing Test 17
+    // TEST 17 - District fail-closed
     [Fact]
     public async Task DistrictQuery_ShouldRejectUntilSupported()
     {
@@ -282,7 +282,7 @@ public sealed class AdvertisementServiceTests
                 Now));
     }
 
-    // Existing Test 18
+    // TEST 18 - Invalid district
     [Fact]
     public async Task InvalidDistrictQuery_ShouldBeRejected()
     {
@@ -299,7 +299,7 @@ public sealed class AdvertisementServiceTests
                 Now));
     }
 
-    // Existing Tests 19, 20 and 21
+    // TESTS 19-21 - Non-active lifecycle status
     [Theory]
     [InlineData(AdvertisementStatus.Draft)]
     [InlineData(AdvertisementStatus.Paused)]
@@ -320,7 +320,7 @@ public sealed class AdvertisementServiceTests
         Assert.Empty(result);
     }
 
-    // NEW Tests 22, 23 and 24
+    // TESTS 22-24 - Non-active placement results
     [Theory]
     [InlineData(AdvertisementStatus.Draft)]
     [InlineData(AdvertisementStatus.Paused)]
@@ -344,7 +344,7 @@ public sealed class AdvertisementServiceTests
         Assert.Empty(result);
     }
 
-    // NEW Tests 25, 26 and 27
+    // TESTS 25-27 - Non-active query results
     [Theory]
     [InlineData(AdvertisementStatus.Draft)]
     [InlineData(AdvertisementStatus.Paused)]
@@ -373,7 +373,126 @@ public sealed class AdvertisementServiceTests
         Assert.Empty(result);
     }
 
-    // Existing Helper Method
+    // TEST 28 - Exact start boundary
+    [Fact]
+    public async Task AdAtExactStart_ShouldBeIncluded()
+    {
+        var ad = CreateAd(
+            startMinutes: 0,
+            endMinutes: 10);
+
+        var service = CreateService(ad);
+
+        var result = await service.GetActiveAsync(Now);
+
+        var returnedAd = Assert.Single(result);
+
+        Assert.Equal(ad.Id, returnedAd.Id);
+    }
+
+    // TEST 29 - Combined UTC time and placement
+    [Fact]
+    public async Task Query_ShouldApplyTimeAndPlacementTogether()
+    {
+        var homeAd = CreateAd(
+            startMinutes: 10,
+            endMinutes: 30) with
+        {
+            Placement = AdvertisementPlacement.HomeBanner
+        };
+
+        var poiAd = CreateAd(
+            startMinutes: 10,
+            endMinutes: 30) with
+        {
+            Placement = AdvertisementPlacement.SponsoredPoi
+        };
+
+        var service = CreateService(homeAd, poiAd);
+
+        var request = new AdvertisementActiveQueryRequest
+        {
+            AtUtc = Now.AddMinutes(15),
+            Placement = AdvertisementPlacement.HomeBanner
+        };
+
+        var result = await service.GetActiveByQueryAsync(
+            request,
+            Now);
+
+        var returnedAd = Assert.Single(result);
+
+        Assert.Equal(homeAd.Id, returnedAd.Id);
+    }
+
+    // TEST 30 - Invalid query does not read repository
+    [Fact]
+    public async Task InvalidQuery_ShouldNotAccessRepository()
+    {
+        var repository = new RecordingAdvertisementRepository();
+
+        var service = new AdvertisementService(repository);
+
+        var request = new AdvertisementActiveQueryRequest
+        {
+            Placement = (AdvertisementPlacement)999
+        };
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => service.GetActiveByQueryAsync(
+                request,
+                Now));
+
+        Assert.Equal(0, repository.ReadCount);
+    }
+
+    // TEST 31 - District query does not read repository
+    [Fact]
+    public async Task DistrictQuery_ShouldNotAccessRepository()
+    {
+        var repository = new RecordingAdvertisementRepository();
+
+        var service = new AdvertisementService(repository);
+
+        var request = new AdvertisementActiveQueryRequest
+        {
+            District = "Jaffna"
+        };
+
+        await Assert.ThrowsAsync<NotSupportedException>(
+            () => service.GetActiveByQueryAsync(
+                request,
+                Now));
+
+        Assert.Equal(0, repository.ReadCount);
+    }
+
+    // TEST 32 - CancellationToken forwarding
+    [Fact]
+    public async Task Query_ShouldForwardCancellationToken()
+    {
+        var repository = new RecordingAdvertisementRepository();
+
+        var service = new AdvertisementService(repository);
+
+        using var cancellation =
+            new CancellationTokenSource();
+
+        var request = new AdvertisementActiveQueryRequest();
+
+        await service.GetActiveByQueryAsync(
+            request,
+            Now,
+            cancellation.Token);
+
+        Assert.Equal(1, repository.ReadCount);
+
+        Assert.Equal(
+            cancellation.Token,
+            repository.LastCancellationToken);
+    }
+
+    // Existing advertisement test data helper
     private static AdvertisementDto CreateAd(
         bool enabled = true,
         int startMinutes = -10,
@@ -393,7 +512,6 @@ public sealed class AdvertisementServiceTests
         };
     }
 
-    // Existing Helper Method
     private static AdvertisementService CreateService(
         params AdvertisementDto[] ads)
     {
@@ -401,7 +519,7 @@ public sealed class AdvertisementServiceTests
             new FakeAdvertisementRepository(ads));
     }
 
-    // Existing Fake Repository
+    // Existing fake repository
     private sealed class FakeAdvertisementRepository
         : IAdvertisementRepository
     {
@@ -425,6 +543,38 @@ public sealed class AdvertisementServiceTests
         {
             return Task.FromResult(
                 _ads.FirstOrDefault(ad => ad.Id == id));
+        }
+    }
+
+    // New recording repository for safety checks
+    private sealed class RecordingAdvertisementRepository
+        : IAdvertisementRepository
+    {
+        public int ReadCount { get; private set; }
+
+        public CancellationToken LastCancellationToken
+        {
+            get;
+            private set;
+        }
+
+        public Task<IReadOnlyList<AdvertisementDto>> GetAllAsync(
+            CancellationToken cancellationToken = default)
+        {
+            ReadCount++;
+            LastCancellationToken = cancellationToken;
+
+            IReadOnlyList<AdvertisementDto> advertisements =
+                Array.Empty<AdvertisementDto>();
+
+            return Task.FromResult(advertisements);
+        }
+
+        public Task<AdvertisementDto?> GetByIdAsync(
+            Guid id,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<AdvertisementDto?>(null);
         }
     }
 }
