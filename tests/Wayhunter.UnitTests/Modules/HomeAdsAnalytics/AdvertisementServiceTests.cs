@@ -167,11 +167,9 @@ public sealed class AdvertisementServiceTests
     public async Task EmptyQuery_ShouldReturnOnlyActiveAds()
     {
         var activeAd = CreateAd();
-
         var disabledAd = CreateAd(enabled: false);
 
         var service = CreateService(activeAd, disabledAd);
-
         var request = new AdvertisementActiveQueryRequest();
 
         var result = await service.GetActiveByQueryAsync(
@@ -301,8 +299,7 @@ public sealed class AdvertisementServiceTests
                 Now));
     }
 
-    // NEW Tests 19, 20 and 21
-    // Draft, Paused, Archived must never be displayed.
+    // Existing Tests 19, 20 and 21
     [Theory]
     [InlineData(AdvertisementStatus.Draft)]
     [InlineData(AdvertisementStatus.Paused)]
@@ -323,7 +320,60 @@ public sealed class AdvertisementServiceTests
         Assert.Empty(result);
     }
 
-    // Existing Helper Method - Updated Status
+    // NEW Tests 22, 23 and 24
+    [Theory]
+    [InlineData(AdvertisementStatus.Draft)]
+    [InlineData(AdvertisementStatus.Paused)]
+    [InlineData(AdvertisementStatus.Archived)]
+    public async Task NonActiveStatus_ShouldBeExcludedFromPlacementResults(
+        AdvertisementStatus status)
+    {
+        var ad = CreateAd() with
+        {
+            Placement = AdvertisementPlacement.HomeBanner,
+            Status = status,
+            IsEnabled = true
+        };
+
+        var service = CreateService(ad);
+
+        var result = await service.GetActiveByPlacementAsync(
+            Now,
+            AdvertisementPlacement.HomeBanner);
+
+        Assert.Empty(result);
+    }
+
+    // NEW Tests 25, 26 and 27
+    [Theory]
+    [InlineData(AdvertisementStatus.Draft)]
+    [InlineData(AdvertisementStatus.Paused)]
+    [InlineData(AdvertisementStatus.Archived)]
+    public async Task NonActiveStatus_ShouldBeExcludedFromQueryResults(
+        AdvertisementStatus status)
+    {
+        var ad = CreateAd() with
+        {
+            Placement = AdvertisementPlacement.SponsoredPoi,
+            Status = status,
+            IsEnabled = true
+        };
+
+        var service = CreateService(ad);
+
+        var request = new AdvertisementActiveQueryRequest
+        {
+            Placement = AdvertisementPlacement.SponsoredPoi
+        };
+
+        var result = await service.GetActiveByQueryAsync(
+            request,
+            Now);
+
+        Assert.Empty(result);
+    }
+
+    // Existing Helper Method
     private static AdvertisementDto CreateAd(
         bool enabled = true,
         int startMinutes = -10,
