@@ -12,8 +12,10 @@ using Wayhunter.Domain.Modules.Games.Services;
 namespace Wayhunter.Infrastructure.Persistence.Repositories.Games;
 
 /// <summary>
-/// M5-MS04-T05
+/// M5-MS04-T05 / M5-MS05-T03
 /// In-memory Game Attempt start and resume.
+/// Uses shared server deadline validation rules.
+///
 /// SQL persistence remains on migration HOLD.
 /// </summary>
 public sealed partial class InMemoryGameSubmissionStore
@@ -37,7 +39,10 @@ public sealed partial class InMemoryGameSubmissionStore
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Validate request.
+        // =====================================
+        // VALIDATE REQUEST
+        // =====================================
+
         if (gameId == Guid.Empty)
         {
             throw new ArgumentException(
@@ -66,24 +71,25 @@ public sealed partial class InMemoryGameSubmissionStore
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Find requested game.
+            // =====================================
+            // LOAD GAME
+            // =====================================
+
             if (!_games.TryGetValue(gameId, out var game))
             {
                 throw new KeyNotFoundException(
                     "Game not found.");
             }
 
-            // Existing domain rules:
-            // - Creator cannot play own game.
-            // - Published Game only.
-            // - No expired or disabled Game.
-            // - No flagged or winner-closed Game.
+            // Reuse existing Game eligibility rules.
+            // Creator, expired, disabled, flagged and
+            // winner-closed Games are blocked.
             GamePlayRules.EnsureCanStart(
                 game,
                 cleanPlayerId,
                 nowUtc);
 
-            // Do not allow play before approval time.
+            // Admin approval must be effective.
             if (!game.ApprovedAtUtc.HasValue ||
                 game.ApprovedAtUtc.Value > nowUtc)
             {
@@ -101,22 +107,22 @@ public sealed partial class InMemoryGameSubmissionStore
 
             var key = (gameId, cleanPlayerId);
 
-            // =================================
-            // EXISTING ATTEMPT
-            // =================================
+            // =====================================
+            // EXISTING ATTEMPT - RESUME
+            // =====================================
 
             if (_gameAttempts.TryGetValue(
                 key,
                 out var existing))
             {
-                // An expired attempt must not resume.
-                if (nowUtc >= existing.DeadlineUtc)
-                {
-                    throw new InvalidOperationException(
-                        "Existing Game attempt deadline expired.");
-                }
+                // Validate both attempt start time
+                // and deadline using shared rules.
+                GameAttemptDeadlineRules.EnsureActive(
+                    existing.Attempt.StartedAtUtc,
+                    existing.DeadlineUtc,
+                    nowUtc);
 
-                // Only an active attempt can resume.
+                // Only active attempts can resume.
                 if (existing.Progress.Status !=
                         GameProgressStatus.InProgress &&
                     existing.Progress.Status !=
@@ -125,6 +131,8 @@ public sealed partial class InMemoryGameSubmissionStore
                     throw new InvalidOperationException(
                         "Existing Game attempt is not active.");
                 }
+
+                cancellationToken.ThrowIfCancellationRequested();
 
                 return Task.FromResult(
                     new StartGameAttemptResultDto(
@@ -140,34 +148,21 @@ public sealed partial class InMemoryGameSubmissionStore
                         ResumedExistingAttempt: true));
             }
 
-            // =================================
+            // =====================================
             // CALCULATE SERVER DEADLINE
-            // =================================
+            // =====================================
 
-            var remainingTime =
-                game.ExpiresAtUtc.Value - nowUtc;
-
-            if (remainingTime <= TimeSpan.Zero)
-            {
-                throw new InvalidOperationException(
-                    "Game has already expired.");
-            }
-
-            var requestedDuration = TimeSpan.FromMinutes(
-                game.DurationMinutes.Value);
-
-            // Deadline must not exceed Game expiry.
-            var allowedDuration =
-                requestedDuration <= remainingTime
-                    ? requestedDuration
-                    : remainingTime;
-
+            // Deadline cannot exceed Game expiry.
+            // Reuses shared deadline calculation.
             var deadlineUtc =
-                nowUtc.Add(allowedDuration);
+                GameAttemptDeadlineRules.CalculateDeadlineUtc(
+                    nowUtc,
+                    game.DurationMinutes.Value,
+                    game.ExpiresAtUtc.Value);
 
-            // =================================
+            // =====================================
             // CREATE NEW ATTEMPT
-            // =================================
+            // =====================================
 
             var attempt = new GameAttempt(
                 Guid.NewGuid(),
@@ -183,8 +178,8 @@ public sealed partial class InMemoryGameSubmissionStore
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Attempt and progress are inserted
-            // into the same in-memory record.
+            // Store attempt, progress and deadline.
+            // In-memory prototype only.
             _gameAttempts.Add(
                 key,
                 (attempt, progress, deadlineUtc));
