@@ -7,13 +7,16 @@ namespace Wayhunter.UnitTests.Modules.TripSafety;
 
 public sealed class TripMemberDtoTests
 {
+    private static readonly Guid TripPlanId =
+        Guid.Parse("11111111-1111-4111-8111-111111111111");
+
     private static readonly DateTimeOffset TestTime =
         new(2026, 11, 14, 8, 0, 0, TimeSpan.Zero);
 
     private static TripMemberDto CreateMember()
     {
         return TripMemberDto.Create(
-            "trip-001",
+            TripPlanId,
             "user-001",
             "Accepted",
             "invite-001",
@@ -26,7 +29,7 @@ public sealed class TripMemberDtoTests
     {
         var member = CreateMember();
 
-        Assert.Equal("trip-001", member.TripPlanId);
+        Assert.Equal(TripPlanId, member.TripPlanId);
         Assert.Equal("user-001", member.MemberUserId);
         Assert.Equal("Accepted", member.MembershipStatus);
         Assert.Equal("invite-001", member.InvitationReference);
@@ -38,7 +41,7 @@ public sealed class TripMemberDtoTests
     public void Invitation_May_Have_No_Acceptance_Time()
     {
         var member = TripMemberDto.Create(
-            "trip-001",
+            TripPlanId,
             "user-002",
             "Invited",
             "invite-002",
@@ -54,7 +57,7 @@ public sealed class TripMemberDtoTests
     {
         Assert.Throws<ArgumentException>(() =>
             TripMemberDto.Create(
-                " ",
+                Guid.Empty,
                 "user-001",
                 "Invited",
                 "invite-001",
@@ -67,7 +70,7 @@ public sealed class TripMemberDtoTests
     {
         Assert.Throws<ArgumentException>(() =>
             TripMemberDto.Create(
-                "trip-001",
+                TripPlanId,
                 "",
                 "Invited",
                 "invite-001",
@@ -80,7 +83,7 @@ public sealed class TripMemberDtoTests
     {
         Assert.Throws<ArgumentException>(() =>
             TripMemberDto.Create(
-                "trip-001",
+                TripPlanId,
                 "user-001",
                 "",
                 "invite-001",
@@ -93,7 +96,7 @@ public sealed class TripMemberDtoTests
     {
         Assert.Throws<ArgumentException>(() =>
             TripMemberDto.Create(
-                "trip-001",
+                TripPlanId,
                 "user-001",
                 "Invited",
                 "",
@@ -106,7 +109,7 @@ public sealed class TripMemberDtoTests
     {
         Assert.Throws<ArgumentException>(() =>
             TripMemberDto.Create(
-                "trip-001",
+                TripPlanId,
                 "user-001",
                 "Accepted",
                 "invite-001",
@@ -122,7 +125,7 @@ public sealed class TripMemberDtoTests
             TimeSpan.FromMinutes(330));
 
         var member = TripMemberDto.Create(
-            "trip-001",
+            TripPlanId,
             "user-001",
             "Accepted",
             "invite-001",

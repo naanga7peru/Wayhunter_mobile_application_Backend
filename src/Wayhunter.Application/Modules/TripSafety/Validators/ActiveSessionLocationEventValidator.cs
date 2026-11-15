@@ -8,24 +8,24 @@ namespace Wayhunter.Application.Modules.TripSafety.Validators;
 
 public static class ActiveSessionLocationEventValidator
 {
-    // Validate the session gate before publishing
-    // any live trip-location event.
+    // Validates the active session before publishing
+    // any live trip location event.
     //
     // Caller must separately verify:
-    // - Authenticated user / trip membership
-    // - Explicit, current GPS sharing consent
-    // - Permission to access the recipient group
+    // - Authenticated user and trip membership
+    // - Explicit GPS sharing consent
+    // - Recipient group access
     //
-    // This must NOT be used to block planned-route
-    // hazard alerts. Those may apply before a trip starts.
+    // Planned-route hazard alerts are separate.
+
     public static void EnsureCanPublish(
         LiveTripSession? session,
-        string? expectedTripPlanId)
+        Guid expectedTripPlanId)
     {
-        if (string.IsNullOrWhiteSpace(expectedTripPlanId))
+        if (expectedTripPlanId == Guid.Empty)
         {
             throw new ArgumentException(
-                "Trip Plan ID is required.",
+                "Valid Trip Plan ID is required.",
                 nameof(expectedTripPlanId));
         }
 
@@ -35,10 +35,7 @@ public static class ActiveSessionLocationEventValidator
                 "Live trip session was not found.");
         }
 
-        if (!string.Equals(
-            session.TripPlanId,
-            expectedTripPlanId.Trim(),
-            StringComparison.Ordinal))
+        if (session.TripPlanId != expectedTripPlanId)
         {
             throw new UnauthorizedAccessException(
                 "Session does not belong to this trip.");

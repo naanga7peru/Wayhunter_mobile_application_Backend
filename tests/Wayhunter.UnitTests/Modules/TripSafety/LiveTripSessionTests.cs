@@ -1,4 +1,5 @@
 
+using System;
 using Wayhunter.Domain.Modules.TripSafety.Entities;
 using Wayhunter.Domain.Modules.TripSafety.Enums;
 using Xunit;
@@ -7,6 +8,10 @@ namespace Wayhunter.UnitTests.Modules.TripSafety;
 
 public sealed class LiveTripSessionTests
 {
+    private static readonly Guid TripPlanId =
+        Guid.Parse(
+            "11111111-1111-4111-8111-111111111111");
+
     private static readonly DateTimeOffset StartTime =
         new(2026, 11, 13, 8, 0, 0, TimeSpan.Zero);
 
@@ -14,7 +19,7 @@ public sealed class LiveTripSessionTests
     {
         return LiveTripSession.Start(
             Guid.NewGuid(),
-            "plan-001",
+            TripPlanId,
             StartTime);
     }
 
@@ -23,11 +28,9 @@ public sealed class LiveTripSessionTests
     {
         var session = CreateSession();
 
-        Assert.Equal(
-            LiveTripStatus.Active,
-            session.Status);
-
-        Assert.Equal("plan-001", session.TripPlanId);
+        Assert.NotEqual(Guid.Empty, session.SessionId);
+        Assert.Equal(TripPlanId, session.TripPlanId);
+        Assert.Equal(LiveTripStatus.Active, session.Status);
         Assert.Equal(StartTime, session.StartedAtUtc);
         Assert.Null(session.FinishedAtUtc);
     }
@@ -126,7 +129,17 @@ public sealed class LiveTripSessionTests
         Assert.Throws<ArgumentException>(() =>
             LiveTripSession.Start(
                 Guid.NewGuid(),
-                "",
+                Guid.Empty,
+                StartTime));
+    }
+
+    [Fact]
+    public void Empty_SessionId_Should_Fail()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            LiveTripSession.Start(
+                Guid.Empty,
+                TripPlanId,
                 StartTime));
     }
 }

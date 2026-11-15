@@ -26,23 +26,21 @@ public sealed class LiveTripSessionService : ILiveTripSessionService
     }
 
     public async Task<LiveTripSession> StartAsync(
-        string tripPlanId,
+        Guid tripPlanId,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(tripPlanId))
+        if (tripPlanId == Guid.Empty)
         {
             throw new ArgumentException(
-                "Trip Plan ID is required.",
+                "Valid Trip Plan ID is required.",
                 nameof(tripPlanId));
         }
 
-        string normalizedTripPlanId = tripPlanId.Trim();
-
         var existing = await _repository.GetOpenByTripPlanIdAsync(
-            normalizedTripPlanId,
+            tripPlanId,
             cancellationToken);
 
-        // Sequential repeated Start is idempotent.
+        // Repeated Start returns the existing session.
         if (existing != null)
         {
             return existing;
@@ -50,7 +48,7 @@ public sealed class LiveTripSessionService : ILiveTripSessionService
 
         var session = LiveTripSession.Start(
             Guid.NewGuid(),
-            normalizedTripPlanId,
+            tripPlanId,
             _timeProvider.GetUtcNow());
 
         try
@@ -64,14 +62,11 @@ public sealed class LiveTripSessionService : ILiveTripSessionService
         catch (InvalidOperationException)
             when (!cancellationToken.IsCancellationRequested)
         {
-            // Best-effort recovery from an in-memory
-            // duplicate-open-session collision.
-            //
-            // SQL persistence needs its own atomic
-            // unique constraint and exception handling.
+            // Best-effort in-memory duplicate recovery.
+            // SQL collision handling is pending.
             var concurrentSession =
                 await _repository.GetOpenByTripPlanIdAsync(
-                    normalizedTripPlanId,
+                    tripPlanId,
                     cancellationToken);
 
             if (concurrentSession != null)
@@ -79,7 +74,6 @@ public sealed class LiveTripSessionService : ILiveTripSessionService
                 return concurrentSession;
             }
 
-            // Do not hide unrelated repository failures.
             throw;
         }
     }

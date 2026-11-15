@@ -9,6 +9,12 @@ namespace Wayhunter.UnitTests.Modules.TripSafety;
 
 public sealed class GroupLiveLocationPublishValidatorTests
 {
+    private static readonly Guid TripPlanId =
+        Guid.Parse("11111111-1111-4111-8111-111111111111");
+
+    private static readonly Guid AnotherTripPlanId =
+        Guid.Parse("22222222-2222-4222-8222-222222222222");
+
     private static readonly DateTimeOffset StartTime =
         new(2026, 11, 14, 8, 0, 0, TimeSpan.Zero);
 
@@ -16,7 +22,7 @@ public sealed class GroupLiveLocationPublishValidatorTests
     {
         return LiveTripSession.Start(
             Guid.NewGuid(),
-            "plan-001",
+            TripPlanId,
             StartTime);
     }
 
@@ -41,7 +47,11 @@ public sealed class GroupLiveLocationPublishValidatorTests
 
         var error = Record.Exception(() =>
             GroupLiveLocationPublishValidator.EnsureCanPublish(
-                session, consent, "plan-001", "user-001", true));
+                session,
+                consent,
+                TripPlanId,
+                "user-001",
+                true));
 
         Assert.Null(error);
     }
@@ -56,7 +66,11 @@ public sealed class GroupLiveLocationPublishValidatorTests
 
         Assert.Throws<InvalidOperationException>(() =>
             GroupLiveLocationPublishValidator.EnsureCanPublish(
-                session, consent, "plan-001", "user-001", true));
+                session,
+                consent,
+                TripPlanId,
+                "user-001",
+                true));
     }
 
     [Fact]
@@ -69,7 +83,11 @@ public sealed class GroupLiveLocationPublishValidatorTests
 
         Assert.Throws<InvalidOperationException>(() =>
             GroupLiveLocationPublishValidator.EnsureCanPublish(
-                session, consent, "plan-001", "user-001", true));
+                session,
+                consent,
+                TripPlanId,
+                "user-001",
+                true));
     }
 
     [Fact]
@@ -80,7 +98,11 @@ public sealed class GroupLiveLocationPublishValidatorTests
 
         Assert.Throws<UnauthorizedAccessException>(() =>
             GroupLiveLocationPublishValidator.EnsureCanPublish(
-                session, consent, "plan-001", "user-001", false));
+                session,
+                consent,
+                TripPlanId,
+                "user-001",
+                false));
     }
 
     [Fact]
@@ -94,7 +116,11 @@ public sealed class GroupLiveLocationPublishValidatorTests
 
         Assert.Throws<UnauthorizedAccessException>(() =>
             GroupLiveLocationPublishValidator.EnsureCanPublish(
-                session, consent, "plan-001", "user-001", true));
+                session,
+                consent,
+                TripPlanId,
+                "user-001",
+                true));
     }
 
     [Fact]
@@ -107,7 +133,11 @@ public sealed class GroupLiveLocationPublishValidatorTests
 
         Assert.Throws<UnauthorizedAccessException>(() =>
             GroupLiveLocationPublishValidator.EnsureCanPublish(
-                session, consent, "plan-001", "user-001", true));
+                session,
+                consent,
+                TripPlanId,
+                "user-001",
+                true));
     }
 
     [Fact]
@@ -123,7 +153,11 @@ public sealed class GroupLiveLocationPublishValidatorTests
 
         Assert.Throws<UnauthorizedAccessException>(() =>
             GroupLiveLocationPublishValidator.EnsureCanPublish(
-                session, consent, "plan-001", "user-001", true));
+                session,
+                consent,
+                TripPlanId,
+                "user-001",
+                true));
     }
 
     [Fact]
@@ -137,7 +171,11 @@ public sealed class GroupLiveLocationPublishValidatorTests
 
         Assert.Throws<UnauthorizedAccessException>(() =>
             GroupLiveLocationPublishValidator.EnsureCanPublish(
-                session, consent, "plan-001", "user-001", true));
+                session,
+                consent,
+                TripPlanId,
+                "user-001",
+                true));
     }
 
     [Fact]
@@ -147,7 +185,11 @@ public sealed class GroupLiveLocationPublishValidatorTests
 
         Assert.Throws<UnauthorizedAccessException>(() =>
             GroupLiveLocationPublishValidator.EnsureCanPublish(
-                session, null, "plan-001", "user-001", true));
+                session,
+                null,
+                TripPlanId,
+                "user-001",
+                true));
     }
 
     [Fact]
@@ -155,7 +197,11 @@ public sealed class GroupLiveLocationPublishValidatorTests
     {
         Assert.Throws<KeyNotFoundException>(() =>
             GroupLiveLocationPublishValidator.EnsureCanPublish(
-                null, null, "plan-001", "user-001", true));
+                null,
+                null,
+                TripPlanId,
+                "user-001",
+                true));
     }
 
     [Fact]
@@ -166,7 +212,11 @@ public sealed class GroupLiveLocationPublishValidatorTests
 
         Assert.Throws<UnauthorizedAccessException>(() =>
             GroupLiveLocationPublishValidator.EnsureCanPublish(
-                session, consent, "plan-002", "user-001", true));
+                session,
+                consent,
+                AnotherTripPlanId,
+                "user-001",
+                true));
     }
 
     [Theory]
@@ -181,7 +231,11 @@ public sealed class GroupLiveLocationPublishValidatorTests
 
         Assert.Throws<UnauthorizedAccessException>(() =>
             GroupLiveLocationPublishValidator.EnsureCanPublish(
-                session, consent, "plan-001", userId, true));
+                session,
+                consent,
+                TripPlanId,
+                userId,
+                true));
     }
 
     [Fact]
@@ -194,26 +248,26 @@ public sealed class GroupLiveLocationPublishValidatorTests
             GroupLiveLocationPublishValidator.EnsureCanPublish(
                 session,
                 consent,
-                "plan-001",
+                TripPlanId,
                 "  user-001  ",
                 true));
 
         Assert.Null(error);
     }
 
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    public void Missing_TripPlanId_Should_Fail(
-        string? tripPlanId)
+    [Fact]
+    public void Empty_TripPlanId_Should_Fail()
     {
         var session = CreateSession();
         var consent = CreateGrantedConsent(session);
 
         Assert.Throws<ArgumentException>(() =>
             GroupLiveLocationPublishValidator.EnsureCanPublish(
-                session, consent, tripPlanId, "user-001", true));
+                session,
+                consent,
+                Guid.Empty,
+                "user-001",
+                true));
     }
 
     [Fact]
@@ -227,7 +281,11 @@ public sealed class GroupLiveLocationPublishValidatorTests
 
         var error = Record.Exception(() =>
             GroupLiveLocationPublishValidator.EnsureCanPublish(
-                session, consent, "plan-001", "user-001", true));
+                session,
+                consent,
+                TripPlanId,
+                "user-001",
+                true));
 
         Assert.Null(error);
         Assert.True(consent.IsGranted);

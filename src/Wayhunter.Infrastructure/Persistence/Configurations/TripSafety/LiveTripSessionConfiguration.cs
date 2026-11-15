@@ -22,10 +22,9 @@ public sealed class LiveTripSessionConfiguration
         builder.Property(x => x.SessionId)
             .ValueGeneratedNever();
 
-        // Temporary string mapping.
-        // M2 TripPlan.Id is Guid; contract review required.
+        // Aligned with M2 TripPlan.Id (Guid).
         builder.Property(x => x.TripPlanId)
-            .HasMaxLength(128)
+            .HasColumnType("uniqueidentifier")
             .IsRequired();
 
         builder.Property(x => x.Status)
@@ -40,6 +39,7 @@ public sealed class LiveTripSessionConfiguration
             .HasColumnType("datetimeoffset")
             .IsRequired(false);
 
+        // Only one Active or Paused session per trip.
         builder.HasIndex(x => x.TripPlanId)
             .IsUnique()
             .HasDatabaseName(

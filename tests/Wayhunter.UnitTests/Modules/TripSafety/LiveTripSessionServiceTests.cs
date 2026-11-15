@@ -13,6 +13,12 @@ namespace Wayhunter.UnitTests.Modules.TripSafety;
 
 public sealed class LiveTripSessionServiceTests
 {
+    private static readonly Guid TripPlanId =
+        Guid.Parse("11111111-1111-4111-8111-111111111111");
+
+    private static readonly Guid AnotherTripPlanId =
+        Guid.Parse("22222222-2222-4222-8222-222222222222");
+
     private static (
         LiveTripSessionService Service,
         FakeLiveTripSessionRepository Repository)
@@ -32,22 +38,26 @@ public sealed class LiveTripSessionServiceTests
     {
         var (service, repository) = CreateService();
 
-        var session = await service.StartAsync("plan-001");
+        var session = await service.StartAsync(TripPlanId);
 
         Assert.NotEqual(Guid.Empty, session.SessionId);
-        Assert.Equal("plan-001", session.TripPlanId);
+        Assert.Equal(TripPlanId, session.TripPlanId);
         Assert.Equal(LiveTripStatus.Active, session.Status);
         Assert.Equal(1, repository.AddCount);
     }
 
     [Fact]
-    public async Task Start_Should_Trim_TripPlanId()
+    public async Task Start_With_Different_TripPlanId_Should_Create_Different_Session()
     {
-        var (service, _) = CreateService();
+        var (service, repository) = CreateService();
 
-        var session = await service.StartAsync("  plan-001  ");
+        var first = await service.StartAsync(TripPlanId);
+        var second = await service.StartAsync(AnotherTripPlanId);
 
-        Assert.Equal("plan-001", session.TripPlanId);
+        Assert.NotEqual(first.SessionId, second.SessionId);
+        Assert.Equal(TripPlanId, first.TripPlanId);
+        Assert.Equal(AnotherTripPlanId, second.TripPlanId);
+        Assert.Equal(2, repository.AddCount);
     }
 
     [Fact]
@@ -56,18 +66,16 @@ public sealed class LiveTripSessionServiceTests
         var (service, _) = CreateService();
 
         await Assert.ThrowsAsync<ArgumentException>(
-            () => service.StartAsync("  "));
+            () => service.StartAsync(Guid.Empty));
     }
 
-    // NEW: Repeated Start returns the same Active session.
     [Fact]
     public async Task Repeated_Start_Should_Return_Existing_Active_Session()
     {
         var (service, repository) = CreateService();
 
-        var first = await service.StartAsync("plan-001");
-
-        var second = await service.StartAsync("  plan-001  ");
+        var first = await service.StartAsync(TripPlanId);
+        var second = await service.StartAsync(TripPlanId);
 
         Assert.Equal(first.SessionId, second.SessionId);
         Assert.Same(first, second);
@@ -75,17 +83,16 @@ public sealed class LiveTripSessionServiceTests
         Assert.Equal(1, repository.AddCount);
     }
 
-    // NEW: Repeated Start returns the same Paused session.
     [Fact]
     public async Task Repeated_Start_Should_Return_Existing_Paused_Session()
     {
         var (service, repository) = CreateService();
 
-        var first = await service.StartAsync("plan-001");
+        var first = await service.StartAsync(TripPlanId);
 
         await service.PauseAsync(first.SessionId);
 
-        var second = await service.StartAsync("plan-001");
+        var second = await service.StartAsync(TripPlanId);
 
         Assert.Equal(first.SessionId, second.SessionId);
         Assert.Same(first, second);
@@ -98,7 +105,7 @@ public sealed class LiveTripSessionServiceTests
     {
         var (service, repository) = CreateService();
 
-        var session = await service.StartAsync("plan-001");
+        var session = await service.StartAsync(TripPlanId);
 
         var paused = await service.PauseAsync(session.SessionId);
 
@@ -111,7 +118,7 @@ public sealed class LiveTripSessionServiceTests
     {
         var (service, repository) = CreateService();
 
-        var session = await service.StartAsync("plan-001");
+        var session = await service.StartAsync(TripPlanId);
 
         await service.PauseAsync(session.SessionId);
 
@@ -126,7 +133,7 @@ public sealed class LiveTripSessionServiceTests
     {
         var (service, repository) = CreateService();
 
-        var session = await service.StartAsync("plan-001");
+        var session = await service.StartAsync(TripPlanId);
 
         var finished = await service.FinishAsync(session.SessionId);
 
@@ -140,7 +147,7 @@ public sealed class LiveTripSessionServiceTests
     {
         var (service, _) = CreateService();
 
-        var session = await service.StartAsync("plan-001");
+        var session = await service.StartAsync(TripPlanId);
 
         await service.PauseAsync(session.SessionId);
 
@@ -154,7 +161,7 @@ public sealed class LiveTripSessionServiceTests
     {
         var (service, repository) = CreateService();
 
-        var session = await service.StartAsync("plan-001");
+        var session = await service.StartAsync(TripPlanId);
 
         var first = await service.FinishAsync(session.SessionId);
 
@@ -189,19 +196,19 @@ public sealed class LiveTripSessionServiceTests
     {
         var (service, repository) = CreateService();
 
-        var first = await service.StartAsync("plan-001");
+        var first = await service.StartAsync(TripPlanId);
 
         await service.FinishAsync(first.SessionId);
 
-        var second = await service.StartAsync("plan-001");
+        var second = await service.StartAsync(TripPlanId);
 
         Assert.NotEqual(first.SessionId, second.SessionId);
         Assert.Equal(LiveTripStatus.Active, second.Status);
         Assert.Equal(2, repository.AddCount);
     }
 
-    // Fake repository for unit testing only.
-    // This does not connect to SQL Server.
+    // Fake repository for unit tests only.
+    // No SQL Server connection is required.
     private sealed class FakeLiveTripSessionRepository
         : ILiveTripSessionRepository
     {
@@ -226,7 +233,7 @@ public sealed class LiveTripSessionServiceTests
         }
 
         public Task<LiveTripSession?> GetOpenByTripPlanIdAsync(
-            string tripPlanId,
+            Guid tripPlanId,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();

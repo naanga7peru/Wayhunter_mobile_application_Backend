@@ -13,17 +13,26 @@ namespace Wayhunter.UnitTests.Modules.TripSafety;
 
 public sealed class LiveTripSessionRecoveryServiceTests
 {
+    private static readonly Guid TripPlanId =
+        Guid.Parse("11111111-1111-4111-8111-111111111111");
+
+    private static readonly DateTimeOffset StartTime =
+        new(2026, 11, 14, 8, 0, 0, TimeSpan.Zero);
+
     private sealed class FakeRecoveryAccessChecker
         : ITripSessionRecoveryAccessChecker
     {
         public bool AllowAccess { get; set; } = true;
+
         public int CallCount { get; private set; }
+
         public string? LastUserId { get; private set; }
-        public string? LastTripPlanId { get; private set; }
+
+        public Guid? LastTripPlanId { get; private set; }
 
         public Task<bool> CanRecoverAsync(
             string authenticatedUserId,
-            string tripPlanId,
+            Guid tripPlanId,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -57,9 +66,8 @@ public sealed class LiveTripSessionRecoveryServiceTests
 
         var session = LiveTripSession.Start(
             Guid.NewGuid(),
-            "plan-001",
-            new DateTimeOffset(
-                2026, 11, 14, 8, 0, 0, TimeSpan.Zero));
+            TripPlanId,
+            StartTime);
 
         await repository.AddAsync(session);
 
@@ -78,7 +86,7 @@ public sealed class LiveTripSessionRecoveryServiceTests
 
         Assert.NotNull(result);
         Assert.Equal(session.SessionId, result.SessionId);
-        Assert.Equal("plan-001", result.TripPlanId);
+        Assert.Equal(TripPlanId, result.TripPlanId);
         Assert.Equal(LiveTripStatus.Active, result.Status);
         Assert.Equal(1, checker.CallCount);
     }
@@ -98,6 +106,7 @@ public sealed class LiveTripSessionRecoveryServiceTests
         Assert.NotNull(result);
         Assert.Equal(LiveTripStatus.Paused, result.Status);
         Assert.Equal(session.SessionId, result.SessionId);
+        Assert.Equal(TripPlanId, result.TripPlanId);
     }
 
     [Fact]
@@ -106,8 +115,7 @@ public sealed class LiveTripSessionRecoveryServiceTests
         var (service, _, checker, session) =
             await CreateAsync();
 
-        session.Finish(new DateTimeOffset(
-            2026, 11, 14, 9, 0, 0, TimeSpan.Zero));
+        session.Finish(StartTime.AddHours(1));
 
         var result = await service.RecoverAsync(
             session.SessionId,
@@ -123,11 +131,10 @@ public sealed class LiveTripSessionRecoveryServiceTests
         var (service, _, checker, session) =
             await CreateAsync(allowAccess: false);
 
-        await Assert.ThrowsAsync<
-            UnauthorizedAccessException>(() =>
-                service.RecoverAsync(
-                    session.SessionId,
-                    "unauthorized-user"));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => service.RecoverAsync(
+                session.SessionId,
+                "unauthorized-user"));
 
         Assert.Equal(1, checker.CallCount);
     }
@@ -142,11 +149,10 @@ public sealed class LiveTripSessionRecoveryServiceTests
         var (service, _, checker, session) =
             await CreateAsync();
 
-        await Assert.ThrowsAsync<
-            UnauthorizedAccessException>(() =>
-                service.RecoverAsync(
-                    session.SessionId,
-                    userId));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => service.RecoverAsync(
+                session.SessionId,
+                userId));
 
         Assert.Equal(0, checker.CallCount);
     }
@@ -156,8 +162,8 @@ public sealed class LiveTripSessionRecoveryServiceTests
     {
         var (service, _, _, _) = await CreateAsync();
 
-        await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.RecoverAsync(
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => service.RecoverAsync(
                 Guid.Empty,
                 "user-001"));
     }
@@ -188,7 +194,8 @@ public sealed class LiveTripSessionRecoveryServiceTests
 
         Assert.NotNull(result);
         Assert.Equal("user-001", checker.LastUserId);
-        Assert.Equal("plan-001", checker.LastTripPlanId);
+        Assert.Equal(TripPlanId, checker.LastTripPlanId);
+        Assert.Equal(1, checker.CallCount);
     }
 
     [Fact]
@@ -208,6 +215,7 @@ public sealed class LiveTripSessionRecoveryServiceTests
         Assert.NotNull(first);
         Assert.NotNull(second);
         Assert.Equal(first.SessionId, second.SessionId);
+        Assert.Equal(TripPlanId, second.TripPlanId);
 
         var stored = await repository.GetByIdAsync(
             session.SessionId);
