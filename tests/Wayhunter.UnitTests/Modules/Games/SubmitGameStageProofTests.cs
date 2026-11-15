@@ -463,4 +463,119 @@ public sealed class SubmitGameStageProofTests
             return Task.FromResult(Allow);
         }
     }
+
+    // =====================================
+    // M5-MS05-T07
+    // RECONNECT MUST NOT UNLOCK STAGE 2
+    // =====================================
+
+    [Fact]
+    public async Task Reconnect_ShouldNotAllowStageSkip()
+    {
+        var s = await CreateScenarioAsync();
+
+        // Player reconnects ten minutes later.
+        var reconnectAt = s.Now.AddMinutes(10);
+
+        var resumed = await s.Store.StartOrResumeAsync(
+            s.Game.Id,
+            PlayerId,
+            reconnectAt);
+
+        Assert.True(resumed.ResumedExistingAttempt);
+        Assert.Equal(
+            s.Attempt.AttemptId,
+            resumed.AttemptId);
+
+        Assert.Equal(
+            s.Attempt.DeadlineUtc,
+            resumed.DeadlineUtc);
+
+        // Try to skip Stage 1 by submitting
+        // proof directly for Stage 2.
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => s.Store.SubmitCurrentStageProofAsync(
+                Command(
+                    s.Game,
+                    resumed.AttemptId,
+                    stepNumber: 2),
+                PlayerId,
+                reconnectAt));
+
+        // Invalid submission must not
+        // consume camera capture session.
+        Assert.Equal(0, s.Verifier.CallCount);
+
+        var stage = await s.Store.GetCurrentStageAsync(
+            s.Game.Id,
+            resumed.AttemptId,
+            PlayerId,
+            reconnectAt);
+
+        Assert.Equal(1, stage.CurrentStepNumber);
+
+        Assert.Equal(
+            GameProgressStatus.InProgress,
+            stage.ProgressStatus);
+
+        Assert.DoesNotContain(
+            stage.Hints,
+            hint => hint.TextHint == "Find lighthouse");
+    }
+
+    // =====================================
+    // M5-MS05-T07
+    // PENDING PROOF MUST NOT UNLOCK STAGE 2
+    // =====================================
+
+    [Fact]
+    public async Task PendingStageOneProof_ShouldNotUnlockStageTwo()
+    {
+        var s = await CreateScenarioAsync();
+
+        // Submit valid Stage 1 proof.
+        await s.Store.SubmitCurrentStageProofAsync(
+            Command(
+                s.Game,
+                s.Attempt.AttemptId,
+                stepNumber: 1),
+            PlayerId,
+            s.Now);
+
+        Assert.Equal(1, s.Verifier.CallCount);
+
+        // Player tries Stage 2 while
+        // Stage 1 awaits verification.
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => s.Store.SubmitCurrentStageProofAsync(
+                Command(
+                    s.Game,
+                    s.Attempt.AttemptId,
+                    stepNumber: 2,
+                    mediaId: "camera-photo-002",
+                    sessionId: "camera-session-002"),
+                PlayerId,
+                s.Now.AddMinutes(1)));
+
+        // No second capture verification allowed.
+        Assert.Equal(1, s.Verifier.CallCount);
+
+        var stage = await s.Store.GetCurrentStageAsync(
+            s.Game.Id,
+            s.Attempt.AttemptId,
+            PlayerId,
+            s.Now.AddMinutes(1));
+
+        // Still on Stage 1.
+        Assert.Equal(1, stage.CurrentStepNumber);
+
+        Assert.Equal(
+            GameProgressStatus.WaitingForVerification,
+            stage.ProgressStatus);
+
+        Assert.DoesNotContain(
+            stage.Hints,
+            hint => hint.TextHint == "Find lighthouse");
+    }
+
 }
