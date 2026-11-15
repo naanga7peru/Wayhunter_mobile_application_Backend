@@ -79,7 +79,7 @@ public sealed class AdvertisementServiceTests
         Assert.Empty(result);
     }
 
-    // New Test 6
+    // Existing Test 6
     [Fact]
     public async Task HomeBanner_ShouldReturnOnlyHomeBannerAds()
     {
@@ -104,7 +104,7 @@ public sealed class AdvertisementServiceTests
         Assert.Equal(homeAd.Id, returnedAd.Id);
     }
 
-    // New Test 7
+    // Existing Test 7
     [Fact]
     public async Task SponsoredPoi_ShouldReturnOnlySponsoredPoiAds()
     {
@@ -129,7 +129,7 @@ public sealed class AdvertisementServiceTests
         Assert.Equal(poiAd.Id, returnedAd.Id);
     }
 
-    // New Test 8
+    // Existing Test 8
     [Fact]
     public async Task DisabledAd_ShouldNotAppearInPlacementResults()
     {
@@ -147,7 +147,7 @@ public sealed class AdvertisementServiceTests
         Assert.Empty(result);
     }
 
-    // New Tests 9 and 10
+    // Existing Tests 9 and 10
     [Theory]
     [InlineData(0)]
     [InlineData(999)]
@@ -160,6 +160,145 @@ public sealed class AdvertisementServiceTests
             () => service.GetActiveByPlacementAsync(
                 Now,
                 (AdvertisementPlacement)placement));
+    }
+
+    // New Test 11
+    [Fact]
+    public async Task EmptyQuery_ShouldReturnOnlyActiveAds()
+    {
+        var activeAd = CreateAd();
+
+        var disabledAd = CreateAd(enabled: false);
+
+        var service = CreateService(activeAd, disabledAd);
+
+        var request = new AdvertisementActiveQueryRequest();
+
+        var result = await service.GetActiveByQueryAsync(
+            request,
+            Now);
+
+        var returnedAd = Assert.Single(result);
+
+        Assert.Equal(activeAd.Id, returnedAd.Id);
+    }
+
+    // New Tests 12 and 13
+    [Theory]
+    [InlineData(AdvertisementPlacement.HomeBanner)]
+    [InlineData(AdvertisementPlacement.SponsoredPoi)]
+    public async Task Query_ShouldFilterByPlacement(
+        AdvertisementPlacement placement)
+    {
+        var homeAd = CreateAd() with
+        {
+            Placement = AdvertisementPlacement.HomeBanner
+        };
+
+        var poiAd = CreateAd() with
+        {
+            Placement = AdvertisementPlacement.SponsoredPoi
+        };
+
+        var service = CreateService(homeAd, poiAd);
+
+        var request = new AdvertisementActiveQueryRequest
+        {
+            Placement = placement
+        };
+
+        var result = await service.GetActiveByQueryAsync(
+            request,
+            Now);
+
+        var returnedAd = Assert.Single(result);
+
+        Assert.Equal(placement, returnedAd.Placement);
+    }
+
+    // New Test 14
+    [Fact]
+    public async Task Query_ShouldUseSpecifiedUtcTime()
+    {
+        var futureAd = CreateAd(
+            startMinutes: 10,
+            endMinutes: 30);
+
+        var service = CreateService(futureAd);
+
+        var request = new AdvertisementActiveQueryRequest
+        {
+            AtUtc = Now.AddMinutes(15)
+        };
+
+        var result = await service.GetActiveByQueryAsync(
+            request,
+            Now);
+
+        Assert.Single(result);
+    }
+
+    // New Test 15
+    [Fact]
+    public async Task NullQuery_ShouldBeRejected()
+    {
+        var service = CreateService();
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => service.GetActiveByQueryAsync(
+                null,
+                Now));
+    }
+
+    // New Test 16
+    [Fact]
+    public async Task InvalidPlacementQuery_ShouldBeRejected()
+    {
+        var service = CreateService();
+
+        var request = new AdvertisementActiveQueryRequest
+        {
+            Placement = (AdvertisementPlacement)999
+        };
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => service.GetActiveByQueryAsync(
+                request,
+                Now));
+    }
+
+    // New Test 17
+    [Fact]
+    public async Task DistrictQuery_ShouldRejectUntilSupported()
+    {
+        var service = CreateService();
+
+        var request = new AdvertisementActiveQueryRequest
+        {
+            District = "Jaffna"
+        };
+
+        await Assert.ThrowsAsync<NotSupportedException>(
+            () => service.GetActiveByQueryAsync(
+                request,
+                Now));
+    }
+
+    // New Test 18
+    [Fact]
+    public async Task InvalidDistrictQuery_ShouldBeRejected()
+    {
+        var service = CreateService();
+
+        var request = new AdvertisementActiveQueryRequest
+        {
+            District = "London"
+        };
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => service.GetActiveByQueryAsync(
+                request,
+                Now));
     }
 
     // Existing Helper Method

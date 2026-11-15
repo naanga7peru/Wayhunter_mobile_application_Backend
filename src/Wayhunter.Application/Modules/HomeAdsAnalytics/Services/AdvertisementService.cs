@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Dtos;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Interfaces;
+using Wayhunter.Application.Modules.HomeAdsAnalytics.Validators;
 using Wayhunter.Domain.Modules.HomeAdsAnalytics.Enums;
 
 namespace Wayhunter.Application.Modules.HomeAdsAnalytics.Services;
@@ -21,7 +22,7 @@ public sealed class AdvertisementService
             ?? throw new ArgumentNullException(nameof(repository));
     }
 
-    // Get all active advertisements
+    // Existing: Get all active advertisements
     public async Task<IReadOnlyList<AdvertisementDto>> GetActiveAsync(
         DateTimeOffset nowUtc,
         CancellationToken cancellationToken = default)
@@ -37,7 +38,7 @@ public sealed class AdvertisementService
             .ToArray();
     }
 
-    // Get active advertisements for one placement
+    // Existing: Get active advertisements by placement
     public async Task<IReadOnlyList<AdvertisementDto>>
         GetActiveByPlacementAsync(
             DateTimeOffset nowUtc,
@@ -58,5 +59,45 @@ public sealed class AdvertisementService
         return activeAdvertisements
             .Where(ad => ad.Placement == placement)
             .ToArray();
+    }
+
+    // New: Validated internal advertisement query
+    public async Task<IReadOnlyList<AdvertisementDto>>
+        GetActiveByQueryAsync(
+            AdvertisementActiveQueryRequest? request,
+            DateTimeOffset nowUtc,
+            CancellationToken cancellationToken = default)
+    {
+        if (request is null ||
+            !AdvertisementActiveQueryRequestValidator.IsValid(request))
+        {
+            throw new ArgumentException(
+                "Invalid advertisement query.",
+                nameof(request));
+        }
+
+        // District persistence is awaiting the approved schema.
+        // Never return unfiltered ads for a district request.
+        if (request.District is not null)
+        {
+            throw new NotSupportedException(
+                "Advertisement district targeting is not yet available.");
+        }
+
+        // This is an internal as-of query.
+        var queryTimeUtc = request.AtUtc ?? nowUtc;
+
+        var advertisements =
+            await GetActiveAsync(queryTimeUtc, cancellationToken);
+
+        if (request.Placement.HasValue)
+        {
+            return advertisements
+                .Where(ad =>
+                    ad.Placement == request.Placement.Value)
+                .ToArray();
+        }
+
+        return advertisements;
     }
 }
