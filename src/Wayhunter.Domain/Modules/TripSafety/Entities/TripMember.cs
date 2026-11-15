@@ -18,6 +18,8 @@ public sealed class TripMember
 
     public bool IsActive { get; private set; }
 
+    public DateTimeOffset? RemovedAtUtc { get; private set; }
+
     private TripMember(
         Guid id,
         Guid tripPlanId,
@@ -30,7 +32,9 @@ public sealed class TripMember
         MemberUserId = memberUserId;
         InvitationId = invitationId;
         JoinedAtUtc = joinedAtUtc;
+
         IsActive = true;
+        RemovedAtUtc = null;
     }
 
     public static TripMember FromAcceptedInvitation(
@@ -38,12 +42,13 @@ public sealed class TripMember
         TripInvitation invitation)
     {
         if (memberId == Guid.Empty)
+        {
             throw new ArgumentException(
-                "Member ID is required.");
+                "Member ID is required.",
+                nameof(memberId));
+        }
 
-        if (invitation is null)
-            throw new ArgumentNullException(
-                nameof(invitation));
+        ArgumentNullException.ThrowIfNull(invitation);
 
         if (invitation.Status != TripInvitationStatus.Accepted ||
             !invitation.RespondedAtUtc.HasValue)
@@ -52,12 +57,52 @@ public sealed class TripMember
                 "Only accepted invitations create membership.");
         }
 
-        // Membership does not grant GPS sharing consent.
+        // Membership never grants automatic GPS consent.
         return new TripMember(
             memberId,
             invitation.TripPlanId,
             invitation.RecipientUserId,
             invitation.Id,
             invitation.RespondedAtUtc.Value);
+    }
+
+    // This domain operation must only be called
+    // after authorization by the application service.
+    //
+    // Removing a member must revoke private trip access.
+    // Existing historical membership is retained.
+
+    public bool Remove(DateTimeOffset serverTimeUtc)
+    {
+        if (serverTimeUtc == default)
+        {
+            throw new ArgumentException(
+                "Valid server time is required.",
+                nameof(serverTimeUtc));
+        }
+
+        var removedAtUtc = serverTimeUtc.ToUniversalTime();
+
+        // Repeated removal is idempotent.
+        if (!IsActive)
+        {
+            return false;
+        }
+
+        if (removedAtUtc < JoinedAtUtc)
+        {
+            throw new InvalidOperationException(
+                "Removal time cannot precede joining time.");
+        }
+
+        IsActive = false;
+        RemovedAtUtc = removedAtUtc;
+
+        return true;
+    }
+
+    public bool CanAccessPrivateTrip()
+    {
+        return IsActive;
     }
 }
