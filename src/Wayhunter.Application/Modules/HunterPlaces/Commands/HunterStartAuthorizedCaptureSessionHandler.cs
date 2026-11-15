@@ -75,7 +75,7 @@ public sealed class HunterStartAuthorizedCaptureSessionHandler
         }
 
         // Step 1: Verify ownership before session creation.
-        await _ownershipService.EnsureOwnedAsync(
+        await _ownershipService.EnsureCanStartCaptureAsync(
             authenticatedUserId,
             request.HunterSubmissionId,
             cancellationToken);
