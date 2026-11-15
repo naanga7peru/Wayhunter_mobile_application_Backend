@@ -98,26 +98,38 @@ public class CoinLedgerQaContractTests
         Assert.Equal(10100, rejected.SpendableCoins);
     }
 
+
     [Fact]
-    public void ApprovalProjection_ConsumesHold()
+    public void ApprovalPreservesHold_FulfillmentConsumesIt()
     {
         var pending = new CoinWalletBalance(
             10100, 10000, 10100);
 
         var approved = new CoinWalletBalance(
+            10100, 10000, 10100);
+
+        var issued = new CoinWalletBalance(
             100, 0, 10100);
 
-        Assert.Equal(100, pending.SpendableCoins);
-        Assert.Equal(100, approved.SpendableCoins);
+        Assert.Equal(pending, approved);
 
-        Assert.Equal(0, approved.ReservedCoins);
-        Assert.Equal(100, approved.PostedCoins);
+        Assert.Equal(10100, approved.PostedCoins);
+        Assert.Equal(10000, approved.ReservedCoins);
+
+        Assert.Equal(100, issued.PostedCoins);
+        Assert.Equal(0, issued.ReservedCoins);
+
+        Assert.Equal(
+            approved.SpendableCoins,
+            issued.SpendableCoins);
     }
 
+
+
     [Fact]
-    public void OnlyAdminApproval_TriggersFinalDebit()
+    public void OnlySuccessfulFulfillmentStage_CanTriggerDebit()
     {
-        Assert.True(
+        Assert.False(
             SampleVoucherPolicy.IsFinalDebitTrigger(
                 SampleVoucherAction.AdminApprove));
 
@@ -129,11 +141,11 @@ public class CoinLedgerQaContractTests
             SampleVoucherPolicy.IsFinalDebitTrigger(
                 SampleVoucherAction.RejectOrCancel));
 
-        Assert.False(
+        Assert.True(
             SampleVoucherPolicy.IsFinalDebitTrigger(
                 SampleVoucherAction.Issue));
 
-        Assert.False(
+        Assert.True(
             SampleVoucherPolicy.IsFinalDebitTrigger(
                 SampleVoucherAction.RetryIssue));
     }
