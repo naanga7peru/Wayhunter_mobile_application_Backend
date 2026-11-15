@@ -31,7 +31,8 @@ public sealed class AdvertisementRepository : IAdvertisementRepository
                 DestinationUrl = ad.DestinationUrl,
                 StartAtUtc = ad.StartAtUtc,
                 EndAtUtc = ad.EndAtUtc,
-                IsEnabled = ad.IsEnabled
+                IsEnabled = ad.IsEnabled,
+                Placement = ad.Placement
             })
             .ToListAsync(cancellationToken);
 
@@ -54,7 +55,8 @@ public sealed class AdvertisementRepository : IAdvertisementRepository
                 DestinationUrl = ad.DestinationUrl,
                 StartAtUtc = ad.StartAtUtc,
                 EndAtUtc = ad.EndAtUtc,
-                IsEnabled = ad.IsEnabled
+                IsEnabled = ad.IsEnabled,
+                Placement = ad.Placement
             })
             .FirstOrDefaultAsync(cancellationToken);
     }
