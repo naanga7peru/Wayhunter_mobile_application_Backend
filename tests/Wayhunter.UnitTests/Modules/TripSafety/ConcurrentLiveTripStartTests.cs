@@ -12,6 +12,12 @@ namespace Wayhunter.UnitTests.Modules.TripSafety;
 
 public sealed class ConcurrentLiveTripStartTests
 {
+    private static readonly Guid TripPlanId =
+        Guid.Parse("11111111-1111-4111-8111-111111111111");
+
+    private static readonly Guid AnotherTripPlanId =
+        Guid.Parse("22222222-2222-4222-8222-222222222222");
+
     [Fact]
     public async Task Concurrent_Start_Same_Plan_Should_Return_Same_Session()
     {
@@ -21,8 +27,8 @@ public sealed class ConcurrentLiveTripStartTests
             repository,
             TimeProvider.System);
 
-        var firstTask = service.StartAsync("plan-001");
-        var secondTask = service.StartAsync("  plan-001  ");
+        var firstTask = service.StartAsync(TripPlanId);
+        var secondTask = service.StartAsync(TripPlanId);
 
         var results = await Task.WhenAll(
             firstTask,
@@ -34,6 +40,7 @@ public sealed class ConcurrentLiveTripStartTests
 
         Assert.Same(results[0], results[1]);
 
+        Assert.Equal(TripPlanId, results[0].TripPlanId);
         Assert.Equal(1, repository.AddedCount);
     }
 
@@ -46,8 +53,8 @@ public sealed class ConcurrentLiveTripStartTests
             repository,
             TimeProvider.System);
 
-        var firstTask = service.StartAsync("plan-001");
-        var secondTask = service.StartAsync("plan-002");
+        var firstTask = service.StartAsync(TripPlanId);
+        var secondTask = service.StartAsync(AnotherTripPlanId);
 
         var results = await Task.WhenAll(
             firstTask,
@@ -57,13 +64,19 @@ public sealed class ConcurrentLiveTripStartTests
             results[0].SessionId,
             results[1].SessionId);
 
-        Assert.Equal("plan-001", results[0].TripPlanId);
-        Assert.Equal("plan-002", results[1].TripPlanId);
+        Assert.Equal(
+            TripPlanId,
+            results[0].TripPlanId);
+
+        Assert.Equal(
+            AnotherTripPlanId,
+            results[1].TripPlanId);
+
         Assert.Equal(2, repository.AddedCount);
     }
 
-    // Force both requests to observe no existing session
-    // before either is allowed to insert.
+    // Force two concurrent requests to observe
+    // no existing session before either inserts.
     private sealed class TwoRequestBarrierRepository
         : ILiveTripSessionRepository
     {
@@ -82,7 +95,7 @@ public sealed class ConcurrentLiveTripStartTests
 
         public async Task<LiveTripSession?>
             GetOpenByTripPlanIdAsync(
-                string tripPlanId,
+                Guid tripPlanId,
                 CancellationToken cancellationToken = default)
         {
             int readNumber =
@@ -98,8 +111,8 @@ public sealed class ConcurrentLiveTripStartTests
                 await _bothReadsComplete.Task.WaitAsync(
                     cancellationToken);
 
-                // Both original reads see the same
-                // "no session yet" snapshot.
+                // Both initial requests see
+                // the same "no session" snapshot.
                 return null;
             }
 

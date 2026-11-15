@@ -25,29 +25,31 @@ public sealed class InMemoryLiveTripSessionRepository
 
         lock (_sync)
         {
-            _sessions.TryGetValue(sessionId, out var session);
+            _sessions.TryGetValue(
+                sessionId,
+                out var session);
 
             return Task.FromResult(session);
         }
     }
 
     public Task<LiveTripSession?> GetOpenByTripPlanIdAsync(
-        string tripPlanId,
+        Guid tripPlanId,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (string.IsNullOrWhiteSpace(tripPlanId))
+        if (tripPlanId == Guid.Empty)
         {
             throw new ArgumentException(
-                "Trip Plan ID is required.",
+                "Valid Trip Plan ID is required.",
                 nameof(tripPlanId));
         }
 
         lock (_sync)
         {
             var session = _sessions.Values.FirstOrDefault(x =>
-                x.TripPlanId == tripPlanId.Trim() &&
+                x.TripPlanId == tripPlanId &&
                 x.Status != LiveTripStatus.Finished);
 
             return Task.FromResult(session);
@@ -80,7 +82,9 @@ public sealed class InMemoryLiveTripSessionRepository
                     "This trip already has an open session.");
             }
 
-            _sessions.Add(session.SessionId, session);
+            _sessions.Add(
+                session.SessionId,
+                session);
         }
 
         return Task.CompletedTask;

@@ -7,7 +7,7 @@ namespace Wayhunter.Application.Modules.TripSafety.Dtos;
 
 public sealed record TripSessionDto(
     Guid SessionId,
-    string TripPlanId,
+    Guid TripPlanId,
     LiveTripStatus Status,
     DateTimeOffset StartedAtUtc,
     DateTimeOffset? FinishedAtUtc)

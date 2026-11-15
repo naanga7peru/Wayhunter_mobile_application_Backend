@@ -1,4 +1,5 @@
 
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -9,8 +10,9 @@ public interface ITripSessionRecoveryAccessChecker
     // Must validate authenticated identity and
     // permitted trip ownership or membership.
     // Never authorize using only a client-provided UserId.
+
     Task<bool> CanRecoverAsync(
         string authenticatedUserId,
-        string tripPlanId,
+        Guid tripPlanId,
         CancellationToken cancellationToken = default);
 }

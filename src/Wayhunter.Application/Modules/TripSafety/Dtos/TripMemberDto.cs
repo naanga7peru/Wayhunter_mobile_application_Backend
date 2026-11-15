@@ -5,7 +5,7 @@ namespace Wayhunter.Application.Modules.TripSafety.Dtos;
 
 public sealed record TripMemberDto
 {
-    public string TripPlanId { get; }
+    public Guid TripPlanId { get; }
 
     public string MemberUserId { get; }
 
@@ -18,7 +18,7 @@ public sealed record TripMemberDto
     public Guid? SessionId { get; }
 
     private TripMemberDto(
-        string tripPlanId,
+        Guid tripPlanId,
         string memberUserId,
         string membershipStatus,
         string invitationReference,
@@ -34,40 +34,58 @@ public sealed record TripMemberDto
     }
 
     public static TripMemberDto Create(
-        string tripPlanId,
+        Guid tripPlanId,
         string memberUserId,
         string membershipStatus,
         string invitationReference,
         DateTimeOffset? acceptedAtUtc,
         Guid? sessionId)
     {
-        if (string.IsNullOrWhiteSpace(tripPlanId))
+        if (tripPlanId == Guid.Empty)
+        {
             throw new ArgumentException(
-                "Trip Plan ID is required.");
+                "Valid Trip Plan ID is required.",
+                nameof(tripPlanId));
+        }
 
         if (string.IsNullOrWhiteSpace(memberUserId))
+        {
             throw new ArgumentException(
-                "Member User ID is required.");
+                "Member User ID is required.",
+                nameof(memberUserId));
+        }
 
         if (string.IsNullOrWhiteSpace(membershipStatus))
+        {
             throw new ArgumentException(
-                "Membership status is required.");
+                "Membership status is required.",
+                nameof(membershipStatus));
+        }
 
         if (string.IsNullOrWhiteSpace(invitationReference))
+        {
             throw new ArgumentException(
-                "Invitation reference is required.");
+                "Invitation reference is required.",
+                nameof(invitationReference));
+        }
 
         if (sessionId == Guid.Empty)
+        {
             throw new ArgumentException(
-                "Session ID cannot be empty.");
+                "Session ID cannot be empty.",
+                nameof(sessionId));
+        }
 
         if (acceptedAtUtc.HasValue &&
             acceptedAtUtc.Value == default)
+        {
             throw new ArgumentException(
-                "Invalid acceptance time.");
+                "Invalid acceptance time.",
+                nameof(acceptedAtUtc));
+        }
 
         return new TripMemberDto(
-            tripPlanId.Trim(),
+            tripPlanId,
             memberUserId.Trim(),
             membershipStatus.Trim(),
             invitationReference.Trim(),
