@@ -381,6 +381,7 @@ public sealed class GrantApprovedGameCreatorCoinsHandlerTests
             }
         }
 
+        // CS8619 NULLABLE WARNING FIX
         public Task<GameCreatorApprovedRewardSnapshot?>
             FindByGameIdAsync(
                 Guid gameId,
@@ -389,12 +390,17 @@ public sealed class GrantApprovedGameCreatorCoinsHandlerTests
             cancellationToken.ThrowIfCancellationRequested();
 
             if (ForcedSnapshot is not null)
-                return Task.FromResult(
+            {
+                return Task.FromResult<
+                    GameCreatorApprovedRewardSnapshot?>(
                     ForcedSnapshot);
+            }
 
             _items.TryGetValue(gameId, out var snapshot);
 
-            return Task.FromResult(snapshot);
+            return Task.FromResult<
+                GameCreatorApprovedRewardSnapshot?>(
+                snapshot);
         }
     }
 }
