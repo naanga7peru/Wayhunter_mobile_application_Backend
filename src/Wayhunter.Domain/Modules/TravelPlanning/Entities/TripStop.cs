@@ -1,7 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Text;
 
+using System;
 
 namespace Wayhunter.Domain.Modules.TravelPlanning.Entities;
 
@@ -27,30 +25,72 @@ public sealed class TripStop
         double? longitude = null)
     {
         if (tripPlanId == Guid.Empty)
-            throw new ArgumentException("Invalid Trip Plan ID.");
+        {
+            throw new ArgumentException(
+                "Invalid Trip Plan ID.");
+        }
 
         if (orderIndex < 0)
-            throw new ArgumentException("Invalid stop order.");
+        {
+            throw new ArgumentException(
+                "Invalid stop order.");
+        }
 
         if (string.IsNullOrWhiteSpace(name))
-            throw new ArgumentException("Stop name is required.");
+        {
+            throw new ArgumentException(
+                "Stop name is required.");
+        }
 
+        var normalizedName = name.Trim();
+
+        if (normalizedName.Length > 200)
+        {
+            throw new ArgumentException(
+                "Stop name cannot exceed 200 characters.");
+        }
+
+        if (placeId is not null && placeId.Length > 256)
+        {
+            throw new ArgumentException(
+                "Place ID cannot exceed 256 characters.");
+        }
+
+        // Both coordinates must be provided together.
         if (latitude.HasValue != longitude.HasValue)
+        {
             throw new ArgumentException(
                 "Latitude and longitude must be provided together.");
+        }
 
-        if (latitude.HasValue &&
-            (latitude.Value < -90 || latitude.Value > 90))
-            throw new ArgumentException("Invalid latitude.");
+        // Reject NaN, Infinity and out-of-range GPS values.
+        if (latitude.HasValue)
+        {
+            if (!double.IsFinite(latitude.Value) ||
+                latitude.Value < -90 ||
+                latitude.Value > 90)
+            {
+                throw new ArgumentException(
+                    "Invalid latitude.");
+            }
+        }
 
-        if (longitude.HasValue &&
-            (longitude.Value < -180 || longitude.Value > 180))
-            throw new ArgumentException("Invalid longitude.");
+        if (longitude.HasValue)
+        {
+            if (!double.IsFinite(longitude.Value) ||
+                longitude.Value < -180 ||
+                longitude.Value > 180)
+            {
+                throw new ArgumentException(
+                    "Invalid longitude.");
+            }
+        }
 
         Id = Guid.NewGuid();
         TripPlanId = tripPlanId;
         OrderIndex = orderIndex;
-        Name = name.Trim();
+
+        Name = normalizedName;
         PlaceId = placeId;
         Latitude = latitude;
         Longitude = longitude;
@@ -59,9 +99,11 @@ public sealed class TripStop
     internal void SetOrder(int orderIndex)
     {
         if (orderIndex < 0)
-            throw new ArgumentException("Invalid stop order.");
+        {
+            throw new ArgumentException(
+                "Invalid stop order.");
+        }
 
         OrderIndex = orderIndex;
     }
 }
-
