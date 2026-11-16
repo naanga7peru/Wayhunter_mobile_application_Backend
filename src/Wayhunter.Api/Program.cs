@@ -1,3 +1,4 @@
+
 using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Api.Hubs.TripSafety;
@@ -17,13 +18,26 @@ builder.Services.AddTravelPlanningModule();
 
 builder.Services.AddSingleton(TimeProvider.System);
 
-// M3-MS04-T01 + T02 shared in-memory state.
-//
-// The same instance backs both:
-// - Explicit GPS consent changes
-// - SignalR authorization reads
-//
-// Production persistence integration is pending.
+// ==========================================
+// M3 - TripSafety In-Memory Persistence
+// ==========================================
+
+// Live trip session repository.
+// In-memory until shared SQL migration is approved.
+
+builder.Services.AddSingleton<
+    ILiveTripSessionRepository,
+    InMemoryLiveTripSessionRepository>();
+
+// Live trip session application service.
+
+builder.Services.AddScoped<
+    ILiveTripSessionService,
+    LiveTripSessionService>();
+
+// Existing sharing consent repository.
+// The same singleton backs consent changes
+// and SignalR authorization reads.
 
 builder.Services.AddSingleton<
     InMemoryTripSharingConsentRepository>();
@@ -41,7 +55,9 @@ builder.Services.AddSingleton<
 builder.Services.AddScoped<
     TripSharingConsentService>();
 
-// SignalR infrastructure.
+// ==========================================
+// SignalR Infrastructure
+// ==========================================
 
 builder.Services.AddSignalR();
 
@@ -51,7 +67,9 @@ builder.Services.AddSingleton<
 builder.Services.AddScoped<
     TripLocationFanoutService>();
 
-// Development CORS configuration.
+// ==========================================
+// Development CORS
+// ==========================================
 
 if (builder.Environment.IsDevelopment())
 {
@@ -80,8 +98,8 @@ if (app.Environment.IsDevelopment())
 
 app.MapControllers();
 
-// [Authorize] requires the real M1
-// authentication scheme before live use.
+// Real M1 authentication is required
+// before live SignalR authorization.
 
 app.MapHub<TripLocationHub>(
     "/hubs/trip-location");
