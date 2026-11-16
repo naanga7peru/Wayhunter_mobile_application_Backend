@@ -341,6 +341,62 @@ public sealed class SubmitGameStageProofTests
         Assert.Equal(1, s.Verifier.CallCount);
     }
 
+    // M5-MS06-T04
+    // A consumed camera session or media must not
+    // be reused by a different player.
+    [Theory]
+    [InlineData("camera-session-001", "camera-photo-002")]
+    [InlineData("camera-session-002", "camera-photo-001")]
+    public async Task ReplayedCameraIdentifiers_AcrossPlayers_ShouldBeRejected(
+        string replaySessionId,
+        string replayMediaId)
+    {
+        var s = await CreateScenarioAsync();
+
+        // Player 1 submits valid evidence.
+        await s.Store.SubmitCurrentStageProofAsync(
+            Command(s.Game, s.Attempt.AttemptId),
+            PlayerId,
+            s.Now);
+
+        // Player 2 starts a separate valid attempt.
+        const string otherPlayerId = "player-002";
+        var later = s.Now.AddMinutes(1);
+
+        var otherAttempt = await s.Store.StartOrResumeAsync(
+            s.Game.Id,
+            otherPlayerId,
+            later);
+
+        // Attempt to replay an already used session
+        // or already used media with another identifier.
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => s.Store.SubmitCurrentStageProofAsync(
+                Command(
+                    s.Game,
+                    otherAttempt.AttemptId,
+                    mediaId: replayMediaId,
+                    sessionId: replaySessionId),
+                otherPlayerId,
+                later));
+
+        // Replay must be rejected before verifier call.
+        Assert.Equal(1, s.Verifier.CallCount);
+
+        // Player 2's progress must not change.
+        var stage = await s.Store.GetCurrentStageAsync(
+            s.Game.Id,
+            otherAttempt.AttemptId,
+            otherPlayerId,
+            later);
+
+        Assert.Equal(
+            GameProgressStatus.InProgress,
+            stage.ProgressStatus);
+
+        Assert.Equal(1, stage.CurrentStepNumber);
+    }
+
     // =====================================
     // TEST SCENARIO
     // =====================================

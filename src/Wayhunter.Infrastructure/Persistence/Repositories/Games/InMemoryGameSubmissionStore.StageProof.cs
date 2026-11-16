@@ -1,4 +1,3 @@
-
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,8 +11,8 @@ using Wayhunter.Domain.Modules.Games.Services;
 namespace Wayhunter.Infrastructure.Persistence.Repositories.Games;
 
 /// <summary>
-/// M5-MS05-T02
-/// In-memory Game stage proof submission.
+/// M5-MS05-T02 / M5-MS06-T04
+/// In-memory Game stage proof submission and replay protection.
 ///
 /// Prototype only. SQL persistence and production
 /// capture-session integration remain pending.
@@ -26,6 +25,15 @@ public sealed partial class InMemoryGameSubmissionStore
 
     private readonly Dictionary<Guid, GameEvidence>
         _submittedGameProofs = new();
+
+    // A successfully accepted capture session/media ID must not be
+    // reused for another stage, attempt, or player in this store.
+    // These sets are protected by the existing _gate lock.
+    private readonly HashSet<string> _usedGameCaptureSessionIds =
+        new(StringComparer.Ordinal);
+
+    private readonly HashSet<string> _usedGameProofMediaIds =
+        new(StringComparer.Ordinal);
 
     private readonly IGameProofCaptureVerifier?
         _gameProofCaptureVerifier;
@@ -117,6 +125,10 @@ public sealed partial class InMemoryGameSubmissionStore
                     cleanPlayerId,
                     nowUtc,
                     evidence);
+
+                EnsureCaptureIdentifiersUnused(
+                    cleanSessionId,
+                    cleanMediaId);
             }
 
             // This must be implemented by a trusted
@@ -149,6 +161,10 @@ public sealed partial class InMemoryGameSubmissionStore
                     nowUtc,
                     evidence);
 
+                EnsureCaptureIdentifiersUnused(
+                    cleanSessionId,
+                    cleanMediaId);
+
                 // SubmitEvidence changes progress to
                 // WaitingForVerification.
                 // It does NOT unlock the next stage.
@@ -159,12 +175,31 @@ public sealed partial class InMemoryGameSubmissionStore
                     evidence.Id,
                     evidence);
 
+                // Track both identifiers only after acceptance.
+                _usedGameCaptureSessionIds.Add(
+                    cleanSessionId);
+                _usedGameProofMediaIds.Add(
+                    cleanMediaId);
+
                 return evidence;
             }
         }
         finally
         {
             _proofSubmissionGate.Release();
+        }
+    }
+
+    private void EnsureCaptureIdentifiersUnused(
+        string captureSessionId,
+        string mediaId)
+    {
+        // Caller must hold _gate.
+        if (_usedGameCaptureSessionIds.Contains(captureSessionId) ||
+            _usedGameProofMediaIds.Contains(mediaId))
+        {
+            throw new InvalidOperationException(
+                "Game capture session or media has already been used.");
         }
     }
 
