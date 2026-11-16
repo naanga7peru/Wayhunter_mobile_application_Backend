@@ -1,4 +1,3 @@
-
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -6,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Wayhunter.Application.Modules.Games.Dtos;
 using Wayhunter.Application.Modules.Games.Interfaces;
+using Wayhunter.Domain.Modules.Games.Entities;
 using Wayhunter.Domain.Modules.Games.Enums;
 using Wayhunter.Domain.Modules.Games.Services;
 
@@ -265,25 +265,42 @@ public sealed partial class InMemoryGameSubmissionStore
 
             if (normalized.Approved)
             {
-                // Final stage: claim the single winner
-                // under the same in-memory lock.
+                GameCompletionResult? pendingCompletion = null;
+
+                // Prevalidate the final completion before mutating
+                // Game winner or attempt progress.
                 if (progress.CurrentStepNumber ==
                     progress.TotalSteps)
                 {
+                    pendingCompletion = PrepareCompletionResult(
+                        game,
+                        attempt,
+                        progress,
+                        evidence,
+                        stored.DeadlineUtc,
+                        reviewedAtUtc);
+
+                    // Preserve existing single-winner protection.
                     game.ApproveVerifiedWinner(
                         attempt.PlayerUserId,
                         reviewedAtUtc);
                 }
 
-                // Existing domain method:
-                // advance one stage or complete.
+                // Advance stage or complete the attempt.
                 progress.ApproveEvidence();
+
+                // Record exactly one pending Admin completion
+                // within the shared in-memory lock.
+                if (pendingCompletion is not null)
+                {
+                    _completionResultsByAttemptId.Add(
+                        attempt.Id,
+                        pendingCompletion);
+                }
             }
             else
             {
-                // Existing domain method:
-                // retry for first two rejections;
-                // close attempt on the third.
+                // Retry for first two rejections; close on third.
                 progress.RejectEvidence();
             }
 
