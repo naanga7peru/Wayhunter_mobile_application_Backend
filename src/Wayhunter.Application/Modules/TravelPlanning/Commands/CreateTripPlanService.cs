@@ -34,7 +34,7 @@ public sealed class CreateTripPlanService
                 nameof(ownerUserId));
         }
 
-        // Step 1: Validate the submitted data
+        // Step 1: Validate submitted data.
         var errors = TripPlanValidator.ValidateCreate(
             request.TripName,
             request.StartDate,
@@ -50,7 +50,7 @@ public sealed class CreateTripPlanService
                 nameof(request));
         }
 
-        // Step 2: Create the domain entity
+        // Step 2: Create domain entity.
         var tripPlan = new TripPlan(
             ownerUserId,
             request.TripName,
@@ -60,13 +60,14 @@ public sealed class CreateTripPlanService
             request.VehicleType,
             request.Headcount);
 
-        // Step 3: Save using the repository
+        // Step 3: Save using repository.
         await _repository.AddAsync(
             tripPlan,
             cancellationToken);
 
-        // Step 4: Return response data
+        // Step 4: Map stops.
         var stops = tripPlan.Stops
+            .OrderBy(stop => stop.OrderIndex)
             .Select(stop => new TripStopResponseDto(
                 stop.Id,
                 stop.OrderIndex,
@@ -76,6 +77,7 @@ public sealed class CreateTripPlanService
                 stop.Longitude))
             .ToList();
 
+        // Step 5: Return response with current RowVersion.
         return new TripPlanResponseDto(
             tripPlan.Id,
             tripPlan.TripName,
@@ -84,6 +86,9 @@ public sealed class CreateTripPlanService
             tripPlan.BudgetLkr,
             tripPlan.VehicleType,
             tripPlan.Headcount,
-            stops);
+            stops)
+        {
+            RowVersion = tripPlan.RowVersion.ToArray()
+        };
     }
 }
