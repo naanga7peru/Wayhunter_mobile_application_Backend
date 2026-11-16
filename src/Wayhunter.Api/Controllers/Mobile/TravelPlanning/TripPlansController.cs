@@ -1,9 +1,13 @@
 
+using System;
 using System.Security.Claims;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Wayhunter.Application.Modules.TravelPlanning.Commands;
 using Wayhunter.Application.Modules.TravelPlanning.Dtos;
+using Wayhunter.Application.Modules.TravelPlanning.Exceptions;
 using Wayhunter.Application.Modules.TravelPlanning.Queries;
 
 namespace Wayhunter.Api.Controllers.Mobile.TravelPlanning;
@@ -33,7 +37,9 @@ public sealed class TripPlansController : ControllerBase
     private string? GetAuthenticatedUserId()
     {
         if (User.Identity?.IsAuthenticated != true)
+        {
             return null;
+        }
 
         return User.FindFirstValue(ClaimTypes.NameIdentifier)
             ?? User.FindFirstValue("sub");
@@ -47,12 +53,16 @@ public sealed class TripPlansController : ControllerBase
         var userId = GetAuthenticatedUserId();
 
         if (string.IsNullOrWhiteSpace(userId))
+        {
             return Unauthorized();
+        }
 
         try
         {
             var result = await _createService.CreateAsync(
-                request, userId, cancellationToken);
+                request,
+                userId,
+                cancellationToken);
 
             return CreatedAtAction(
                 nameof(GetById),
@@ -61,7 +71,10 @@ public sealed class TripPlansController : ControllerBase
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new
+            {
+                message = ex.Message
+            });
         }
     }
 
@@ -73,21 +86,30 @@ public sealed class TripPlansController : ControllerBase
         var userId = GetAuthenticatedUserId();
 
         if (string.IsNullOrWhiteSpace(userId))
+        {
             return Unauthorized();
+        }
 
         try
         {
             var result = await _getService.GetByIdAsync(
-                tripPlanId, userId, cancellationToken);
+                tripPlanId,
+                userId,
+                cancellationToken);
 
             if (result is null)
+            {
                 return NotFound();
+            }
 
             return Ok(result);
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new
+            {
+                message = ex.Message
+            });
         }
     }
 
@@ -100,7 +122,9 @@ public sealed class TripPlansController : ControllerBase
         var userId = GetAuthenticatedUserId();
 
         if (string.IsNullOrWhiteSpace(userId))
+        {
             return Unauthorized();
+        }
 
         try
         {
@@ -111,17 +135,37 @@ public sealed class TripPlansController : ControllerBase
                 cancellationToken);
 
             if (result is null)
+            {
                 return NotFound();
+            }
 
             return Ok(result);
         }
+        // M2 RowVersion concurrency conflict.
+        // Return HTTP 409 when the trip was modified
+        // by another request.
+        catch (TripPlanConcurrencyException ex)
+        {
+            return Conflict(new
+            {
+                message = ex.Message,
+                code = "TRIP_PLAN_CONCURRENCY_CONFLICT",
+                tripPlanId = ex.TripPlanId
+            });
+        }
         catch (ArgumentException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new
+            {
+                message = ex.Message
+            });
         }
         catch (InvalidOperationException ex)
         {
-            return Conflict(new { message = ex.Message });
+            return Conflict(new
+            {
+                message = ex.Message
+            });
         }
     }
 
@@ -133,7 +177,9 @@ public sealed class TripPlansController : ControllerBase
         var userId = GetAuthenticatedUserId();
 
         if (string.IsNullOrWhiteSpace(userId))
+        {
             return Unauthorized();
+        }
 
         try
         {
@@ -143,17 +189,26 @@ public sealed class TripPlansController : ControllerBase
                 cancellationToken);
 
             if (result is null)
+            {
                 return NotFound();
+            }
 
             if (result == false)
-                return Conflict(
-                    new { message = "Trip is already cancelled." });
+            {
+                return Conflict(new
+                {
+                    message = "Trip is already cancelled."
+                });
+            }
 
             return NoContent();
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new
+            {
+                message = ex.Message
+            });
         }
     }
 }

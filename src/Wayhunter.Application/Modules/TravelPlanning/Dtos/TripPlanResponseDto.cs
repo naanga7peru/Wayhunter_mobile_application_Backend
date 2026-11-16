@@ -1,7 +1,6 @@
+
 using System;
 using System.Collections.Generic;
-using System.Text;
-
 
 namespace Wayhunter.Application.Modules.TravelPlanning.Dtos;
 
@@ -13,8 +12,12 @@ public sealed record TripPlanResponseDto(
     decimal BudgetLkr,
     string VehicleType,
     int Headcount,
-    IReadOnlyList<TripStopResponseDto> Stops
-);
+    IReadOnlyList<TripStopResponseDto> Stops)
+{
+    // Latest SQL Server concurrency token.
+    // Client must send this value during the next update.
+    public byte[] RowVersion { get; init; } = Array.Empty<byte>();
+}
 
 public sealed record TripStopResponseDto(
     Guid StopId,
@@ -24,4 +27,3 @@ public sealed record TripStopResponseDto(
     double? Latitude,
     double? Longitude
 );
-

@@ -81,6 +81,13 @@ public sealed class TripPlanConfiguration
             .HasConversion<int>()
             .IsRequired();
 
+        // SQL Server optimistic concurrency.
+        // Proposed schema change — migration approval pending.
+        builder.Property(trip => trip.RowVersion)
+            .IsRowVersion()
+            .IsConcurrencyToken();
+
+
         // M2 TripPlan -> TripStops relationship
         builder.HasMany(trip => trip.Stops)
             .WithOne()
