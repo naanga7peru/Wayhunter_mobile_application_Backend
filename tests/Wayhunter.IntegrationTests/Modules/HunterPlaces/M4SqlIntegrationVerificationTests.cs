@@ -16,6 +16,8 @@ using Wayhunter.Domain.Modules.IdentitySocial.Entities;
 using Wayhunter.Infrastructure.Persistence.DbContexts;
 using Wayhunter.Infrastructure.Persistence.Models.HunterPlaces;
 using Wayhunter.Infrastructure.Persistence.Repositories.HunterPlaces;
+using Wayhunter.Infrastructure.Persistence.Configurations.IdentitySocial;
+using Wayhunter.Infrastructure.Persistence.Configurations.HunterPlaces;
 
 using Xunit;
 
@@ -23,11 +25,6 @@ namespace Wayhunter.IntegrationTests.Modules.HunterPlaces;
 
 // =====================================================
 // M4 SQL Integration Test Attribute
-// =====================================================
-// Tests are skipped unless an isolated SQL test
-// database has been explicitly configured.
-//
-// This code NEVER creates or applies migrations.
 // =====================================================
 
 public sealed class M4SqlIntegrationFactAttribute : FactAttribute
@@ -40,8 +37,7 @@ public sealed class M4SqlIntegrationFactAttribute : FactAttribute
 
         if (string.IsNullOrWhiteSpace(connectionString))
         {
-            Skip =
-                "M4 isolated SQL test database is not configured.";
+            Skip = "M4 isolated SQL test database is not configured.";
         }
     }
 }
@@ -55,12 +51,15 @@ public sealed class M4SqlIntegrationVerificationTests
     private const string AllowedDatabaseName =
         "Wayhunter_M4_IntegrationTest";
 
+    private static readonly SemaphoreSlim SchemaGate = new(1, 1);
+
+    private static bool _schemaInitialized;
+
     // =================================================
-    // Shared Test DbContext Factory
+    // Validate Dedicated Test Database
     // =================================================
 
-    private static WayhunterSharedDbContext CreateContext(
-        DbCommandInterceptor? interceptor = null)
+    private static string GetTestConnectionString()
     {
         var connectionString =
             Environment.GetEnvironmentVariable(
@@ -69,32 +68,35 @@ public sealed class M4SqlIntegrationVerificationTests
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException(
-                "M4 SQL test connection is missing.");
+                "M4 test database connection is missing.");
         }
 
-        var connectionBuilder =
-            new SqlConnectionStringBuilder(
-                connectionString);
-
-        // Safety guard:
-        // Never write test data to a shared,
-        // development, or production database.
+        var builder =
+            new SqlConnectionStringBuilder(connectionString);
 
         if (!string.Equals(
-                connectionBuilder.InitialCatalog,
+                builder.InitialCatalog,
                 AllowedDatabaseName,
                 StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
-                "Only the isolated M4 integration " +
-                "test database is allowed.");
+                "Only the dedicated M4 test database is allowed.");
         }
 
+        return connectionString;
+    }
+
+    // =================================================
+    // Shared Production DbContext Factory
+    // =================================================
+
+    private static WayhunterSharedDbContext CreateContext(
+        DbCommandInterceptor? interceptor = null)
+    {
         var optionsBuilder =
             new DbContextOptionsBuilder<WayhunterSharedDbContext>()
-                .UseSqlServer(connectionString);
+                .UseSqlServer(GetTestConnectionString());
 
-        // Optional failure injection for rollback tests.
         if (interceptor is not null)
         {
             optionsBuilder.AddInterceptors(interceptor);
@@ -102,6 +104,80 @@ public sealed class M4SqlIntegrationVerificationTests
 
         return new WayhunterSharedDbContext(
             optionsBuilder.Options);
+    }
+
+    // =================================================
+    // M4 Isolated Test Schema Context
+    // =================================================
+
+    // This context contains only M1 UserAccount and
+    // M4 Hunter entities. It does not create other
+    // module tables in the test database.
+
+    private sealed class M4TestSchemaContext : DbContext
+    {
+        public M4TestSchemaContext(
+            DbContextOptions<M4TestSchemaContext> options)
+            : base(options)
+        {
+        }
+
+        protected override void OnModelCreating(
+            ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+
+            modelBuilder.ApplyConfiguration(
+                new UserAccountConfiguration());
+
+            modelBuilder.ApplyConfiguration(
+                new HunterSubmissionConfiguration());
+
+            modelBuilder.ApplyConfiguration(
+                new HunterEvidenceConfiguration());
+
+            modelBuilder.ApplyConfiguration(
+                new HunterReviewDecisionConfiguration());
+
+            modelBuilder.ApplyConfiguration(
+                new HunterCaptureSessionRowConfiguration());
+        }
+    }
+
+    // =================================================
+    // Prepare Empty Test Database Schema
+    // =================================================
+
+    private static async Task EnsureM4TestSchemaAsync()
+    {
+        await SchemaGate.WaitAsync();
+
+        try
+        {
+            if (_schemaInitialized)
+            {
+                return;
+            }
+
+            var options =
+                new DbContextOptionsBuilder<M4TestSchemaContext>()
+                    .UseSqlServer(GetTestConnectionString())
+                    .Options;
+
+            await using var db =
+                new M4TestSchemaContext(options);
+
+            // Creates tables directly from this limited
+            // test model. Does not generate or apply
+            // EF Core migrations.
+            await db.Database.EnsureCreatedAsync();
+
+            _schemaInitialized = true;
+        }
+        finally
+        {
+            SchemaGate.Release();
+        }
     }
 
     // =================================================
@@ -114,9 +190,10 @@ public sealed class M4SqlIntegrationVerificationTests
         Guid SubmissionId,
         Guid SessionId)> SeedAsync()
     {
+        await EnsureM4TestSchemaAsync();
+
         var now = DateTimeOffset.UtcNow;
 
-        // Create a test-only M1 account.
         var user = UserAccount.RegisterPending(
             "M4 SQL Test Hunter",
             $"m4-sql-{Guid.NewGuid():N}@example.invalid",
@@ -125,7 +202,6 @@ public sealed class M4SqlIntegrationVerificationTests
 
         user.ActivateAfterVerifiedOtp(now);
 
-        // Create a Draft Hunter submission.
         var submission = new HunterSubmission
         {
             Id = Guid.NewGuid(),
@@ -149,7 +225,6 @@ public sealed class M4SqlIntegrationVerificationTests
             CreatedAtUtc = now
         };
 
-        // Create an unused capture session.
         var session = new HunterCaptureSessionRow
         {
             Id = Guid.NewGuid(),
@@ -185,7 +260,7 @@ public sealed class M4SqlIntegrationVerificationTests
     }
 
     // =================================================
-    // Test Data Cleanup
+    // Cleanup Test Data
     // =================================================
 
     private static async Task CleanupAsync(
@@ -194,32 +269,33 @@ public sealed class M4SqlIntegrationVerificationTests
     {
         await using var db = CreateContext();
 
-        // Remove only records created by this test.
-
         await db.HunterCaptureSessions
-            .Where(x =>
-                x.HunterSubmissionId == submissionId)
+            .Where(x => x.HunterSubmissionId == submissionId)
+            .ExecuteDeleteAsync();
+
+        await db.HunterReviewDecisions
+            .Where(x => x.HunterSubmissionId == submissionId)
+            .ExecuteDeleteAsync();
+
+        await db.HunterEvidence
+            .Where(x => x.HunterSubmissionId == submissionId)
             .ExecuteDeleteAsync();
 
         await db.HunterSubmissions
-            .Where(x =>
-                x.Id == submissionId)
+            .Where(x => x.Id == submissionId)
             .ExecuteDeleteAsync();
 
         await db.Users
-            .Where(x =>
-                x.UserId == userId)
+            .Where(x => x.UserId == userId)
             .ExecuteDeleteAsync();
     }
 
     // =================================================
-    // TEST 01
-    // Concurrent Capture Session Consumption
+    // TEST 01 - Concurrent Session Consumption
     // =================================================
 
     [M4SqlIntegrationFact]
-    public async Task
-        ConcurrentConsume_ExactlyOne_ShouldSucceed()
+    public async Task ConcurrentConsume_ExactlyOne_ShouldSucceed()
     {
         var seed = await SeedAsync();
 
@@ -227,7 +303,6 @@ public sealed class M4SqlIntegrationVerificationTests
         {
             async Task<bool> ConsumeAsync()
             {
-                // Each request gets its own DbContext.
                 await using var db = CreateContext();
 
                 var store =
@@ -240,25 +315,19 @@ public sealed class M4SqlIntegrationVerificationTests
                     DateTimeOffset.UtcNow);
             }
 
-            // Simulate two concurrent requests.
+            // Two independent requests.
             var results = await Task.WhenAll(
                 ConsumeAsync(),
                 ConsumeAsync());
 
-            // Exactly one request must succeed.
-            Assert.Single(
-                results,
-                result => result);
+            Assert.Single(results, result => result);
 
             await using var verifyDb = CreateContext();
 
-            var consumed = await verifyDb
-                .HunterCaptureSessions
+            var consumed = await verifyDb.HunterCaptureSessions
                 .AsNoTracking()
-                .Where(x =>
-                    x.Id == seed.SessionId)
-                .Select(x =>
-                    x.IsConsumed)
+                .Where(x => x.Id == seed.SessionId)
+                .Select(x => x.IsConsumed)
                 .SingleAsync();
 
             Assert.True(consumed);
@@ -272,13 +341,11 @@ public sealed class M4SqlIntegrationVerificationTests
     }
 
     // =================================================
-    // TEST 02
-    // Status Transition + Session Revocation
+    // TEST 02 - Status Transition and Revocation
     // =================================================
 
     [M4SqlIntegrationFact]
-    public async Task
-        StatusTransition_ShouldRevokeUnusedSessions()
+    public async Task StatusTransition_ShouldRevokeUnusedSessions()
     {
         var seed = await SeedAsync();
 
@@ -287,8 +354,7 @@ public sealed class M4SqlIntegrationVerificationTests
             await using (var db = CreateContext())
             {
                 var store =
-                    new SqlHunterSubmissionStatusTransitionStore(
-                        db);
+                    new SqlHunterSubmissionStatusTransitionStore(db);
 
                 var changed = await store
                     .TryTransitionAndRevokeCaptureSessionsAsync(
@@ -299,25 +365,18 @@ public sealed class M4SqlIntegrationVerificationTests
                 Assert.True(changed);
             }
 
-            // Verify changes using a fresh DbContext.
             await using var verifyDb = CreateContext();
 
-            var status = await verifyDb
-                .HunterSubmissions
+            var status = await verifyDb.HunterSubmissions
                 .AsNoTracking()
-                .Where(x =>
-                    x.Id == seed.SubmissionId)
-                .Select(x =>
-                    x.Status)
+                .Where(x => x.Id == seed.SubmissionId)
+                .Select(x => x.Status)
                 .SingleAsync();
 
-            var revoked = await verifyDb
-                .HunterCaptureSessions
+            var revoked = await verifyDb.HunterCaptureSessions
                 .AsNoTracking()
-                .Where(x =>
-                    x.Id == seed.SessionId)
-                .Select(x =>
-                    x.IsRevoked)
+                .Where(x => x.Id == seed.SessionId)
+                .Select(x => x.IsRevoked)
                 .SingleAsync();
 
             Assert.Equal(
@@ -335,13 +394,11 @@ public sealed class M4SqlIntegrationVerificationTests
     }
 
     // =================================================
-    // TEST 03
-    // Transaction Rollback on Revocation Failure
+    // TEST 03 - Rollback on Revocation Failure
     // =================================================
 
     [M4SqlIntegrationFact]
-    public async Task
-        RevocationFailure_ShouldRollbackStatusTransition()
+    public async Task RevocationFailure_ShouldRollbackStatusTransition()
     {
         var seed = await SeedAsync();
 
@@ -353,11 +410,7 @@ public sealed class M4SqlIntegrationVerificationTests
             await using (var db = CreateContext(interceptor))
             {
                 var store =
-                    new SqlHunterSubmissionStatusTransitionStore(
-                        db);
-
-                // The interceptor throws when the
-                // session revocation SQL command runs.
+                    new SqlHunterSubmissionStatusTransitionStore(db);
 
                 await Assert.ThrowsAsync<InvalidOperationException>(
                     () => store
@@ -367,41 +420,30 @@ public sealed class M4SqlIntegrationVerificationTests
                             HunterSubmissionStatus.PendingReview));
             }
 
-            // The status UPDATE must have been reached.
-            Assert.True(
-                interceptor.StatusUpdateObserved);
+            Assert.True(interceptor.StatusUpdateObserved);
 
-            // The revocation command must have failed.
-            Assert.True(
-                interceptor.RevocationBlocked);
+            Assert.True(interceptor.RevocationBlocked);
 
-            // Check committed database state
-            // using a fresh DbContext.
+            // Verify using a fresh context.
             await using var verifyDb = CreateContext();
 
-            var submission = await verifyDb
-                .HunterSubmissions
+            var submission = await verifyDb.HunterSubmissions
                 .AsNoTracking()
-                .SingleAsync(x =>
-                    x.Id == seed.SubmissionId);
+                .SingleAsync(x => x.Id == seed.SubmissionId);
 
-            var session = await verifyDb
-                .HunterCaptureSessions
+            var session = await verifyDb.HunterCaptureSessions
                 .AsNoTracking()
-                .SingleAsync(x =>
-                    x.Id == seed.SessionId);
+                .SingleAsync(x => x.Id == seed.SessionId);
 
-            // The status must be rolled back to Draft.
+            // The status update must be rolled back.
             Assert.Equal(
                 HunterSubmissionStatus.Draft,
                 submission.Status);
 
             // The session must remain unchanged.
-            Assert.False(
-                session.IsRevoked);
+            Assert.False(session.IsRevoked);
 
-            Assert.False(
-                session.IsConsumed);
+            Assert.False(session.IsConsumed);
         }
         finally
         {
@@ -414,26 +456,13 @@ public sealed class M4SqlIntegrationVerificationTests
     // =================================================
     // Failure Injection Interceptor
     // =================================================
-    // Blocks the revocation UPDATE after the
-    // submission status UPDATE has executed.
-    //
-    // Used only by Test 03.
-    // =================================================
 
     private sealed class FailHunterRevocationInterceptor
         : DbCommandInterceptor
     {
-        public bool StatusUpdateObserved
-        {
-            get;
-            private set;
-        }
+        public bool StatusUpdateObserved { get; private set; }
 
-        public bool RevocationBlocked
-        {
-            get;
-            private set;
-        }
+        public bool RevocationBlocked { get; private set; }
 
         public override ValueTask<InterceptionResult<int>>
             NonQueryExecutingAsync(
@@ -448,7 +477,6 @@ public sealed class M4SqlIntegrationVerificationTests
                 "UPDATE",
                 StringComparison.OrdinalIgnoreCase);
 
-            // Observe submission status UPDATE.
             if (isUpdate &&
                 sql.Contains(
                     "Hunter_Submissions",
@@ -460,8 +488,6 @@ public sealed class M4SqlIntegrationVerificationTests
                 StatusUpdateObserved = true;
             }
 
-            // Inject failure when the capture-session
-            // revocation UPDATE is about to execute.
             if (StatusUpdateObserved &&
                 isUpdate &&
                 sql.Contains(
@@ -474,12 +500,10 @@ public sealed class M4SqlIntegrationVerificationTests
                 RevocationBlocked = true;
 
                 throw new InvalidOperationException(
-                    "Injected M4 capture-session " +
-                    "revocation failure.");
+                    "Injected M4 capture-session revocation failure.");
             }
 
-            return new ValueTask<InterceptionResult<int>>(
-                result);
+            return new ValueTask<InterceptionResult<int>>(result);
         }
     }
 }
