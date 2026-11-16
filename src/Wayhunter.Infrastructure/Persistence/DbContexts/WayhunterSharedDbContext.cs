@@ -27,15 +27,17 @@ namespace Wayhunter.Infrastructure.Persistence.DbContexts;
 ///
 /// M1: IdentitySocial
 /// M2: TravelPlanning
-/// M3: TripSafety foundation
+/// M3: TripSafety
 /// M4: HunterPlaces proposed persistence mappings
+/// M5: Games mappings pending
 /// M6: CoinsWallet persistence mappings
 /// M7: HomeAdsAnalytics
 ///
-/// M4 mappings require DB Coordinator review.
-/// M5 and remaining M3 mappings are pending.
+/// M3 configurations in this context are model
+/// mappings only. Shared schema and migration
+/// approval remain separate.
 ///
-/// No database migrations are executed here.
+/// No migration is generated or executed here.
 /// </summary>
 public sealed class WayhunterSharedDbContext : DbContext
 {
@@ -80,6 +82,18 @@ public sealed class WayhunterSharedDbContext : DbContext
 
     public DbSet<LiveTripSession> LiveTripSessions
         => Set<LiveTripSession>();
+
+    public DbSet<TripInvitation> TripInvitations
+        => Set<TripInvitation>();
+
+    public DbSet<TripMember> TripMembers
+        => Set<TripMember>();
+
+    public DbSet<TripGpsConsent> TripGpsConsents
+        => Set<TripGpsConsent>();
+
+    public DbSet<HazardReport> HazardReports
+        => Set<HazardReport>();
 
     // ==========================================
     // M4 - Hunter Places
@@ -131,12 +145,10 @@ public sealed class WayhunterSharedDbContext : DbContext
         SampleVoucherRedemptionRequests
         => Set<SampleVoucherRedemptionRequestRow>();
 
-    public DbSet<SampleVoucherInventoryRow>
-        SampleVoucherInventory
+    public DbSet<SampleVoucherInventoryRow> SampleVoucherInventory
         => Set<SampleVoucherInventoryRow>();
 
-    public DbSet<SampleVoucherIssuanceRow>
-        SampleVoucherIssuances
+    public DbSet<SampleVoucherIssuanceRow> SampleVoucherIssuances
         => Set<SampleVoucherIssuanceRow>();
 
     // ==========================================
@@ -195,9 +207,20 @@ public sealed class WayhunterSharedDbContext : DbContext
         modelBuilder.ApplyConfiguration(
             new LiveTripSessionConfiguration());
 
+        modelBuilder.ApplyConfiguration(
+            new TripInvitationConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new TripMemberConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new TripGpsConsentConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new HazardReportConfiguration());
+
         // ======================================
         // M4 - Hunter Places
-        // Proposed mappings, review required.
         // ======================================
 
         modelBuilder.ApplyConfiguration(
@@ -257,7 +280,7 @@ public sealed class WayhunterSharedDbContext : DbContext
         modelBuilder.ApplyConfiguration(
             new CoinRewardConsumerDeliveryRowConfiguration());
 
-        // M5 and remaining M3 mappings
-        // require separate shared integration reviews.
+        // M5 Games mappings remain pending.
+        // No other module mapping is changed here.
     }
 }

@@ -1,176 +1,172 @@
-# WAYHUNTER — M3 Trip Session & History Schema Draft
 
-**Task ID:** M3-MS01-T04  
-**Owner:** Mathi (M3)  
-**Module:** TripSafety  
-**Status:** DRAFT — PENDING SCHEMA REVIEW  
-**Migration:** FROZEN
+# WAYHUNTER — M3 Trip Session & History Schema
+
+**Task ID:** M3-MS01-T04
+**Owner:** Mathi (M3)
+**Module:** Trip Safety
+**Date reviewed:** 2026-11-16
+
+**Domain implementation:** Present
+**EF configuration:** Present
+**Shared model integration:** Present for LiveTripSession
+**Formal schema approval:** Pending
+**Migration:** HOLD
 
 ## 1. Purpose
 
-Define the proposed relationships between trip plans, ordered stops, live trip sessions and completed trip history.
+Record the actual M2/M3 relationship between planned
+TripPlans, ordered stops and actual live trip sessions.
 
-Planned dates and actual trip timestamps must remain separate.
+Planned dates and actual session timestamps remain separate.
 
-## 2. Current M2 TripPlan Entity
+## 2. M2 TripPlan
 
-Owner: M2 — TravelPlanning
+Entity:
 
-| Field | Current C# Type | Notes |
-|---|---|---|
-| Id | Guid | Primary identifier |
-| OwnerUserId | string | User reference |
-| TripName | string | Trip name |
-| StartDate | DateOnly | Planned start date |
-| EndDate | DateOnly | Planned end date |
-| DraftStatus | TripDraftStatus | Draft lifecycle |
-| BudgetLkr | decimal | Planned budget |
-| VehicleType | string | Planned vehicle |
-| Headcount | int | Planned group size |
+`TripPlan`
 
-M2 owns TripPlan persistence and its final database mapping.
+Owner: M2 Travel Planning
 
-## 3. Current M2 TripStop Entity
+| Property | Type |
+|---|---|
+| Id | Guid |
+| OwnerUserId | string |
+| TripName | string |
+| StartDate | DateOnly |
+| EndDate | DateOnly |
+| BudgetLkr | decimal |
+| VehicleType | string |
+| Headcount | int |
+| DraftStatus | TripDraftStatus |
 
-| Field | Current C# Type | Notes |
-|---|---|---|
-| Id | Guid | Stop identifier |
-| TripPlanId | Guid | Parent TripPlan |
-| OrderIndex | int | Stop ordering |
-| Name | string | Stop name |
-| PlaceId | string? | Optional place reference |
-| Latitude | double? | Optional coordinate |
-| Longitude | double? | Optional coordinate |
+Table: `Trips`
 
-Proposed schema constraints:
+Primary key: `Id`
 
-- Every stop belongs to one TripPlan.
-- Preserve stop order.
-- Review a unique constraint on TripPlanId + OrderIndex.
-- Coordinates may be null together.
-- Stop order must not be negative.
+M2 owns TripPlan persistence.
 
-Final constraints require M2 approval.
+## 3. M2 TripStop
 
-## 4. Current M3 LiveTripSession Entity
+Entity:
 
-Owner: M3 — TripSafety
+`TripStop`
 
-| Field | Current C# Type | Notes |
-|---|---|---|
-| SessionId | Guid | Session primary identifier |
-| TripPlanId | string | Temporary type; mismatch pending |
-| Status | LiveTripStatus | Active / Paused / Finished |
-| StartedAtUtc | DateTimeOffset | Actual start timestamp |
-| FinishedAtUtc | DateTimeOffset? | Actual finish timestamp |
+| Property | Type |
+|---|---|
+| Id | Guid |
+| TripPlanId | Guid |
+| OrderIndex | int |
+| Name | string |
+| PlaceId | string? |
+| Latitude | double? |
+| Longitude | double? |
 
-Existing EF configuration proposes table:
+Table: `TripStops`
+
+TripPlan relationship is configured by M2.
+
+## 4. M3 LiveTripSession
+
+Entity:
+
+`LiveTripSession`
+
+| Property | Type |
+|---|---|
+| SessionId | Guid |
+| TripPlanId | Guid |
+| Status | LiveTripStatus |
+| StartedAtUtc | DateTimeOffset |
+| FinishedAtUtc | DateTimeOffset? |
+
+Table:
 
 `TripSafety_LiveTripSessions`
 
-Existing configuration also defines a filtered unique index on TripPlanId for Active and Paused states.
+Primary key: `SessionId`
 
-This does not mean the database or migration has been created.
+TripPlan foreign key:
 
-## 5. M2–M3 ID Contract Blocker
+`TripPlanId -> Trips.Id`
 
-Current code:
+SQL type:
 
-- M2 TripPlan.Id = Guid
-- M3 LiveTripSession.TripPlanId = string
+`uniqueidentifier`
 
-**Proposed decision:** Use Guid consistently.
+Status:
 
-Before implementing a SQL foreign key:
+- Active = 1
+- Paused = 2
+- Finished = 3
 
-1. M2 must review the shared identifier.
-2. M3 must review the required changes.
-3. Team Leader / DB Coordinator must approve.
-4. Affected C# entities, services, repositories and tests must be aligned.
+Filtered unique index:
 
-Do not generate a foreign key between incompatible types.
+`UX_TripSafety_LiveTripSessions_OpenPlan`
 
-## 6. Planned vs Actual Time
+Only one open session per TripPlan is allowed.
 
-Planned trip dates:
+## 5. Live Session Timestamp Rules
 
-- TripPlan.StartDate
-- TripPlan.EndDate
+- Creating a TripPlan is not starting a live trip.
+- StartedAtUtc is the actual server-side start time.
+- FinishedAtUtc is nullable until completion.
+- Finish cannot precede session start.
+- Completed sessions remain available as historical records.
+- Missing GPS data must not generate fabricated history.
 
-Actual trip times:
+## 6. Additional TripSafety EF Mappings
 
-- LiveTripSession.StartedAtUtc
-- LiveTripSession.FinishedAtUtc
+The M3 persistence mapping foundation includes:
 
-Rules:
+- TripInvitation
+- TripMember
+- TripGpsConsent
+- HazardReport
 
-- Creating a plan must not count as starting a trip.
-- Actual start time comes from the Backend.
-- Actual finish time comes from the Backend.
-- A trip must not finish before its actual start.
-- Missing GPS data must not generate fabricated trip history.
+These mappings use:
 
-## 7. Proposed Trip History
+- M2 TripPlan.Id as Guid
+- M1 UserAccount.UserId as string (max 256)
+- M3 SessionId as Guid
 
-Initial proposal: Completed LiveTripSession records provide session history.
+Relationships and proposed delete behavior must receive
+cross-module schema review.
 
-Required history information:
+## 7. History and Retention
 
-- SessionId
-- TripPlanId
-- StartedAtUtc
-- FinishedAtUtc
-- Final session status
+A completed LiveTripSession remains a historical session.
 
-Whether an additional TripHistory table is needed remains pending.
+Whether a separate TripHistory table is required
+is not approved by this mapping task.
 
-Do not physically delete completed sessions merely to remove them from active-trip views.
+GPS coordinate retention and deletion durations
+remain decision-required.
 
-## 8. Relationships and Constraints
+Do not invent a retention period.
 
-Proposed relationships:
+## 8. Migration Status
 
-- One TripPlan has multiple ordered TripStops.
-- One TripPlan may have historical LiveTripSessions.
-- Only one open Active or Paused session is allowed per TripPlan.
-- A finished session must not block future history merely because it shares a TripPlanId.
-- Trip owner and accepted-member authorization are enforced by Backend services.
+EF model preparation: In progress
 
-Pending database decisions:
+Metadata verification: Pending task test results
 
-- Shared TripPlanId type
-- Foreign-key delete behavior
-- TripHistory storage strategy
-- Retention policy
-- Final table and index names
-- SQL Server migration ownership
+Shared schema review: Pending
 
-## 9. Schema Freeze Requirements
+Migration generated: No
 
-Before database migration:
+Database updated: No
 
-- M1 UserId contract review
-- M2 TripPlan / TripStop relationship review
-- M3 session and history review
-- Shared schema constraint review
-- Seven explicit member approvals
-- Team Leader-appointed migration coordinator
+## 9. Approval
 
-## 10. Migration Audit
+M2 review: Pending
 
-- Shared migration generated in this task: NO
-- Shared migration executed in this task: NO
-- SQL database updated in this task: NO
+M3 review: Pending
 
-Existing local migration history must be reported separately.
+M1 identity contract review: Pending
 
-## 11. Approval
+DB Coordinator: Pending
 
-- Mathi (M3): PENDING
-- Thadsha (M2): PENDING
-- Shayanthan (M1): PENDING
-- Team Leader / DB Coordinator: PENDING
+Team Leader migration authorization: Not granted
 
-**Final Status: DRAFT — PENDING REVIEW**
-
-No SQL migration, database update or shared DbContext change is authorized by this document.
+**Final status: Documentation corrected for the actual
+GUID implementation; database migration remains HOLD.**
