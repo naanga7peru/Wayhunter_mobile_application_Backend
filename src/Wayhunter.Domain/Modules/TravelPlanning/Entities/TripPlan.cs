@@ -26,6 +26,8 @@ public sealed class TripPlan
     public TripDraftStatus DraftStatus { get; private set; }
         = TripDraftStatus.Draft;
 
+    public byte[] RowVersion { get; private set; } = Array.Empty<byte>();
+
     public IReadOnlyList<TripStop> Stops => _stops.AsReadOnly();
 
     public TripPlan(

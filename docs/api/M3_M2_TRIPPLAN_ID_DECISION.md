@@ -1,249 +1,218 @@
 ﻿
-# WAYHUNTER - M2/M3 TripPlan ID Contract
+# WAYHUNTER — M2/M3 TripPlan ID Contract
 
-Status: IMPLEMENTED - FORMAL APPROVAL PENDING
-
-Owners:
+**Owners**
 - M2 Travel Planning: Thadsha
 - M3 Trip Safety: Mathi
-- Final Approval: Team Leader / DB Coordinator
+- Final Review: Team Leader / DB Coordinator
 
-Last Reviewed: 2026-11-15
+**Implementation status:** GUID alignment merged
+**Current code checkpoint:** develop cba9dd4
+**Schema approval:** Pending formal review
+**Migration:** HOLD
 
 ## 1. Purpose
 
-This document defines the shared TripPlan ID contract
+This document records the shared TripPlan ID contract
 between M2 Travel Planning and M3 Trip Safety.
 
-M2 creates and owns Trip Plans.
+M2 owns TripPlan creation and persistence.
 
-M3 manages Live Trip Sessions linked to those plans.
+M3 owns live session and trip safety persistence.
 
-Both modules must use the same TripPlan ID type.
+Both modules use the same TripPlan ID type.
 
-## 2. Current Implementation
-
-### M2 Travel Planning
+## 2. Actual M1 User Identity Contract
 
 Entity:
+
+`Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount`
+
+Property:
+
+`UserId: string`
+
+Existing EF mapping:
+
+`UserAccountConfiguration.cs`
+
+Table:
+
+`Users`
+
+Primary key:
+
+`UserId`
+
+Maximum length:
+
+`256`
+
+M3 string user references must be compatible with
+this current M1 contract.
+
+## 3. Actual M2 TripPlan Contract
+
+Entity:
+
 `Wayhunter.Domain.Modules.TravelPlanning.Entities.TripPlan`
 
 Property:
 
-`public Guid Id { get; private set; }`
+`Id: Guid`
 
-Database configuration:
+Configuration:
+
 `TripPlanConfiguration.cs`
 
-Table: `Trips`
+Table:
 
-Primary key: `Id`
-
-ID type: `Guid`
-
-### M3 Trip Safety
-
-Entity:
-`Wayhunter.Domain.Modules.TripSafety.Entities.LiveTripSession`
-
-Property:
-
-`public Guid TripPlanId { get; }`
-
-Database configuration:
-`LiveTripSessionConfiguration.cs`
-
-Table: `TripSafety_LiveTripSessions`
-
-Primary key: `SessionId`
-
-TripPlan ID type: `Guid`
-
-SQL column type: `uniqueidentifier`
-
-### Contract Result
-
-M2 TripPlan.Id = Guid
-
-M3 LiveTripSession.TripPlanId = Guid
-
-The previous string-versus-Guid type mismatch
-has been corrected in application code.
-
-## 3. Implementation Status
-
-The following changes are merged into develop:
-
-- M3 domain entity GUID alignment
-- Repository interface GUID alignment
-- Service interface GUID alignment
-- Application service GUID alignment
-- DTO GUID alignment
-- Validation contract GUID alignment
-- In-memory repository GUID alignment
-- EF Core column type alignment
-- Related unit test updates
-- Reminder service GUID alignment
-
-GitHub PR:
-https://github.com/naanga7peru/Wayhunter_mobile_application_Backend/pull/91
-
-PR Status: MERGED
-
-Merge Date: 2026-11-15
-
-## 4. Module Ownership Rules
-
-M2 owns:
-- Trip Plan creation
-- Trip Plan editing
-- Trip Plan ownership information
-- Trip Plan persistence
-- Trip Plan lifecycle rules
-
-M3 owns:
-- Live Trip Session creation
-- Live Trip Session pause
-- Live Trip Session resume
-- Live Trip Session finish
-- Group trip safety
-- GPS sharing consent validation
-
-M3 must not generate or replace the M2 TripPlan ID.
-
-M3 receives the existing M2 TripPlan ID.
-
-## 5. Start Trip Requirements
-
-Before creating a Live Trip Session,
-the backend must verify:
-
-1. TripPlanId is a valid non-empty Guid.
-2. The Trip Plan exists in M2.
-3. The authenticated user has permission
-   to start the requested trip.
-4. The trip is eligible to start.
-5. No duplicate open session is created.
-
-M3 currently contains open-session
-duplicate-prevention logic.
-
-M2 ownership and trip eligibility integration
-must be verified before production use.
-
-## 6. Database Relationship
-
-Expected relationship:
-
-Principal table:
 `Trips`
 
-Principal key:
-`Trips.Id`
+Primary key:
 
-Dependent table:
+`Id`
+
+SQL type:
+
+`uniqueidentifier`
+
+## 4. Actual M3 Live Session Contract
+
+Entity:
+
+`LiveTripSession`
+
+Properties:
+
+- SessionId: Guid
+- TripPlanId: Guid
+- Status: LiveTripStatus
+- StartedAtUtc: DateTimeOffset
+- FinishedAtUtc: DateTimeOffset?
+
+Configuration:
+
+`LiveTripSessionConfiguration.cs`
+
+Table:
+
 `TripSafety_LiveTripSessions`
 
+Primary key:
+
+`SessionId`
+
 Foreign key:
+
 `TripSafety_LiveTripSessions.TripPlanId`
+references `Trips.Id`.
 
-Relationship:
+Proposed delete behavior:
 
-One Trip Plan can have multiple historical
-Live Trip Sessions.
+`NoAction`
 
-Only one Active or Paused session is allowed
-for the same TripPlanId.
+Open-session unique index:
 
-The current M3 configuration contains a
-filtered unique index for open sessions.
+`UX_TripSafety_LiveTripSessions_OpenPlan`
 
-The actual M2/M3 foreign key relationship
-has not yet been configured in the shared
-EF Core model.
+Filter:
 
-Status: PENDING DB INTEGRATION
+`[Status] IN (1, 2)`
 
-Foreign key delete behavior requires approval
-from M2 and the DB Coordinator.
+## 5. GUID Alignment Evidence
 
-## 7. Shared DbContext
+Merged PR:
 
-The final database integration must register
-both M2 and M3 entity configurations in an
-approved EF Core DbContext.
+https://github.com/naanga7peru/Wayhunter_mobile_application_Backend/pull/91
 
-The shared DbContext ownership and registration
-strategy must be decided by the Team Leader
-and DB Coordinator.
+Foreign key correction:
 
-Status: PENDING
+https://github.com/naanga7peru/Wayhunter_mobile_application_Backend/pull/110
 
-M3 developers must not create an independent
-production migration for this relationship
-without coordination.
+Implementation evidence:
 
-## 8. Migration Rules
+- M2 TripPlan.Id uses Guid.
+- M3 LiveTripSession.TripPlanId uses Guid.
+- M3 SQL type is uniqueidentifier.
+- EF model contains the TripPlan relationship.
+- Metadata tests verify the relationship.
 
-Database migrations must not be executed
-until the following are complete:
+## 6. M3 Persistence Relationships
 
-- M2/M3 contract reviewed
-- M2/M3 foreign key design approved
-- Shared DbContext configured
-- Relevant module mappings reviewed
-- Solution build successful
-- Unit tests passed
-- Team Leader / DB Coordinator approval
+The approved EF mapping task adds:
 
-Production and existing development database
-changes require appropriate backup and review.
+- TripInvitation -> Trips
+- TripInvitation.SenderUserId -> Users.UserId
+- TripInvitation.RecipientUserId -> Users.UserId
+- TripMember -> Trips
+- TripMember.MemberUserId -> Users.UserId
+- TripMember.InvitationId -> TripInvitations
+- TripGpsConsent.SessionId -> LiveTripSessions
+- TripGpsConsent.UserId -> Users.UserId
+- HazardReport.ReporterUserId -> Users.UserId
+- HazardReport.VerifiedByUserId -> Users.UserId
+- HazardReport.ResolvedByUserId -> Users.UserId
 
-## 9. Verification
+The proposed table names, indexes, constraints and
+delete behavior require final shared schema approval.
 
-Implementation:
+## 7. Ownership Rules
 
-- [x] M2 TripPlan.Id uses Guid
-- [x] M3 LiveTripSession.TripPlanId uses Guid
-- [x] M3 EF mapping uses uniqueidentifier
-- [x] M3 GUID alignment PR merged into develop
+M2 owns:
 
-Integration:
+- TripPlan creation
+- TripPlan editing
+- TripPlan owner information
+- TripPlan persistence
 
-- [ ] M2/M3 FK configured in shared EF model
-- [ ] M2 ownership authorization verified
-- [ ] M2 trip eligibility verification completed
-- [ ] All relevant module schema mappings reviewed
-- [ ] Shared DbContext integration completed
-- [ ] Full unit test results recorded
-- [ ] Database migration generated and reviewed
-- [ ] Database migration applied
+M3 owns:
 
-## 10. Approval Status
+- Trip invitation lifecycle
+- Accepted trip membership
+- Live session lifecycle
+- GPS sharing consent
+- Group trip safety
 
-M2 Thadsha:
-PENDING FORMAL REVIEW
+M3 must not create or replace M2 TripPlan IDs.
 
-M3 Mathi:
-PENDING FORMAL SIGN-OFF
+## 8. Shared DbContext
 
-Team Leader:
-PENDING APPROVAL
+The existing `WayhunterSharedDbContext` contains:
 
-DB Coordinator:
-PENDING MIGRATION APPROVAL
+- M1 Identity mappings
+- M2 TravelPlanning mappings
+- M3 LiveTripSession mapping
+- Other existing module mappings
 
-A merged PR confirms code integration.
-It does not automatically confirm formal
-contract approval or database migration approval.
+The M3 EF readiness task adds the four remaining
+TripSafety configurations.
 
-## 11. Next Actions
+This is model configuration work only.
 
-1. M2 Thadsha reviews the current Guid contract.
-2. M3 Mathi prepares FK integration changes
-   without executing migrations.
-3. DB Coordinator confirms shared DbContext design.
-4. Team Leader reviews cross-module relationships.
-5. Team runs build and tests.
-6. Approved migration is generated and reviewed.
-7. Database migration is applied only after approval.
+## 9. Approval Status
+
+GUID implementation: MERGED
+
+FK implementation: MERGED
+
+Formal M2/M3 contract sign-off: PENDING
+
+Seven-member shared schema approval: PENDING
+
+DB Coordinator approval: PENDING
+
+Team Leader migration authorization: NOT GRANTED
+
+## 10. Migration Restrictions
+
+No migration generation is authorized by this task.
+
+No database update is authorized.
+
+Only the appointed DB Coordinator may perform
+the approved consolidated migration after all
+required member approvals.
+
+**Final status: EF implementation review pending;
+shared migration remains HOLD.**

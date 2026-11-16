@@ -19,11 +19,13 @@ public static class TravelPlanningServiceCollectionExtensions
         services.AddTravelPlanningMapsConfiguration();
 
         // Server-side AI provider configuration.
-        // Actual AI provider implementation is added later.
         services.AddTravelPlanningAiConfiguration();
 
+        // Weather provider and shared cache.
+        services.AddTravelPlanningWeather();
+
         // Temporary in-memory Trip repository.
-        // SQL integration awaits migration approval.
+        // SQL integration requires separate approval.
         services.AddSingleton<
             ITripPlanRepository,
             InMemoryTripPlanRepository>();

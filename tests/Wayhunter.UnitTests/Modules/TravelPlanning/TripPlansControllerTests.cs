@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,6 +21,11 @@ namespace Wayhunter.UnitTests.Modules.TravelPlanning;
 
 public sealed class TripPlansControllerTests
 {
+    private static readonly byte[] TestRowVersion =
+    {
+        1, 2, 3, 4, 5, 6, 7, 8
+    };
+
     private static CreateTripPlanDto CreateRequest()
     {
         return new CreateTripPlanDto(
@@ -34,7 +40,7 @@ public sealed class TripPlansControllerTests
 
     private static TripPlan CreateTrip()
     {
-        return new TripPlan(
+        var trip = new TripPlan(
             "user-001",
             "Jaffna Tour",
             new DateOnly(2026, 11, 20),
@@ -43,6 +49,26 @@ public sealed class TripPlansControllerTests
             "Car",
             3
         );
+
+        // Simulate SQL Server-generated RowVersion.
+        SetRowVersion(trip, TestRowVersion);
+
+        return trip;
+    }
+
+    private static void SetRowVersion(
+        TripPlan trip,
+        byte[] rowVersion)
+    {
+        var property = typeof(TripPlan).GetProperty(
+            nameof(TripPlan.RowVersion),
+            BindingFlags.Instance | BindingFlags.Public);
+
+        Assert.NotNull(property);
+
+        property.SetValue(
+            trip,
+            rowVersion.ToArray());
     }
 
     private static TripPlansController CreateController(
@@ -142,6 +168,7 @@ public sealed class TripPlansControllerTests
             ok.Value);
 
         Assert.Equal(trip.Id, result.TripPlanId);
+        Assert.Equal(TestRowVersion, result.RowVersion);
     }
 
     [Fact]
@@ -181,7 +208,10 @@ public sealed class TripPlansControllerTests
             20000m,
             "Bus",
             4
-        );
+        )
+        {
+            ExpectedRowVersion = TestRowVersion.ToArray()
+        };
 
         var response = await controller.Update(
             trip.Id,
@@ -196,6 +226,59 @@ public sealed class TripPlansControllerTests
 
         Assert.Equal("Updated Trip", result.TripName);
         Assert.Equal(20000m, result.BudgetLkr);
+        Assert.Equal("Bus", result.VehicleType);
+        Assert.Equal(4, result.Headcount);
+        Assert.Equal(TestRowVersion, result.RowVersion);
+    }
+
+
+    [Fact]
+    public async Task Update_StaleRowVersion_ReturnsConflict()
+    {
+        // Arrange: create a trip with a known RowVersion.
+        var repository = new FakeRepository();
+        var trip = CreateTrip();
+
+        await repository.AddAsync(trip);
+
+        var controller = CreateController(repository);
+
+        // Simulate an outdated RowVersion from the client.
+        var staleRowVersion = new byte[]
+        {
+        8, 7, 6, 5, 4, 3, 2, 1
+        };
+
+        var request = new UpdateTripPlanDto(
+            "Updated Trip",
+            new DateOnly(2026, 11, 21),
+            new DateOnly(2026, 11, 24),
+            20000m,
+            "Bus",
+            4
+        )
+        {
+            ExpectedRowVersion = staleRowVersion
+        };
+
+        // Act.
+        var response = await controller.Update(
+            trip.Id,
+            request,
+            CancellationToken.None);
+
+        // Assert: stale updates must return HTTP 409.
+        var conflict = Assert.IsType<ConflictObjectResult>(
+            response.Result);
+
+        Assert.Equal(409, conflict.StatusCode);
+
+        // The existing trip must remain unchanged.
+        Assert.Equal("Jaffna Tour", trip.TripName);
+        Assert.Equal(15000m, trip.BudgetLkr);
+
+        // The original RowVersion must remain unchanged.
+        Assert.Equal(TestRowVersion, trip.RowVersion);
     }
 
     [Fact]

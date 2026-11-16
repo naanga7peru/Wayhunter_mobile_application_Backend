@@ -1,6 +1,7 @@
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Wayhunter.Domain.Modules.IdentitySocial.Entities;
 using Wayhunter.Domain.Modules.TravelPlanning.Entities;
 
 namespace Wayhunter.Infrastructure.Persistence.Configurations.TravelPlanning;
@@ -10,8 +11,22 @@ public sealed class TripPlanConfiguration
 {
     public void Configure(EntityTypeBuilder<TripPlan> builder)
     {
-        // Table name
-        builder.ToTable("Trips");
+        // Table and proposed database constraints.
+        // Final schema approval is required.
+        builder.ToTable("Trips", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_Trips_DateRange",
+                "[EndDate] >= [StartDate]");
+
+            table.HasCheckConstraint(
+                "CK_Trips_Budget",
+                "[BudgetLkr] >= 0");
+
+            table.HasCheckConstraint(
+                "CK_Trips_Headcount",
+                "[Headcount] >= 1");
+        });
 
         // Primary Key
         builder.HasKey(trip => trip.Id);
@@ -25,6 +40,17 @@ public sealed class TripPlanConfiguration
             .IsRequired();
 
         builder.HasIndex(trip => trip.OwnerUserId);
+
+        // M1 -> M2 Foreign Key
+        // Users.UserId -> Trips.OwnerUserId
+        // Proposed: requires M1 and DB Coordinator approval.
+        builder.HasOne<UserAccount>()
+            .WithMany()
+            .HasForeignKey(trip => trip.OwnerUserId)
+            .HasPrincipalKey(user => user.UserId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName(
+                "FK_Trips_Users_OwnerUserId");
 
         // Trip details
         builder.Property(trip => trip.TripName)
@@ -40,7 +66,8 @@ public sealed class TripPlanConfiguration
             .IsRequired();
 
         builder.Property(trip => trip.BudgetLkr)
-            .HasColumnType("decimal(18,2)");
+            .HasColumnType("decimal(18,2)")
+            .IsRequired();
 
         builder.Property(trip => trip.VehicleType)
             .HasMaxLength(100)
@@ -54,13 +81,21 @@ public sealed class TripPlanConfiguration
             .HasConversion<int>()
             .IsRequired();
 
-        // One Trip has many ordered stops
+        // SQL Server optimistic concurrency.
+        // Proposed schema change — migration approval pending.
+        builder.Property(trip => trip.RowVersion)
+            .IsRowVersion()
+            .IsConcurrencyToken();
+
+
+        // M2 TripPlan -> TripStops relationship
         builder.HasMany(trip => trip.Stops)
             .WithOne()
             .HasForeignKey(stop => stop.TripPlanId)
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.Navigation(trip => trip.Stops)
-            .UsePropertyAccessMode(PropertyAccessMode.Field);
+            .UsePropertyAccessMode(
+                PropertyAccessMode.Field);
     }
 }

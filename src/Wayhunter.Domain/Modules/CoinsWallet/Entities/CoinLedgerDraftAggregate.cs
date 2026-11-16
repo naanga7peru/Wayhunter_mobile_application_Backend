@@ -7,13 +7,15 @@ using Wayhunter.Domain.Modules.CoinsWallet.ValueObjects;
 namespace Wayhunter.Domain.Modules.CoinsWallet.Entities;
 
 /// <summary>
-/// In-memory ledger prototype for M6-MS02-T03.
-/// All operations on one wallet are protected by a lock.
+/// M6 in-memory ledger prototype.
 ///
-/// IMPORTANT:
-/// This is NOT a production SQL transaction implementation.
-/// Database persistence, unique indexes and EF Core migrations
-/// require the approved shared database migration process.
+/// Voucher workflow:
+/// Request -> Pending hold
+/// Admin approval -> Approved, hold remains
+/// Successful issuance -> One final debit
+/// Cancellation of Pending -> Hold released
+///
+/// Not a production SQL transaction implementation.
 /// </summary>
 public sealed class CoinLedgerDraftAggregate
 {
@@ -21,6 +23,7 @@ public sealed class CoinLedgerDraftAggregate
     {
         Pending,
         Approved,
+        Issued,
         Cancelled
     }
 
@@ -75,7 +78,6 @@ public sealed class CoinLedgerDraftAggregate
     {
         lock (_gate)
         {
-            // Return a snapshot, not the mutable internal list.
             return _entries.ToArray();
         }
     }
@@ -95,7 +97,6 @@ public sealed class CoinLedgerDraftAggregate
 
         lock (_gate)
         {
-            // Logical idempotency within this aggregate.
             if (_rewardKeys.Contains(key))
                 return false;
 
@@ -110,7 +111,6 @@ public sealed class CoinLedgerDraftAggregate
             long nextLifetime =
                 checked(_lifetimeEarnedCoins + amount);
 
-            // Validate projected state before modifying data.
             _ = new CoinWalletBalance(
                 nextPosted,
                 current.ReservedCoins,
@@ -134,7 +134,6 @@ public sealed class CoinLedgerDraftAggregate
 
         lock (_gate)
         {
-            // A processed request ID cannot be reused.
             if (_requests.ContainsKey(requestId))
                 return false;
 
@@ -155,9 +154,9 @@ public sealed class CoinLedgerDraftAggregate
                 newReserved,
                 balance.LifetimeEarnedCoins);
 
-            // Reservation does not create a ledger debit.
             _requests.Add(requestId, RequestState.Pending);
 
+            // Reservation is not a ledger debit.
             return true;
         }
     }
@@ -175,12 +174,54 @@ public sealed class CoinLedgerDraftAggregate
                 return false;
             }
 
+            // Approval only changes request state.
+            // Reservation stays active.
+            // No debit or ledger entry is created.
+            _requests[requestId] = RequestState.Approved;
+
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Simulates the result of a trusted voucher issuance.
+    ///
+    /// issuanceSucceeded must come from a trusted
+    /// fulfillment operation, not directly from a user.
+    ///
+    /// This prototype is atomic only within one
+    /// in-memory aggregate. Production SQL must
+    /// commit issuance, debit and reservation consumption
+    /// together in one database transaction.
+    /// </summary>
+    public bool TryIssueSampleVoucher(
+        Guid requestId,
+        bool issuanceSucceeded)
+    {
+        EnsureRequestId(requestId);
+
+        lock (_gate)
+        {
+            if (!_requests.TryGetValue(
+                requestId, out var state) ||
+                state != RequestState.Approved)
+            {
+                return false;
+            }
+
+            if (!issuanceSucceeded)
+            {
+                // Failed issuance leaves the approved
+                // request and its reservation intact.
+                return false;
+            }
+
             long cost =
                 CoinLevelRedemptionRules.SampleVoucherCostCoins;
 
             var current = CalculateBalance();
 
-            // Validate projected debit and reservation release.
+            // Validate before modifying the ledger.
             _ = new CoinWalletBalance(
                 checked(current.PostedCoins - cost),
                 checked(current.ReservedCoins - cost),
@@ -188,11 +229,12 @@ public sealed class CoinLedgerDraftAggregate
 
             var entry = CreateEntry(
                 -cost,
-                $"voucher-approved:{requestId:N}");
+                $"voucher-issued:{requestId:N}");
 
-            // Admin approval finalizes one debit.
             _entries.Add(entry);
-            _requests[requestId] = RequestState.Approved;
+
+            // Reservation is consumed only now.
+            _requests[requestId] = RequestState.Issued;
 
             return true;
         }
@@ -211,10 +253,9 @@ public sealed class CoinLedgerDraftAggregate
                 return false;
             }
 
-            // Pending reservation is released.
-            // No refund or compensating debit is created.
             _requests[requestId] = RequestState.Cancelled;
 
+            // Pending hold released; no debit/refund.
             return true;
         }
     }
@@ -224,16 +265,15 @@ public sealed class CoinLedgerDraftAggregate
         long posted = 0;
         long reserved = 0;
 
-        // Posted balance is derived from signed ledger entries.
         foreach (var entry in _entries)
         {
             posted = checked(posted + entry.DeltaCoins);
         }
 
-        // Only pending reservations affect spendable Coins.
         foreach (var state in _requests.Values)
         {
-            if (state == RequestState.Pending)
+            if (state is RequestState.Pending
+                or RequestState.Approved)
             {
                 reserved = checked(
                     reserved +

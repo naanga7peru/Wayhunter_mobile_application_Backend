@@ -1,4 +1,5 @@
 
+using System;
 using Wayhunter.Domain.Modules.CoinsWallet.Enums;
 using Wayhunter.Domain.Modules.CoinsWallet.Rules;
 using Xunit;
@@ -10,10 +11,12 @@ public class SampleVoucherPolicyTests
     [Fact]
     public void VoucherReference_IsCorrect()
     {
-        Assert.Equal(100m,
+        Assert.Equal(
+            100m,
             SampleVoucherPolicy.ReferenceValueLkr);
 
-        Assert.Equal(10000,
+        Assert.Equal(
+            10000,
             SampleVoucherPolicy.VoucherCostCoins);
 
         Assert.False(
@@ -22,6 +25,7 @@ public class SampleVoucherPolicyTests
 
     [Theory]
     [InlineData(SampleVoucherAction.Request, true)]
+    [InlineData(SampleVoucherAction.RejectOrCancel, false)]
     [InlineData(SampleVoucherAction.AdminApprove, false)]
     [InlineData(SampleVoucherAction.Issue, false)]
     [InlineData(SampleVoucherAction.RetryIssue, false)]
@@ -29,22 +33,32 @@ public class SampleVoucherPolicyTests
         SampleVoucherAction action,
         bool expected)
     {
-        Assert.Equal(expected,
+        Assert.Equal(
+            expected,
             SampleVoucherPolicy.RequiresReservation(action));
     }
 
     [Theory]
     [InlineData(SampleVoucherAction.Request, false)]
     [InlineData(SampleVoucherAction.RejectOrCancel, false)]
-    [InlineData(SampleVoucherAction.AdminApprove, true)]
-    [InlineData(SampleVoucherAction.Issue, false)]
-    [InlineData(SampleVoucherAction.RetryIssue, false)]
-    public void DebitTrigger_OnlyOnAdminApproval(
+    [InlineData(SampleVoucherAction.AdminApprove, false)]
+    [InlineData(SampleVoucherAction.Issue, true)]
+    [InlineData(SampleVoucherAction.RetryIssue, true)]
+    public void FinalDebit_OnlyDuringFulfillment(
         SampleVoucherAction action,
         bool expected)
     {
-        Assert.Equal(expected,
+        Assert.Equal(
+            expected,
             SampleVoucherPolicy.IsFinalDebitTrigger(action));
+    }
+
+    [Fact]
+    public void AdminApproval_DoesNotTriggerDebit()
+    {
+        Assert.False(
+            SampleVoucherPolicy.IsFinalDebitTrigger(
+                SampleVoucherAction.AdminApprove));
     }
 
     [Theory]
@@ -52,14 +66,16 @@ public class SampleVoucherPolicyTests
     [InlineData(true, false, false)]
     [InlineData(false, true, false)]
     [InlineData(true, true, true)]
-    public void Issuance_RequiresApprovalAndDebit(
+    public void Issuance_RequiresApprovalAndReservation(
         bool approved,
-        bool debitCommitted,
+        bool reservationHeld,
         bool expected)
     {
-        Assert.Equal(expected,
+        Assert.Equal(
+            expected,
             SampleVoucherPolicy.CanIssue(
-                approved, debitCommitted));
+                approved,
+                reservationHeld));
     }
 
     [Fact]
@@ -68,6 +84,14 @@ public class SampleVoucherPolicyTests
         Assert.False(
             SampleVoucherPolicy.CanDisplayVoucher(
                 true, true, false));
+    }
+
+    [Fact]
+    public void UnissuedVoucher_CannotBeDisplayed()
+    {
+        Assert.False(
+            SampleVoucherPolicy.CanDisplayVoucher(
+                false, true, true));
     }
 
     [Fact]

@@ -1,6 +1,8 @@
+
 using System;
-using System.Collections.Generic;
-using System.Text;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Wayhunter.Application.Modules.TravelPlanning.Dtos;
 using Wayhunter.Application.Modules.TravelPlanning.Interfaces;
 
@@ -21,35 +23,45 @@ public sealed class GetTripPlanService
         string ownerUserId,
         CancellationToken cancellationToken = default)
     {
+        // Step 1: Validate request.
         if (tripPlanId == Guid.Empty)
+        {
             throw new ArgumentException(
                 "Trip Plan ID is required.",
                 nameof(tripPlanId));
+        }
 
         if (string.IsNullOrWhiteSpace(ownerUserId))
+        {
             throw new ArgumentException(
                 "Authenticated User ID is required.",
                 nameof(ownerUserId));
+        }
 
+        // Step 2: Retrieve existing trip.
         var trip = await _repository.GetByIdAsync(
             tripPlanId,
             cancellationToken);
 
-        // Users must not read another user's trip.
+        // Step 3: Verify ownership.
         if (trip is null || trip.OwnerUserId != ownerUserId)
+        {
             return null;
+        }
 
+        // Step 4: Map ordered stops.
         var stops = trip.Stops
-            .OrderBy(s => s.OrderIndex)
-            .Select(s => new TripStopResponseDto(
-                s.Id,
-                s.OrderIndex,
-                s.Name,
-                s.PlaceId,
-                s.Latitude,
-                s.Longitude))
+            .OrderBy(stop => stop.OrderIndex)
+            .Select(stop => new TripStopResponseDto(
+                stop.Id,
+                stop.OrderIndex,
+                stop.Name,
+                stop.PlaceId,
+                stop.Latitude,
+                stop.Longitude))
             .ToList();
 
+        // Step 5: Return trip with latest RowVersion.
         return new TripPlanResponseDto(
             trip.Id,
             trip.TripName,
@@ -58,7 +70,9 @@ public sealed class GetTripPlanService
             trip.BudgetLkr,
             trip.VehicleType,
             trip.Headcount,
-            stops);
+            stops)
+        {
+            RowVersion = trip.RowVersion.ToArray()
+        };
     }
 }
-

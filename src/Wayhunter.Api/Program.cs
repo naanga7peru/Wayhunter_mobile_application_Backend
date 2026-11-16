@@ -1,18 +1,19 @@
-
-using Wayhunter.Api.Contracts.Responses;
+﻿using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Extensions;
+using Wayhunter.Api.Hubs.TripSafety;
+using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
 using Wayhunter.Application.Modules.TripSafety.Services;
 using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
 using Microsoft.AspNetCore.Authentication;
-using Wayhunter.Api.Services.IdentitySocial;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Starter only:
-// M1 must implement real authentication and Admin RBAC.
 builder.Services.AddControllers();
 
+// ==========================================
+// M1 - Identity Authentication
+// ==========================================
 
 var enableSharedAuthentication = builder.Configuration
     .GetValue<bool>("Identity:EnableSharedAuthentication");
@@ -39,27 +40,50 @@ else
     builder.Services.AddAuthorization();
 }
 
-
+// ==========================================
+// M2 - Travel Planning
+// ==========================================
 
 builder.Services.AddTravelPlanningModule();
 
 builder.Services.AddSingleton(TimeProvider.System);
 
-// M3-MS04-T01:
-// Trip sharing consent in-memory foundation.
-//
-// This repository is not connected to the canonical
-// invitation, membership and session persistence.
-//
-// Production auth and SQL integration remain pending.
+// ==========================================
+// M3 - Trip Safety / GPS Consent
+// ==========================================
 
 builder.Services.AddSingleton<
-    ITripSharingConsentRepository,
     InMemoryTripSharingConsentRepository>();
 
-builder.Services.AddScoped<TripSharingConsentService>();
+builder.Services.AddSingleton<
+    ITripSharingConsentRepository>(
+    sp => sp.GetRequiredService<
+        InMemoryTripSharingConsentRepository>());
 
-// Development CORS configuration.
+builder.Services.AddSingleton<
+    ITripLiveLocationAccessReader>(
+    sp => sp.GetRequiredService<
+        InMemoryTripSharingConsentRepository>());
+
+builder.Services.AddScoped<
+    TripSharingConsentService>();
+
+// ==========================================
+// M3 - SignalR Infrastructure
+// ==========================================
+
+builder.Services.AddSignalR();
+
+builder.Services.AddSingleton<
+    TripLocationSubscriberRegistry>();
+
+builder.Services.AddScoped<
+    TripLocationFanoutService>();
+
+// ==========================================
+// Development CORS
+// ==========================================
+
 if (builder.Environment.IsDevelopment())
 {
     var origins = builder.Configuration
@@ -75,6 +99,10 @@ if (builder.Environment.IsDevelopment())
                 .AllowAnyMethod()));
 }
 
+// ==========================================
+// Application Pipeline
+// ==========================================
+
 var app = builder.Build();
 
 app.UseMiddleware<
@@ -85,16 +113,16 @@ if (app.Environment.IsDevelopment())
     app.UseCors("LocalDevelopment");
 }
 
-app.MapControllers();
-
-
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapControllers();
+
+app.MapHub<TripLocationHub>(
+    "/hubs/trip-location");
 
 app.Run();
 
-// Exposed for future integration tests.
 public partial class Program
 {
 }
