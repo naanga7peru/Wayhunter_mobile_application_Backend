@@ -545,3 +545,169 @@ M7 must not run independent EF migration generation or database-update commands 
 
 
 \*\*Final Status:\*\* M7 advertisement schema documentation prepared for review. Migration remains on hold until explicit approval and centralized coordination.
+
+---
+
+## 14. Final M7 Advertisement SQL Migration Readiness Update
+
+**Updated:** 2026-11-16
+
+**Status:** EF SCHEMA PREPARATION VERIFIED
+
+**Migration Execution:** HOLD - NOT AUTHORIZED
+
+### 14.1 Approved DbContext Ownership
+
+- WayhunterSharedDbContext is the authoritative EF model for the consolidated shared SQL migration.
+- HomeAdsAnalyticsDbContext remains temporarily for module compatibility and isolated EF tests.
+- M7 must not generate an independent migration history.
+- Shared migration generation and execution remain under DB Coordinator coordination.
+
+### 14.2 Approved Advertisement SQL Schema
+
+Table: Advertisements
+
+Primary Key:
+- PK_Advertisements
+- Column: Id
+- SQL type: uniqueidentifier
+- Application-generated GUID
+
+CHECK Constraints:
+- CK_Advertisements_ValidWindow
+  SQL: [EndAtUtc] > [StartAtUtc]
+
+- CK_Advertisements_Placement
+  SQL: [Placement] IN (1, 2)
+
+- CK_Advertisements_Status
+  SQL: [Status] IN (0, 1, 2, 3)
+
+Index:
+- IX_Advertisements_Enabled_Window
+- Columns: IsEnabled, StartAtUtc, EndAtUtc
+
+Counter Columns:
+- ImpressionCount: bigint, default 0
+- ClickCount: bigint, default 0
+
+Other Columns:
+- Title: nvarchar(200), required
+- ImageUrl: nvarchar(2048), required
+- DestinationUrl: nvarchar(2048), nullable
+- StartAtUtc: datetimeoffset, required
+- EndAtUtc: datetimeoffset, required
+- IsEnabled: bit, required
+- Placement: int, required
+- Status: int, required
+
+These mappings have been prepared in AdvertisementConfiguration.cs.
+EF metadata tests have passed. Actual SQL Server schema
+creation has not been verified.
+
+### 14.3 Deterministic Demo Advertisement Seed Preparation
+
+Implementation:
+src/Wayhunter.Infrastructure/Persistence/Seeding/AdvertisementDemoSeed.cs
+
+Demo Home Banner:
+- ID: a1000000-0000-4000-8000-000000000001
+- Placement: HomeBanner
+- Initial Status: Draft
+- IsEnabled: false
+
+Demo Sponsored POI:
+- ID: a1000000-0000-4000-8000-000000000002
+- Placement: SponsoredPoi
+- Initial Status: Draft
+- IsEnabled: false
+
+Both records:
+- Use sample HTTPS URLs
+- Have valid UTC date windows
+- Start with zero impressions and clicks
+- Use fixed IDs for repeatability
+
+Duplicate Prevention:
+- GetMissingRecords checks supplied existing advertisement IDs.
+- Existing IDs are excluded from the prepared records.
+- Existing administrator-managed records are not modified.
+- No database insert or update is performed.
+- Database concurrency safety is not yet verified.
+
+The sample image URLs are placeholders.
+Actual image availability is not guaranteed.
+
+### 14.4 Test Evidence
+
+AdvertisementConfigurationTests:
+- Total: 13
+- Passed: 13
+- Failed: 0
+
+AdvertisementDemoSeedTests:
+- Total: 8
+- Passed: 8
+- Failed: 0
+
+Full Backend Regression:
+- Total: 2427
+- Passed: 2424
+- Failed: 0
+- Skipped: 3
+
+The three skipped tests require an isolated M4 SQL
+test database that is not configured.
+
+Restore: PASSED
+Build: PASSED
+Full test run: PASSED
+Git diff whitespace check: PASSED
+
+The test logs also contain expected-host-validation
+failure messages for invalid AI provider configuration
+and missing Maps provider configuration. These messages
+did not cause the full test run to fail.
+
+### 14.5 Future Relationships
+
+The following are outside the current approved
+Advertisement SQL schema:
+
+- CampaignId
+- SponsorId
+- District targeting relationships
+- Sponsored-location relationships
+- Related foreign keys and unique constraints
+
+These require separate schema review before inclusion
+in the consolidated migration.
+
+### 14.6 Remaining Work
+
+- Shared migration generation by the authorized DB Coordinator
+- Review of generated SQL schema and constraints
+- Authorized database migration application
+- SQL persistence and restart verification
+- Seed execution and concurrency-safe duplicate prevention
+- Actual image URL and endpoint integration verification
+- Final database acceptance evidence
+
+M7 must not independently run:
+- dotnet ef migrations add
+- dotnet ef database update
+- Manual SQL DDL or schema modification
+
+### 14.7 Approval and Execution Status
+
+M7 Advertisement schema preparation:
+COMPLETED FOR PR REVIEW
+
+Team Leader-approved design decisions:
+RECORDED
+
+Consolidated SQL migration execution:
+NOT AUTHORIZED
+
+Actual SQL Server persistence:
+NOT VERIFIED
