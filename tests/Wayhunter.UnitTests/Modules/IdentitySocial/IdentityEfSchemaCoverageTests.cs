@@ -9,16 +9,16 @@ namespace Wayhunter.UnitTests.Modules.IdentitySocial;
 
 public sealed class IdentityEfSchemaCoverageTests
 {
-    private static IdentityDbContext CreateContext()
+    private static WayhunterSharedDbContext CreateContext()
     {
-        var options = new DbContextOptionsBuilder<IdentityDbContext>()
+        var options = new DbContextOptionsBuilder<WayhunterSharedDbContext>()
             .UseSqlServer(
                 "Server=localhost;Database=Wayhunter_ModelOnly;" +
                 "Trusted_Connection=True;TrustServerCertificate=True;")
             .Options;
 
         // Metadata only: no database connection.
-        return new IdentityDbContext(options);
+        return new WayhunterSharedDbContext(options);
     }
 
     [Theory]

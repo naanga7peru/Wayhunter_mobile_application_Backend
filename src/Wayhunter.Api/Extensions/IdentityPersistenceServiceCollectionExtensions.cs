@@ -1,9 +1,9 @@
 
-using Microsoft.EntityFrameworkCore;
+using System;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Wayhunter.Api.Services.IdentitySocial;
-using Wayhunter.Infrastructure.Persistence.DbContexts;
 
 namespace Wayhunter.Api.Extensions;
 
@@ -16,27 +16,18 @@ public static class IdentityPersistenceServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        var connectionString =
-            configuration.GetConnectionString("WayhunterIdentity");
+        // M1 uses the single shared database context.
+        services.AddWayhunterSharedPersistence(configuration);
 
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException(
-                "WayhunterIdentity database connection is not configured.");
-        }
-
-        services.AddDbContext<IdentityDbContext>(options =>
-            options.UseSqlServer(connectionString));
-
-        services.AddScoped<
+        services.TryAddScoped<
             IAuthenticatedSessionReader,
             SqlAuthenticatedSessionReader>();
 
-        services.AddScoped<
+        services.TryAddScoped<
             IIdentitySessionRevocationStore,
             SqlIdentitySessionRevocationStore>();
 
-        services.AddScoped<SessionLogoutService>();
+        services.TryAddScoped<SessionLogoutService>();
 
         return services;
     }

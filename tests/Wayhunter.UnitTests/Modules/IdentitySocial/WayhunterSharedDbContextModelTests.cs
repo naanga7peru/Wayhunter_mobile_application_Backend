@@ -6,13 +6,13 @@ using Xunit;
 
 namespace Wayhunter.UnitTests.Modules.IdentitySocial;
 
-public sealed class IdentityDbContextModelTests
+public sealed class WayhunterSharedDbContextModelTests
 {
-    private static IdentityDbContext CreateContext()
+    private static WayhunterSharedDbContext CreateContext()
     {
         // Model inspection only. No SQL connection opened.
         var options =
-            new DbContextOptionsBuilder<IdentityDbContext>()
+            new DbContextOptionsBuilder<WayhunterSharedDbContext>()
                 .UseSqlServer(
                     "Server=localhost;" +
                     "Database=WayhunterModelInspection;" +
@@ -20,7 +20,7 @@ public sealed class IdentityDbContextModelTests
                     "TrustServerCertificate=True")
                 .Options;
 
-        return new IdentityDbContext(options);
+        return new WayhunterSharedDbContext(options);
     }
 
     [Fact]

@@ -162,7 +162,7 @@ public sealed class ValidJwtCrossModuleHttpTests
                         ["Identity:EnableSharedAuthentication"] =
                             "true",
 
-                        ["ConnectionStrings:WayhunterIdentity"] =
+                        ["ConnectionStrings:WayhunterSharedDb"] =
                             "Server=localhost;" +
                             "Database=WayhunterJwtTest;" +
                             "Trusted_Connection=True;" +

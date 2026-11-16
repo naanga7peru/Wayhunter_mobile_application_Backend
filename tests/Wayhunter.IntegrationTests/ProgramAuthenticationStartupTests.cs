@@ -64,7 +64,7 @@ public sealed class ProgramAuthenticationStartupTests
                         ["Identity:EnableSharedAuthentication"] =
                         _enabled ? "true" : "false",
 
-                        ["ConnectionStrings:WayhunterIdentity"] =
+                        ["ConnectionStrings:WayhunterSharedDb"] =
                             "Server=localhost;" +
                             "Database=WayhunterAuthStartupTest;" +
                             "Trusted_Connection=True;" +

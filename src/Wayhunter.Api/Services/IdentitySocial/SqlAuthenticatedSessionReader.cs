@@ -8,10 +8,10 @@ namespace Wayhunter.Api.Services.IdentitySocial;
 public sealed class SqlAuthenticatedSessionReader
     : IAuthenticatedSessionReader
 {
-    private readonly IdentityDbContext _db;
+    private readonly WayhunterSharedDbContext _db;
 
     public SqlAuthenticatedSessionReader(
-        IdentityDbContext db)
+        WayhunterSharedDbContext db)
     {
         _db = db ??
             throw new ArgumentNullException(nameof(db));

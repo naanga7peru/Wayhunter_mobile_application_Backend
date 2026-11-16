@@ -18,7 +18,7 @@ public sealed class IdentityPersistenceRegistrationTests
 
         if (connectionString is not null)
         {
-            values["ConnectionStrings:WayhunterIdentity"] =
+            values["ConnectionStrings:WayhunterSharedDb"] =
                 connectionString;
         }
 
@@ -68,7 +68,7 @@ public sealed class IdentityPersistenceRegistrationTests
 
         Assert.NotNull(
             scope.ServiceProvider
-                .GetRequiredService<IdentityDbContext>());
+                .GetRequiredService<WayhunterSharedDbContext>());
 
         Assert.IsType<SqlAuthenticatedSessionReader>(
             scope.ServiceProvider
@@ -86,7 +86,7 @@ public sealed class IdentityPersistenceRegistrationTests
     }
 
     [Fact]
-    public void IdentityDbContext_UsesSqlServerProvider()
+    public void SharedDbContext_UsesSqlServerProvider()
     {
         var services = new ServiceCollection();
 
@@ -103,7 +103,7 @@ public sealed class IdentityPersistenceRegistrationTests
         using var scope = provider.CreateScope();
 
         var db = scope.ServiceProvider
-            .GetRequiredService<IdentityDbContext>();
+            .GetRequiredService<WayhunterSharedDbContext>();
 
         Assert.True(db.Database.IsSqlServer());
     }

@@ -11,16 +11,16 @@ namespace Wayhunter.UnitTests.Modules.IdentitySocial;
 
 public sealed class IdentityEfModelTests
 {
-    private static IdentityDbContext CreateContext()
+    private static WayhunterSharedDbContext CreateContext()
     {
-        var options = new DbContextOptionsBuilder<IdentityDbContext>()
+        var options = new DbContextOptionsBuilder<WayhunterSharedDbContext>()
             .UseSqlServer(
                 "Server=localhost;Database=Wayhunter_ModelOnly;" +
                 "Trusted_Connection=True;TrustServerCertificate=True;")
             .Options;
 
         // Only inspect EF metadata. No SQL connection is opened.
-        return new IdentityDbContext(options);
+        return new WayhunterSharedDbContext(options);
     }
 
     [Theory]
@@ -145,7 +145,7 @@ public sealed class IdentityEfModelTests
     }
 
     private static void AssertMaxLength(
-        IdentityDbContext db,
+        WayhunterSharedDbContext db,
         Type entityType,
         string propertyName,
         int expectedLength)
