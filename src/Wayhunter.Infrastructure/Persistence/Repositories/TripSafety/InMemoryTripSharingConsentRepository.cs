@@ -1,4 +1,3 @@
-
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -6,19 +5,15 @@ using System.Threading;
 using System.Threading.Tasks;
 using Wayhunter.Application.Modules.TripSafety.Dtos;
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
+using Wayhunter.Application.Modules.TripSafety.Validators;
 using Wayhunter.Domain.Modules.TripSafety.Entities;
 using Wayhunter.Domain.Modules.TripSafety.Enums;
 
 namespace Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
 
-// Development and unit-test repository only.
-//
-// Production integration must use the canonical
-// trip session and membership persistence.
-// Do not expose test seed methods through HTTP.
-
 public sealed class InMemoryTripSharingConsentRepository
-    : ITripSharingConsentRepository
+    : ITripSharingConsentRepository,
+      ITripLiveLocationAccessReader
 {
     private readonly object _sync = new();
 
@@ -37,7 +32,9 @@ public sealed class InMemoryTripSharingConsentRepository
         (Guid SessionId, string UserId), TripGpsConsent>
         _consents = new();
 
-    // Test-only session setup.
+    // Development/test-only setup.
+    // Must not be exposed through an HTTP endpoint.
+
     public void SeedSessionForTests(
         LiveTripSession session)
     {
@@ -46,8 +43,7 @@ public sealed class InMemoryTripSharingConsentRepository
         lock (_sync)
         {
             if (!_sessions.TryAdd(
-                session.SessionId,
-                session))
+                session.SessionId, session))
             {
                 throw new InvalidOperationException(
                     "Session already exists.");
@@ -55,7 +51,6 @@ public sealed class InMemoryTripSharingConsentRepository
         }
     }
 
-    // Test-only accepted member setup.
     public void SeedAcceptedMemberForTests(
         TripMember member)
     {
@@ -64,7 +59,7 @@ public sealed class InMemoryTripSharingConsentRepository
         if (!member.IsActive)
         {
             throw new InvalidOperationException(
-                "Only an active accepted member may be seeded.");
+                "An active accepted member is required.");
         }
 
         lock (_sync)
@@ -81,29 +76,25 @@ public sealed class InMemoryTripSharingConsentRepository
         }
     }
 
-    // Simulates the M3-MS03-T04 membership removal.
-    // Production removal must be coordinated with
-    // canonical membership and consent persistence.
+    // Test simulation of membership revocation.
+    // Production must integrate the canonical T04 flow.
+
     public void RevokeMembershipForTests(
         Guid tripPlanId,
         string memberUserId,
         DateTimeOffset serverTimeUtc)
     {
         if (string.IsNullOrWhiteSpace(memberUserId))
-        {
             throw new ArgumentException(
                 "Member User ID is required.",
                 nameof(memberUserId));
-        }
 
         if (serverTimeUtc == default)
-        {
             throw new ArgumentException(
                 "Valid server time is required.",
                 nameof(serverTimeUtc));
-        }
 
-        string userId = memberUserId.Trim();
+        var userId = memberUserId.Trim();
         var time = serverTimeUtc.ToUniversalTime();
 
         lock (_sync)
@@ -111,47 +102,36 @@ public sealed class InMemoryTripSharingConsentRepository
             var key = (tripPlanId, userId);
 
             if (!_members.ContainsKey(key))
-            {
                 throw new KeyNotFoundException(
                     "Member was not found.");
-            }
 
-            // Validate all consent transitions
-            // before changing membership state.
+            var affected = _sessions.Values
+                .Where(x => x.TripPlanId == tripPlanId)
+                .Select(x => x.SessionId)
+                .ToArray();
 
-            foreach (var session in _sessions.Values
-                .Where(x => x.TripPlanId == tripPlanId))
+            // Validate before changing stored state.
+            foreach (var sessionId in affected)
             {
-                var consentKey = (
-                    session.SessionId,
-                    userId);
-
                 if (_consents.TryGetValue(
-                    consentKey,
-                    out var existing) &&
-                    existing.IsGranted &&
-                    existing.GrantedAtUtc.HasValue &&
-                    time < existing.GrantedAtUtc.Value)
+                        (sessionId, userId),
+                        out var consent) &&
+                    consent.IsGranted &&
+                    consent.GrantedAtUtc.HasValue &&
+                    time < consent.GrantedAtUtc.Value)
                 {
                     throw new InvalidOperationException(
                         "Revocation cannot precede consent grant.");
                 }
             }
 
-            // Prevent future consent changes.
             _revoked.Add(key);
 
-            // Revoke previously granted consent.
-            foreach (var session in _sessions.Values
-                .Where(x => x.TripPlanId == tripPlanId))
+            foreach (var sessionId in affected)
             {
-                var consentKey = (
-                    session.SessionId,
-                    userId);
-
                 if (_consents.TryGetValue(
-                    consentKey,
-                    out var consent) &&
+                        (sessionId, userId),
+                        out var consent) &&
                     consent.IsGranted)
                 {
                     consent.Revoke(time);
@@ -160,7 +140,6 @@ public sealed class InMemoryTripSharingConsentRepository
         }
     }
 
-    // Test-only snapshot reader.
     public GpsConsentDto? GetSnapshotForTests(
         Guid sessionId,
         string userId)
@@ -174,6 +153,8 @@ public sealed class InMemoryTripSharingConsentRepository
                     : null;
         }
     }
+
+    // T01: Explicit consent changes only.
 
     public Task<GpsConsentDto> SetMyConsentAsync(
         Guid tripPlanId,
@@ -206,54 +187,36 @@ public sealed class InMemoryTripSharingConsentRepository
                 nameof(serverTimeUtc));
         }
 
-        string userId = authenticatedUserId.Trim();
-
-        var memberKey = (
-            tripPlanId,
-            userId);
-
-        var consentKey = (
-            sessionId,
-            userId);
-
+        var userId = authenticatedUserId.Trim();
+        var memberKey = (tripPlanId, userId);
+        var consentKey = (sessionId, userId);
         var now = serverTimeUtc.ToUniversalTime();
-
-        // Authorization and consent transition happen
-        // under the same lock.
-        //
-        // This provides in-memory atomicity only.
 
         lock (_sync)
         {
-            // 1. Session must exist.
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (!_sessions.TryGetValue(
-                sessionId,
-                out var session))
+                sessionId, out var session))
             {
                 throw new KeyNotFoundException(
                     "Live trip session was not found.");
             }
 
-            // 2. Session must belong to this trip.
             if (session.TripPlanId != tripPlanId)
             {
                 throw new UnauthorizedAccessException(
                     "Session belongs to another trip.");
             }
 
-            // 3. Finished sessions cannot change consent.
             if (session.Status == LiveTripStatus.Finished)
             {
                 throw new InvalidOperationException(
                     "Finished trips cannot change GPS consent.");
             }
 
-            // 4. Only an active accepted member
-            // may change their own consent.
-
             if (!_members.TryGetValue(
-                    memberKey,
-                    out var member) ||
+                    memberKey, out var member) ||
                 !member.IsActive ||
                 member.TripPlanId != tripPlanId ||
                 !string.Equals(
@@ -263,46 +226,104 @@ public sealed class InMemoryTripSharingConsentRepository
                 _revoked.Contains(memberKey))
             {
                 throw new UnauthorizedAccessException(
-                    "An active accepted trip membership is required.");
+                    "Active accepted membership is required.");
             }
 
-            // 5. Validate server timestamps.
             if (now < member.JoinedAtUtc ||
                 now < session.StartedAtUtc)
             {
                 throw new InvalidOperationException(
-                    "Consent time cannot precede joining or session start.");
+                    "Consent time cannot precede joining or trip start.");
             }
 
-            // 6. Default consent is always OFF.
-            //
-            // Accepting an invitation never creates
-            // or enables GPS sharing automatically.
-
+            // Default GPS permission is always disabled.
             if (!_consents.TryGetValue(
-                consentKey,
-                out var consent))
+                consentKey, out var consent))
             {
                 consent = TripGpsConsent.CreateDisabled(
-                    sessionId,
-                    userId);
+                    sessionId, userId);
 
                 _consents.Add(consentKey, consent);
             }
 
-            // 7. Explicit Grant or Revoke.
             if (grant)
-            {
                 consent.Grant(now);
-            }
             else
-            {
                 consent.Revoke(now);
-            }
 
-            // 8. Return immutable response.
             return Task.FromResult(
                 GpsConsentDto.FromDomain(consent));
         }
+    }
+
+    // T02: Called before subscribing, publishing,
+    // and receiving precise GPS updates.
+
+    public Task EnsureAllowedAsync(
+        Guid tripPlanId,
+        Guid sessionId,
+        string authenticatedUserId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (tripPlanId == Guid.Empty ||
+            sessionId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Valid trip and session IDs are required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(
+            authenticatedUserId))
+        {
+            throw new UnauthorizedAccessException(
+                "Authentication is required.");
+        }
+
+        var userId = authenticatedUserId.Trim();
+
+        lock (_sync)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            _sessions.TryGetValue(
+                sessionId, out var session);
+
+            _members.TryGetValue(
+                (tripPlanId, userId),
+                out var member);
+
+            _consents.TryGetValue(
+                (sessionId, userId),
+                out var consent);
+
+            bool authorized =
+                member is not null &&
+                member.IsActive &&
+                member.TripPlanId == tripPlanId &&
+                string.Equals(
+                    member.MemberUserId,
+                    userId,
+                    StringComparison.Ordinal) &&
+                !_revoked.Contains((tripPlanId, userId));
+
+            // Requires:
+            // - Active session
+            // - Matching trip
+            // - Active membership
+            // - Explicit, unrevoked GPS consent
+            // - Matching session and identity
+
+            GroupLiveLocationPublishValidator
+                .EnsureCanPublish(
+                    session,
+                    consent,
+                    tripPlanId,
+                    userId,
+                    authorized);
+        }
+
+        return Task.CompletedTask;
     }
 }
