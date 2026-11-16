@@ -19,17 +19,26 @@ public sealed class IdentityDbContext : DbContext
     public DbSet<IdentitySession> IdentitySessions
         => Set<IdentitySession>();
 
+
     protected override void OnModelCreating(
         ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
 
-        // Reuse existing approved-for-review mappings.
-        // No new tables or schema changes introduced here.
         modelBuilder.ApplyConfiguration(
             new UserAccountConfiguration());
 
         modelBuilder.ApplyConfiguration(
+            new UserProfileConfiguration());
+
+        modelBuilder.ApplyConfiguration(
             new IdentitySessionConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new IdentityOtpChallengeConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new IdentityConsentConfiguration());
     }
+
 }
