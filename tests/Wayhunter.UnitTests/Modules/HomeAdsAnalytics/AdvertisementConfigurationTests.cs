@@ -283,4 +283,130 @@ public sealed class AdvertisementConfigurationTests
                 index.GetDatabaseName() ==
                 "IX_Advertisements_Enabled_Window");
     }
+
+    // TEST 09 - Approved Primary Key Name and SQL Type
+    [Fact]
+    public void Advertisement_ShouldHaveApprovedPrimaryKey()
+    {
+        using var context = CreateSharedContext();
+
+        var entity = context.Model.FindEntityType(
+            typeof(Advertisement));
+
+        Assert.NotNull(entity);
+
+        var key = entity.FindPrimaryKey();
+
+        Assert.NotNull(key);
+
+        Assert.Equal("PK_Advertisements", key.GetName());
+
+        var id = entity.FindProperty(
+            nameof(Advertisement.Id));
+
+        Assert.NotNull(id);
+        Assert.Equal("uniqueidentifier", id.GetColumnType());
+        Assert.Equal(ValueGenerated.Never, id.ValueGenerated);
+        Assert.False(id.IsNullable);
+    }
+
+    // TEST 10 - Approved Placement CHECK Constraint
+    [Fact]
+    public void Advertisement_ShouldHavePlacementConstraint()
+    {
+        using var context = CreateSharedContext();
+
+        var model = context
+            .GetService<IDesignTimeModel>()
+            .Model;
+
+        var entity = model.FindEntityType(
+            typeof(Advertisement));
+
+        Assert.NotNull(entity);
+
+        var constraint = Assert.Single(
+            entity.GetCheckConstraints(),
+            candidate =>
+                candidate.Name ==
+                "CK_Advertisements_Placement");
+
+        Assert.Equal(
+            "[Placement] IN (1, 2)",
+            constraint.Sql);
+    }
+
+    // TEST 11 - Approved Status CHECK Constraint
+    [Fact]
+    public void Advertisement_ShouldHaveStatusConstraint()
+    {
+        using var context = CreateSharedContext();
+
+        var model = context
+            .GetService<IDesignTimeModel>()
+            .Model;
+
+        var entity = model.FindEntityType(
+            typeof(Advertisement));
+
+        Assert.NotNull(entity);
+
+        var constraint = Assert.Single(
+            entity.GetCheckConstraints(),
+            candidate =>
+                candidate.Name ==
+                "CK_Advertisements_Status");
+
+        Assert.Equal(
+            "[Status] IN (0, 1, 2, 3)",
+            constraint.Sql);
+    }
+
+    // TEST 12 - Shared Model Contains Exactly Three Constraints
+    [Fact]
+    public void SharedContext_ShouldHaveThreeAdvertisementConstraints()
+    {
+        using var context = CreateSharedContext();
+
+        var model = context
+            .GetService<IDesignTimeModel>()
+            .Model;
+
+        var entity = model.FindEntityType(
+            typeof(Advertisement));
+
+        Assert.NotNull(entity);
+
+        var constraints = entity.GetCheckConstraints().ToList();
+
+        Assert.Equal(3, constraints.Count);
+
+        Assert.Contains(
+            constraints,
+            c => c.Name == "CK_Advertisements_ValidWindow");
+
+        Assert.Contains(
+            constraints,
+            c => c.Name == "CK_Advertisements_Placement");
+
+        Assert.Contains(
+            constraints,
+            c => c.Name == "CK_Advertisements_Status");
+    }
+
+    // TEST 13 - Advertisement Registered Once in Shared Model
+    [Fact]
+    public void SharedContext_ShouldRegisterAdvertisementExactlyOnce()
+    {
+        using var context = CreateSharedContext();
+
+        var matches = context.Model
+            .GetEntityTypes()
+            .Where(entity =>
+                entity.ClrType == typeof(Advertisement))
+            .ToList();
+
+        Assert.Single(matches);
+    }
+
 }

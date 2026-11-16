@@ -11,18 +11,32 @@ public sealed class AdvertisementConfiguration
     public void Configure(
         EntityTypeBuilder<Advertisement> builder)
     {
-        // SQL Server table name
+        // SQL Server table and approved CHECK constraints
         builder.ToTable("Advertisements", table =>
         {
+            // End date must be later than start date
             table.HasCheckConstraint(
                 "CK_Advertisements_ValidWindow",
                 "[EndAtUtc] > [StartAtUtc]");
+
+            // HomeBanner = 1, SponsoredPoi = 2
+            table.HasCheckConstraint(
+                "CK_Advertisements_Placement",
+                "[Placement] IN (1, 2)");
+
+            // Draft = 0, Active = 1
+            // Paused = 2, Archived = 3
+            table.HasCheckConstraint(
+                "CK_Advertisements_Status",
+                "[Status] IN (0, 1, 2, 3)");
         });
 
-        // Primary Key
-        builder.HasKey(ad => ad.Id);
+        // Application-generated uniqueidentifier Primary Key
+        builder.HasKey(ad => ad.Id)
+            .HasName("PK_Advertisements");
 
         builder.Property(ad => ad.Id)
+            .HasColumnType("uniqueidentifier")
             .ValueGeneratedNever();
 
         // Advertisement Title
@@ -35,7 +49,7 @@ public sealed class AdvertisementConfiguration
             .IsRequired()
             .HasMaxLength(2048);
 
-        // Destination URL
+        // Destination URL (optional)
         builder.Property(ad => ad.DestinationUrl)
             .HasMaxLength(2048);
 
