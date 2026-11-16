@@ -4,12 +4,42 @@ using Wayhunter.Api.Extensions;
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
 using Wayhunter.Application.Modules.TripSafety.Services;
 using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
+using Microsoft.AspNetCore.Authentication;
+using Wayhunter.Api.Services.IdentitySocial;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Starter only:
 // M1 must implement real authentication and Admin RBAC.
 builder.Services.AddControllers();
+
+
+var enableSharedAuthentication = builder.Configuration
+    .GetValue<bool>("Identity:EnableSharedAuthentication");
+
+if (enableSharedAuthentication)
+{
+    builder.Services.AddWayhunterIdentityPersistence(
+        builder.Configuration);
+
+    builder.Services.AddWayhunterSessionAuthentication(
+        builder.Configuration);
+}
+else
+{
+    builder.Services
+        .AddAuthentication(
+            DisabledIdentityAuthenticationHandler.SchemeName)
+        .AddScheme<
+            AuthenticationSchemeOptions,
+            DisabledIdentityAuthenticationHandler>(
+            DisabledIdentityAuthenticationHandler.SchemeName,
+            _ => { });
+
+    builder.Services.AddAuthorization();
+}
+
+
 
 builder.Services.AddTravelPlanningModule();
 
@@ -56,6 +86,11 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
+
+
+app.UseAuthentication();
+app.UseAuthorization();
+
 
 app.Run();
 
