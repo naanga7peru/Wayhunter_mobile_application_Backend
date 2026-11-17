@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wayhunter.Infrastructure.Integrations.Ai;
 using Xunit;
@@ -19,6 +20,12 @@ public sealed class AiConfigurationStartupTests
         return new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
+                // Keep the expected startup validation exception visible.
+                // The Windows Event Log provider can throw AccessDenied in
+                // restricted test environments and mask that exception.
+                builder.ConfigureLogging(logging =>
+                    logging.ClearProviders());
+
                 builder.ConfigureAppConfiguration(
                     (_, configuration) =>
                     {

@@ -88,7 +88,7 @@ public sealed class M6SqlSchemaSafetyTests
     }
 
     [Fact]
-    public void RewardSources_AreGloballyUnique()
+    public void RewardSources_AreRecipientScoped()
     {
         using var db = CreateContext();
 
@@ -101,21 +101,29 @@ public sealed class M6SqlSchemaSafetyTests
         Assert.NotNull(ledger);
         Assert.NotNull(outbox);
 
-        string[] expected =
+        string[] ledgerExpected =
         {
+            nameof(CoinLedgerEntryRow.WalletId),
             nameof(CoinLedgerEntryRow.RewardType),
             nameof(CoinLedgerEntryRow.SourceRecordId)
+        };
+
+        string[] outboxExpected =
+        {
+            nameof(CoinRewardOutboxRow.RewardType),
+            nameof(CoinRewardOutboxRow.SourceRecordId),
+            nameof(CoinRewardOutboxRow.RecipientUserId)
         };
 
         Assert.Contains(ledger.GetIndexes(), index =>
             index.IsUnique &&
             index.Properties.Select(x => x.Name)
-                .SequenceEqual(expected));
+                .SequenceEqual(ledgerExpected));
 
         Assert.Contains(outbox.GetIndexes(), index =>
             index.IsUnique &&
             index.Properties.Select(x => x.Name)
-                .SequenceEqual(expected));
+                .SequenceEqual(outboxExpected));
     }
 
     [Fact]

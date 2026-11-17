@@ -41,10 +41,10 @@ public class SampleVoucherPolicyTests
     [Theory]
     [InlineData(SampleVoucherAction.Request, false)]
     [InlineData(SampleVoucherAction.RejectOrCancel, false)]
-    [InlineData(SampleVoucherAction.AdminApprove, false)]
-    [InlineData(SampleVoucherAction.Issue, true)]
-    [InlineData(SampleVoucherAction.RetryIssue, true)]
-    public void FinalDebit_OnlyDuringFulfillment(
+    [InlineData(SampleVoucherAction.AdminApprove, true)]
+    [InlineData(SampleVoucherAction.Issue, false)]
+    [InlineData(SampleVoucherAction.RetryIssue, false)]
+    public void FinalDebit_OnlyDuringAdminApproval(
         SampleVoucherAction action,
         bool expected)
     {
@@ -54,9 +54,9 @@ public class SampleVoucherPolicyTests
     }
 
     [Fact]
-    public void AdminApproval_DoesNotTriggerDebit()
+    public void AdminApproval_TriggersDebit()
     {
-        Assert.False(
+        Assert.True(
             SampleVoucherPolicy.IsFinalDebitTrigger(
                 SampleVoucherAction.AdminApprove));
     }
@@ -68,14 +68,14 @@ public class SampleVoucherPolicyTests
     [InlineData(true, true, true)]
     public void Issuance_RequiresApprovalAndReservation(
         bool approved,
-        bool reservationHeld,
+        bool approvalDebitCommitted,
         bool expected)
     {
         Assert.Equal(
             expected,
             SampleVoucherPolicy.CanIssue(
                 approved,
-                reservationHeld));
+                approvalDebitCommitted));
     }
 
     [Fact]

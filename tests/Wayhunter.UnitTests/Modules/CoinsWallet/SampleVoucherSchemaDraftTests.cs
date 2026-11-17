@@ -116,14 +116,20 @@ public sealed class SampleVoucherSchemaDraftTests
     }
 
     [Fact]
-    public void InventoryItem_HasSampleCode()
+    public void InventoryItem_HasProtectedCodeReferences()
     {
         var item = new SampleVoucherInventorySchemaDraft(
             Guid.NewGuid(),
             Guid.NewGuid(),
-            "DEMO-CODE-001");
+            "sha256-demo-code-001",
+            "secret-store:vouchers/demo-001");
 
-        Assert.Equal("DEMO-CODE-001", item.SampleCode);
+        Assert.Equal(
+            "sha256-demo-code-001",
+            item.CodeHash);
+        Assert.Equal(
+            "secret-store:vouchers/demo-001",
+            item.EncryptedCodeReference);
         Assert.Null(item.AssignedRequestId);
     }
 
@@ -134,6 +140,14 @@ public sealed class SampleVoucherSchemaDraftTests
             new SampleVoucherInventorySchemaDraft(
                 Guid.NewGuid(),
                 Guid.NewGuid(),
+                "",
+                "secret-store:vouchers/demo-001"));
+
+        Assert.Throws<ArgumentException>(() =>
+            new SampleVoucherInventorySchemaDraft(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                "sha256-demo-code-001",
                 ""));
     }
 

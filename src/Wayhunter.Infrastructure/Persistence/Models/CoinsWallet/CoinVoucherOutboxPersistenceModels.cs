@@ -39,7 +39,8 @@ public sealed class SampleVoucherInventoryRow
 {
     public Guid Id { get; set; }
     public Guid OfferId { get; set; }
-    public string SampleCode { get; set; } = string.Empty;
+    public string CodeHash { get; set; } = string.Empty;
+    public string EncryptedCodeReference { get; set; } = string.Empty;
     public Guid? AssignedRequestId { get; set; }
 }
 

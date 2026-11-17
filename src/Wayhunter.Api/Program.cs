@@ -1,29 +1,56 @@
 using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Api.Hubs.TripSafety;
+using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
 using Wayhunter.Application.Modules.TripSafety.Services;
 using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
+using Microsoft.AspNetCore.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Authentication and Admin RBAC integration
-// are owned by M1.
-// Do not treat this starter as production auth.
-
 builder.Services.AddControllers();
+
+// ==========================================
+// M1 - Identity Authentication
+// ==========================================
+
+var enableSharedAuthentication = builder.Configuration
+    .GetValue<bool>("Identity:EnableSharedAuthentication");
+
+if (enableSharedAuthentication)
+{
+    builder.Services.AddWayhunterIdentityPersistence(
+        builder.Configuration);
+
+    builder.Services.AddWayhunterSessionAuthentication(
+        builder.Configuration);
+}
+else
+{
+    builder.Services
+        .AddAuthentication(
+            DisabledIdentityAuthenticationHandler.SchemeName)
+        .AddScheme<
+            AuthenticationSchemeOptions,
+            DisabledIdentityAuthenticationHandler>(
+            DisabledIdentityAuthenticationHandler.SchemeName,
+            _ => { });
+
+    builder.Services.AddAuthorization();
+}
+
+// ==========================================
+// M2 - Travel Planning
+// ==========================================
 
 builder.Services.AddTravelPlanningModule();
 
 builder.Services.AddSingleton(TimeProvider.System);
 
-// M3-MS04-T01 + T02 shared in-memory state.
-//
-// The same instance backs both:
-// - Explicit GPS consent changes
-// - SignalR authorization reads
-//
-// Production persistence integration is pending.
+// ==========================================
+// M3 - Trip Safety / GPS Consent
+// ==========================================
 
 builder.Services.AddSingleton<
     InMemoryTripSharingConsentRepository>();
@@ -41,7 +68,9 @@ builder.Services.AddSingleton<
 builder.Services.AddScoped<
     TripSharingConsentService>();
 
-// SignalR infrastructure.
+// ==========================================
+// M3 - SignalR Infrastructure
+// ==========================================
 
 builder.Services.AddSignalR();
 
@@ -51,7 +80,9 @@ builder.Services.AddSingleton<
 builder.Services.AddScoped<
     TripLocationFanoutService>();
 
-// Development CORS configuration.
+// ==========================================
+// Development CORS
+// ==========================================
 
 if (builder.Environment.IsDevelopment())
 {
@@ -68,6 +99,10 @@ if (builder.Environment.IsDevelopment())
                 .AllowAnyMethod()));
 }
 
+// ==========================================
+// Application Pipeline
+// ==========================================
+
 var app = builder.Build();
 
 app.UseMiddleware<
@@ -78,10 +113,10 @@ if (app.Environment.IsDevelopment())
     app.UseCors("LocalDevelopment");
 }
 
-app.MapControllers();
+app.UseAuthentication();
+app.UseAuthorization();
 
-// [Authorize] requires the real M1
-// authentication scheme before live use.
+app.MapControllers();
 
 app.MapHub<TripLocationHub>(
     "/hubs/trip-location");

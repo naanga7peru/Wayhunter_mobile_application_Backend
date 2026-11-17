@@ -122,6 +122,7 @@ public sealed class CoinWalletEfModelTests
             index.Properties.Select(p => p.Name)
                 .SequenceEqual(new[]
                 {
+                    nameof(CoinLedgerEntryRow.WalletId),
                     nameof(CoinLedgerEntryRow.RewardType),
                     nameof(CoinLedgerEntryRow.SourceRecordId)
                 }));

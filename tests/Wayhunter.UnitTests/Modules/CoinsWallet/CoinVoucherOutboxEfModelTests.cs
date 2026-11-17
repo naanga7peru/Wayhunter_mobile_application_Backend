@@ -138,8 +138,15 @@ public sealed class CoinVoucherOutboxEfModelTests
         Assert.Contains(entity.GetForeignKeys(), fk =>
             fk.PrincipalEntityType.ClrType ==
                 typeof(CoinWalletRow) &&
-            fk.Properties.Single().Name ==
-                nameof(SampleVoucherRedemptionRequestRow.WalletId));
+            fk.Properties.Select(p => p.Name).SequenceEqual(new[]
+            {
+                nameof(SampleVoucherRedemptionRequestRow.WalletId),
+                nameof(SampleVoucherRedemptionRequestRow.OwnerUserId)
+            }) &&
+            fk.PrincipalKey.Properties.Select(p => p.Name).SequenceEqual(new[]
+            {
+                nameof(CoinWalletRow.Id), nameof(CoinWalletRow.UserId)
+            }));
 
         Assert.Contains(entity.GetForeignKeys(), fk =>
             fk.PrincipalEntityType.ClrType ==
@@ -149,7 +156,7 @@ public sealed class CoinVoucherOutboxEfModelTests
     }
 
     [Fact]
-    public void Inventory_HasUniqueCodeAndAssignment()
+    public void Inventory_HasUniqueCodeHashAndAssignment()
     {
         using var db = new ModelOnlyContext();
 
@@ -161,7 +168,13 @@ public sealed class CoinVoucherOutboxEfModelTests
         Assert.Contains(entity.GetIndexes(), index =>
             index.IsUnique &&
             index.Properties.Single().Name ==
-                nameof(SampleVoucherInventoryRow.SampleCode));
+                nameof(SampleVoucherInventoryRow.CodeHash));
+
+        Assert.Equal(
+            500,
+            entity.FindProperty(
+                nameof(SampleVoucherInventoryRow.EncryptedCodeReference))
+                ?.GetMaxLength());
 
         Assert.Contains(entity.GetIndexes(), index =>
             index.IsUnique &&
@@ -195,7 +208,7 @@ public sealed class CoinVoucherOutboxEfModelTests
     }
 
     [Fact]
-    public void Outbox_UsesGlobalRewardSourceUniqueness()
+    public void Outbox_UsesRecipientScopedRewardSourceUniqueness()
     {
         using var db = new ModelOnlyContext();
 
@@ -210,7 +223,8 @@ public sealed class CoinVoucherOutboxEfModelTests
                 .SequenceEqual(new[]
                 {
                     nameof(CoinRewardOutboxRow.RewardType),
-                    nameof(CoinRewardOutboxRow.SourceRecordId)
+                    nameof(CoinRewardOutboxRow.SourceRecordId),
+                    nameof(CoinRewardOutboxRow.RecipientUserId)
                 }));
     }
 

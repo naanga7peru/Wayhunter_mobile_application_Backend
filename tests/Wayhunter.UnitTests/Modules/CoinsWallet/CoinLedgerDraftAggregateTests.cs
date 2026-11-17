@@ -165,7 +165,7 @@ public class CoinLedgerDraftAggregateTests
     }
 
     [Fact]
-    public void AdminApproval_KeepsHoldUntilVoucherIssued()
+    public void AdminApproval_DebitsOnceBeforeVoucherIssue()
     {
         var wallet = FundWallet();
         var requestId = Guid.NewGuid();
@@ -175,21 +175,23 @@ public class CoinLedgerDraftAggregateTests
 
         var approved = wallet.ReadBalance();
 
-        Assert.Equal(10200, approved.PostedCoins);
-        Assert.Equal(10000, approved.ReservedCoins);
+        Assert.Equal(200, approved.PostedCoins);
+        Assert.Equal(0, approved.ReservedCoins);
         Assert.Equal(200, approved.SpendableCoins);
 
-        Assert.DoesNotContain(
+        Assert.Single(
             wallet.ReadEntries(),
-            x => x.DeltaCoins < 0);
+            x => x.DeltaCoins == -10000 &&
+                 x.SourceRecordId.StartsWith("voucher-approved:"));
 
-        // Failed fulfillment must not debit.
+        // Failed fulfillment preserves the approval debit
+        // and leaves the request retryable.
         Assert.False(
             wallet.TryIssueSampleVoucher(requestId, false));
 
         Assert.Equal(approved, wallet.ReadBalance());
 
-        // Successful fulfillment commits the debit.
+        // Successful fulfillment does not debit again.
         Assert.True(
             wallet.TryIssueSampleVoucher(requestId, true));
 
@@ -203,7 +205,7 @@ public class CoinLedgerDraftAggregateTests
         Assert.Single(
             wallet.ReadEntries(),
             x => x.DeltaCoins == -10000 &&
-                 x.SourceRecordId.StartsWith("voucher-issued:"));
+                 x.SourceRecordId.StartsWith("voucher-approved:"));
     }
 
 
@@ -218,8 +220,8 @@ public class CoinLedgerDraftAggregateTests
         Assert.True(wallet.TryApproveSampleVoucher(requestId));
         Assert.False(wallet.TryApproveSampleVoucher(requestId));
 
-        Assert.Equal(10200, wallet.ReadBalance().PostedCoins);
-        Assert.Equal(10000, wallet.ReadBalance().ReservedCoins);
+        Assert.Equal(200, wallet.ReadBalance().PostedCoins);
+        Assert.Equal(0, wallet.ReadBalance().ReservedCoins);
 
         Assert.True(wallet.TryIssueSampleVoucher(requestId, true));
 
