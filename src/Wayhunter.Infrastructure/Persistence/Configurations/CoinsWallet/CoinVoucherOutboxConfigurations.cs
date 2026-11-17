@@ -1,6 +1,8 @@
 ﻿
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Wayhunter.Domain.Modules.CoinsWallet.Enums;
+using Wayhunter.Domain.Modules.IdentitySocial.Entities;
 using Wayhunter.Infrastructure.Persistence.Models.CoinsWallet;
 
 namespace Wayhunter.Infrastructure.Persistence.Configurations.CoinsWallet;
@@ -83,13 +85,22 @@ public sealed class SampleVoucherRedemptionRequestRowConfiguration
 
         b.HasOne<CoinWalletRow>()
             .WithMany()
-            .HasForeignKey(x => x.WalletId)
+            .HasForeignKey(x => new { x.WalletId, x.OwnerUserId })
+            .HasPrincipalKey(x => new { x.Id, x.UserId })
+            .OnDelete(DeleteBehavior.NoAction);
+
+        b.HasOne<UserAccount>()
+            .WithMany()
+            .HasForeignKey(x => x.OwnerUserId)
             .OnDelete(DeleteBehavior.NoAction);
 
         b.HasOne<SampleVoucherOfferRow>()
             .WithMany()
             .HasForeignKey(x => x.OfferId)
             .OnDelete(DeleteBehavior.NoAction);
+
+        b.HasAlternateKey(x => new { x.Id, x.WalletId })
+            .HasName("AK_VoucherRequests_Id_Wallet");
 
         b.HasIndex(x => new
         {
@@ -110,8 +121,11 @@ public sealed class SampleVoucherInventoryRowConfiguration
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).ValueGeneratedNever();
 
-        b.Property(x => x.SampleCode)
-            .HasMaxLength(150).IsRequired();
+        b.Property(x => x.CodeHash)
+            .HasMaxLength(128).IsRequired();
+
+        b.Property(x => x.EncryptedCodeReference)
+            .HasMaxLength(500).IsRequired();
 
         b.HasOne<SampleVoucherOfferRow>()
             .WithMany()
@@ -123,9 +137,9 @@ public sealed class SampleVoucherInventoryRowConfiguration
             .HasForeignKey(x => x.AssignedRequestId)
             .OnDelete(DeleteBehavior.NoAction);
 
-        b.HasIndex(x => x.SampleCode)
+        b.HasIndex(x => x.CodeHash)
             .IsUnique()
-            .HasDatabaseName("UX_VoucherInventory_Code");
+            .HasDatabaseName("UX_VoucherInventory_CodeHash");
 
         b.HasIndex(x => x.AssignedRequestId)
             .IsUnique()
@@ -248,15 +262,27 @@ public sealed class CoinRewardOutboxRowConfiguration
         b.Property(x => x.RowVersion)
             .IsRowVersion();
 
-        // One authoritative event per reward source,
-        // independent of the recipient.
+        // One authoritative event per recipient and source.
         b.HasIndex(x => new
         {
             x.RewardType,
-                x.SourceRecordId
+                x.SourceRecordId,
+                x.RecipientUserId
         })
             .IsUnique()
-            .HasDatabaseName("UX_CoinOutbox_RewardSource");
+            .HasDatabaseName(
+                "UX_CoinOutbox_Recipient_RewardSource");
+
+        // Winner reward source is the GameId and must remain
+        // globally unique even if a faulty publisher changes recipient.
+        b.HasIndex(x => new
+        {
+            x.RewardType,
+            x.SourceRecordId
+        })
+            .IsUnique()
+            .HasFilter($"[RewardType] = {(int)CoinRewardType.GameWinnerApproved}")
+            .HasDatabaseName("UX_CoinOutbox_GameWinnerSource");
 
         b.HasIndex(x => new
         {
@@ -266,6 +292,11 @@ public sealed class CoinRewardOutboxRowConfiguration
             .HasDatabaseName("IX_CoinOutbox_Due");
 
         b.HasIndex(x => x.RecipientUserId);
+
+        b.HasOne<UserAccount>()
+            .WithMany()
+            .HasForeignKey(x => x.RecipientUserId)
+            .OnDelete(DeleteBehavior.NoAction);
     }
 }
 

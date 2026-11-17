@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wayhunter.Infrastructure.Integrations.Maps;
 using Xunit;
@@ -23,6 +24,9 @@ public sealed class MapsConfigurationStartupTests
         using var factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
+                builder.ConfigureLogging(logging =>
+                    logging.ClearProviders());
+
                 builder.ConfigureAppConfiguration(
                     (_, configuration) =>
                     {
@@ -73,6 +77,11 @@ public sealed class MapsConfigurationStartupTests
         using var factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
+                // Preserve the OptionsValidationException under test instead
+                // of allowing a restricted Event Log provider to mask it.
+                builder.ConfigureLogging(logging =>
+                    logging.ClearProviders());
+
                 builder.ConfigureAppConfiguration(
                     (_, configuration) =>
                     {

@@ -192,22 +192,28 @@ public sealed record SampleVoucherInventorySchemaDraft
 {
     public Guid Id { get; }
     public Guid OfferId { get; }
-    public string SampleCode { get; }
+    public string CodeHash { get; }
+    public string EncryptedCodeReference { get; }
     public Guid? AssignedRequestId { get; }
 
     public SampleVoucherInventorySchemaDraft(
         Guid id,
         Guid offerId,
-        string sampleCode,
+        string codeHash,
+        string encryptedCodeReference,
         Guid? assignedRequestId = null)
     {
         if (id == Guid.Empty || offerId == Guid.Empty)
             throw new ArgumentException(
                 "Inventory and offer IDs required.");
 
-        if (string.IsNullOrWhiteSpace(sampleCode))
+        if (string.IsNullOrWhiteSpace(codeHash))
             throw new ArgumentException(
-                "Unique sample code required.");
+                "Unique code hash required.");
+
+        if (string.IsNullOrWhiteSpace(encryptedCodeReference))
+            throw new ArgumentException(
+                "Encrypted code reference required.");
 
         if (assignedRequestId == Guid.Empty)
             throw new ArgumentException(
@@ -215,7 +221,9 @@ public sealed record SampleVoucherInventorySchemaDraft
 
         Id = id;
         OfferId = offerId;
-        SampleCode = sampleCode.Trim();
+        CodeHash = codeHash.Trim();
+        EncryptedCodeReference =
+            encryptedCodeReference.Trim();
         AssignedRequestId = assignedRequestId;
     }
 }

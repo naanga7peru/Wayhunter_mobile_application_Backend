@@ -97,5 +97,8 @@ public sealed class HunterSubmissionConfiguration
         })
         .HasDatabaseName(
             "IX_Hunter_Submissions_District_Status");
+
+        builder.HasAlternateKey(x => new { x.Id, x.UserId })
+            .HasName("AK_Hunter_Submissions_Id_UserId");
     }
 }

@@ -11,6 +11,8 @@ public sealed class HunterCaptureSessionRow
 
     public Guid HunterSubmissionId { get; set; }
 
+    public string OwnerUserId { get; private set; } = string.Empty;
+
     public DateTimeOffset IssuedAtUtc { get; set; }
 
     public DateTimeOffset ExpiresAtUtc { get; set; }

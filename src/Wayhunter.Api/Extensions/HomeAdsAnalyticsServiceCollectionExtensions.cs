@@ -1,6 +1,8 @@
 
 using System;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Interfaces;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Services;
 using Wayhunter.Infrastructure.Persistence.Repositories.HomeAdsAnalytics;
@@ -9,19 +11,32 @@ namespace Wayhunter.Api.Extensions;
 
 public static class HomeAdsAnalyticsServiceCollectionExtensions
 {
-    // Registers M7 application services.
-    // SQL DbContext registration is intentionally deferred
-    // until shared migration ownership is approved.
+    // Registers M7 services only. Callers that need SQL must use
+    // AddHomeAdsAnalyticsSqlPersistence so the authoritative shared
+    // DbContext is registered exactly once.
     public static IServiceCollection AddHomeAdsAnalyticsFoundation(
         this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.AddScoped<
+        services.TryAddScoped<
             IAdvertisementRepository,
             AdvertisementRepository>();
 
-        services.AddScoped<AdvertisementService>();
+        services.TryAddScoped<AdvertisementService>();
+
+        return services;
+    }
+
+    public static IServiceCollection AddHomeAdsAnalyticsSqlPersistence(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        services.AddWayhunterSharedPersistence(configuration);
+        services.AddHomeAdsAnalyticsFoundation();
 
         return services;
     }

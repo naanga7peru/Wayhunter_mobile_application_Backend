@@ -6,8 +6,9 @@ namespace Wayhunter.Domain.Modules.CoinsWallet.Rules;
 
 /// <summary>
 /// M6 sample voucher policy.
-/// Final debit occurs only with successful
-/// voucher issuance/fulfillment.
+/// The 10,000-Coin debit occurs once when an Admin
+/// approves the request. Issuance and controlled retry
+/// must never create another debit.
 ///
 /// Policy validation does not perform SQL transactions.
 /// </summary>
@@ -29,40 +30,31 @@ public static class SampleVoucherPolicy
     }
 
     /// <summary>
-    /// Identifies fulfillment-stage actions that may
-    /// finalize a debit.
+    /// Identifies the single action that finalizes a debit.
     ///
-    /// Approval alone never debits Coins.
-    /// Issue and RetryIssue still require:
-    /// - An approved request
-    /// - An active 10,000-Coin reservation
-    /// - Successful issuance
-    /// - A durable exactly-once transaction guard
-    ///
-    /// Returning true does NOT authorize an
-    /// unconditional second debit.
+    /// The transaction layer must atomically consume the
+    /// reservation, append the debit, and record approval.
+    /// Issue and RetryIssue are fulfillment-only actions.
     /// </summary>
     public static bool IsFinalDebitTrigger(
         SampleVoucherAction action)
     {
         ValidateAction(action);
 
-        return action is
-            SampleVoucherAction.Issue or
-            SampleVoucherAction.RetryIssue;
+        return action == SampleVoucherAction.AdminApprove;
     }
 
     /// <summary>
     /// Determines whether issuance may begin.
-    /// A committed debit is NOT a prerequisite.
-    /// Debit and successful issuance must be
-    /// finalized atomically by the transaction layer.
+    /// Approval and its committed debit are prerequisites.
+    /// A failed issue remains approved/unissued so a
+    /// controlled retry can reuse the same debit.
     /// </summary>
     public static bool CanIssue(
         bool adminApproved,
-        bool reservationHeld)
+        bool approvalDebitCommitted)
     {
-        return adminApproved && reservationHeld;
+        return adminApproved && approvalDebitCommitted;
     }
 
     public static bool CanDisplayVoucher(

@@ -55,7 +55,7 @@ public sealed class AdvertisementRuntimeDiGuardTests
     }
 
     [Fact]
-    public void ApiStartup_ShouldNotRegisterAdvertisementDbContext()
+    public void ApiStartup_ShouldNotRegisterSharedDbContextWithoutSqlOptIn()
     {
         using var factory =
             new WebApplicationFactory<Program>();
@@ -64,7 +64,7 @@ public sealed class AdvertisementRuntimeDiGuardTests
             factory.Services.CreateScope();
 
         var dbContext = scope.ServiceProvider
-            .GetService<HomeAdsAnalyticsDbContext>();
+            .GetService<WayhunterSharedDbContext>();
 
         Assert.Null(dbContext);
     }

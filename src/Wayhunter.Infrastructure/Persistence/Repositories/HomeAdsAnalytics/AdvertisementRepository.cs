@@ -8,10 +8,10 @@ namespace Wayhunter.Infrastructure.Persistence.Repositories.HomeAdsAnalytics;
 
 public sealed class AdvertisementRepository : IAdvertisementRepository
 {
-    private readonly HomeAdsAnalyticsDbContext _dbContext;
+    private readonly WayhunterSharedDbContext _dbContext;
 
     public AdvertisementRepository(
-        HomeAdsAnalyticsDbContext dbContext)
+        WayhunterSharedDbContext dbContext)
     {
         _dbContext = dbContext
             ?? throw new ArgumentNullException(nameof(dbContext));

@@ -136,20 +136,50 @@ public sealed class HunterCaptureSessionEfModelTests
 
         Assert.NotNull(entity);
 
-        var foreignKey =
-            Assert.Single(entity.GetForeignKeys());
+        var foreignKey = Assert.Single(
+            entity.GetForeignKeys(), fk =>
+                fk.PrincipalEntityType.ClrType ==
+                    typeof(HunterSubmission));
 
         Assert.Equal(
             typeof(HunterSubmission),
             foreignKey.PrincipalEntityType.ClrType);
 
         Assert.Equal(
-            nameof(HunterCaptureSessionRow.HunterSubmissionId),
-            Assert.Single(foreignKey.Properties).Name);
+            new[]
+            {
+                nameof(HunterCaptureSessionRow.HunterSubmissionId),
+                nameof(HunterCaptureSessionRow.OwnerUserId)
+            },
+            foreignKey.Properties.Select(p => p.Name));
+        Assert.Equal(
+            new[]
+            {
+                nameof(HunterSubmission.Id),
+                nameof(HunterSubmission.UserId)
+            },
+            foreignKey.PrincipalKey.Properties.Select(p => p.Name));
 
         Assert.Equal(
             DeleteBehavior.NoAction,
             foreignKey.DeleteBehavior);
+    }
+
+    [Fact]
+    public void CaptureOwner_IsPersistedComputedCanonicalUserId()
+    {
+        using var context = CreateContext();
+
+        var entity = context.Model.FindEntityType(
+            typeof(HunterCaptureSessionRow))!;
+        var owner = entity.FindProperty(
+            nameof(HunterCaptureSessionRow.OwnerUserId))!;
+
+        Assert.Equal(256, owner.GetMaxLength());
+        Assert.Equal(
+            "LOWER(CONVERT(nvarchar(256), [HunterId]))",
+            owner.GetComputedColumnSql());
+        Assert.True(owner.GetComputedColumnSql() is not null);
     }
 
     [Fact]

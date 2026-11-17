@@ -32,6 +32,13 @@ public sealed class HunterCaptureSessionRowConfiguration
             .HasColumnType("uniqueidentifier")
             .IsRequired();
 
+        builder.Property(x => x.OwnerUserId)
+            .HasMaxLength(256)
+            .HasComputedColumnSql(
+                "LOWER(CONVERT(nvarchar(256), [HunterId]))",
+                stored: true)
+            .IsRequired();
+
         builder.Property(x => x.IssuedAtUtc)
             .HasColumnType("datetimeoffset")
             .IsRequired();
@@ -51,10 +58,14 @@ public sealed class HunterCaptureSessionRowConfiguration
         // Every session belongs to a Hunter submission.
         builder.HasOne<HunterSubmission>()
             .WithMany()
-            .HasForeignKey(x => x.HunterSubmissionId)
+            .HasForeignKey(x => new
+            {
+                x.HunterSubmissionId,
+                x.OwnerUserId
+            })
+            .HasPrincipalKey(x => new { x.Id, x.UserId })
             .OnDelete(DeleteBehavior.NoAction)
-            .HasConstraintName(
-                "FK_Hunter_CaptureSessions_Submissions");
+            .HasConstraintName("FK_Hunter_CaptureSessions_Submission_Owner");
 
         builder.HasIndex(x => new
         {

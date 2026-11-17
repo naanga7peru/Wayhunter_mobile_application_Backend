@@ -7,6 +7,7 @@ using Wayhunter.Domain.Modules.IdentitySocial.Entities;
 using Wayhunter.Domain.Modules.TravelPlanning.Entities;
 using Wayhunter.Domain.Modules.TripSafety.Entities;
 using Wayhunter.Domain.Modules.HomeAdsAnalytics.Entities;
+using Wayhunter.Domain.Modules.CoinsWallet.Enums;
 using Wayhunter.Infrastructure.Persistence.DbContexts;
 using Wayhunter.Infrastructure.Persistence.Models.CoinsWallet;
 using Xunit;
@@ -162,15 +163,40 @@ public sealed class M6SharedDbContextIntegrationTests
             context,
             typeof(SampleVoucherRedemptionRequestRow));
 
-        Assert.True(HasForeignKey(
-            request,
-            typeof(CoinWalletRow),
-            nameof(SampleVoucherRedemptionRequestRow.WalletId)));
+        Assert.Contains(request.GetForeignKeys(), fk =>
+            fk.PrincipalEntityType.ClrType == typeof(CoinWalletRow) &&
+            fk.Properties.Select(p => p.Name).SequenceEqual(new[]
+            {
+                nameof(SampleVoucherRedemptionRequestRow.WalletId),
+                nameof(SampleVoucherRedemptionRequestRow.OwnerUserId)
+            }) &&
+            fk.PrincipalKey.Properties.Select(p => p.Name).SequenceEqual(new[]
+            {
+                nameof(CoinWalletRow.Id), nameof(CoinWalletRow.UserId)
+            }));
 
         Assert.True(HasForeignKey(
             request,
             typeof(SampleVoucherOfferRow),
             nameof(SampleVoucherRedemptionRequestRow.OfferId)));
+
+        var reservation = Entity(
+            context,
+            typeof(CoinReservationRow));
+
+        Assert.Contains(reservation.GetForeignKeys(), fk =>
+            fk.PrincipalEntityType.ClrType ==
+                typeof(SampleVoucherRedemptionRequestRow) &&
+            fk.Properties.Select(p => p.Name).SequenceEqual(new[]
+            {
+                nameof(CoinReservationRow.RequestId),
+                nameof(CoinReservationRow.WalletId)
+            }) &&
+            fk.PrincipalKey.Properties.Select(p => p.Name).SequenceEqual(new[]
+            {
+                nameof(SampleVoucherRedemptionRequestRow.Id),
+                nameof(SampleVoucherRedemptionRequestRow.WalletId)
+            }));
 
         var inventory = Entity(
             context,
@@ -197,7 +223,7 @@ public sealed class M6SharedDbContextIntegrationTests
     }
 
     [Fact]
-    public void RewardSourceKeys_AreUniqueAcrossRecipients()
+    public void RewardSourceKeys_AreScopedExceptGameWinnerSource()
     {
         using var context = CreateContext();
 
@@ -209,13 +235,37 @@ public sealed class M6SharedDbContextIntegrationTests
 
         Assert.True(HasUniqueIndex(
             ledger,
+            nameof(CoinLedgerEntryRow.WalletId),
             nameof(CoinLedgerEntryRow.RewardType),
             nameof(CoinLedgerEntryRow.SourceRecordId)));
 
         Assert.True(HasUniqueIndex(
             outbox,
             nameof(CoinRewardOutboxRow.RewardType),
-            nameof(CoinRewardOutboxRow.SourceRecordId)));
+            nameof(CoinRewardOutboxRow.SourceRecordId),
+            nameof(CoinRewardOutboxRow.RecipientUserId)));
+
+        Assert.Contains(ledger.GetIndexes(), index =>
+            index.IsUnique &&
+            index.GetFilter() == "[RewardType] = 4" &&
+            index.Properties.Select(x => x.Name).SequenceEqual(new[]
+            {
+                nameof(CoinLedgerEntryRow.RewardType),
+                nameof(CoinLedgerEntryRow.SourceRecordId)
+            }));
+
+        Assert.Contains(outbox.GetIndexes(), index =>
+            index.IsUnique &&
+            index.GetFilter() == "[RewardType] = 4" &&
+            index.Properties.Select(x => x.Name).SequenceEqual(new[]
+            {
+                nameof(CoinRewardOutboxRow.RewardType),
+                nameof(CoinRewardOutboxRow.SourceRecordId)
+            }));
+
+        // The game winner reward enum is fixed at 4; ensure the
+        // filtered indexes target that globally unique reward class.
+        Assert.Equal(4, (int)CoinRewardType.GameWinnerApproved);
     }
 
     [Fact]

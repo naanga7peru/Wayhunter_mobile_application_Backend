@@ -17,16 +17,6 @@ public sealed class AdvertisementConfigurationTests
     private const string ModelConnection =
         "Server=localhost;Database=ModelInspectionOnly;Trusted_Connection=True;";
 
-    private static HomeAdsAnalyticsDbContext CreateContext()
-    {
-        var options =
-            new DbContextOptionsBuilder<HomeAdsAnalyticsDbContext>()
-                .UseSqlServer(ModelConnection)
-                .Options;
-
-        return new HomeAdsAnalyticsDbContext(options);
-    }
-
     private static WayhunterSharedDbContext CreateSharedContext()
     {
         var options =
@@ -41,7 +31,7 @@ public sealed class AdvertisementConfigurationTests
     [Fact]
     public void Advertisement_ShouldMapToAdvertisementsTable()
     {
-        using var context = CreateContext();
+        using var context = CreateSharedContext();
 
         var entity = context.Model.FindEntityType(
             typeof(Advertisement));
@@ -65,7 +55,7 @@ public sealed class AdvertisementConfigurationTests
     [Fact]
     public void Advertisement_ShouldHaveCorrectColumnConfiguration()
     {
-        using var context = CreateContext();
+        using var context = CreateSharedContext();
 
         var entity = context.Model.FindEntityType(
             typeof(Advertisement));
@@ -101,7 +91,7 @@ public sealed class AdvertisementConfigurationTests
     [Fact]
     public void Advertisement_Placement_ShouldMapToInteger()
     {
-        using var context = CreateContext();
+        using var context = CreateSharedContext();
 
         var entity = context.Model.FindEntityType(
             typeof(Advertisement));
@@ -124,7 +114,7 @@ public sealed class AdvertisementConfigurationTests
     [Fact]
     public void Advertisement_Status_ShouldMapToInteger()
     {
-        using var context = CreateContext();
+        using var context = CreateSharedContext();
 
         var entity = context.Model.FindEntityType(
             typeof(Advertisement));
@@ -147,7 +137,7 @@ public sealed class AdvertisementConfigurationTests
     [Fact]
     public void Advertisement_Counters_ShouldHaveCorrectMapping()
     {
-        using var context = CreateContext();
+        using var context = CreateSharedContext();
 
         var entity = context.Model.FindEntityType(
             typeof(Advertisement));
@@ -188,7 +178,7 @@ public sealed class AdvertisementConfigurationTests
     [Fact]
     public void Advertisement_ShouldHaveActiveWindowIndex()
     {
-        using var context = CreateContext();
+        using var context = CreateSharedContext();
 
         var entity = context.Model.FindEntityType(
             typeof(Advertisement));
@@ -217,7 +207,7 @@ public sealed class AdvertisementConfigurationTests
     [Fact]
     public void Advertisement_ShouldHaveValidWindowConstraint()
     {
-        using var context = CreateContext();
+        using var context = CreateSharedContext();
 
         var designTimeModel = context
             .GetService<IDesignTimeModel>()

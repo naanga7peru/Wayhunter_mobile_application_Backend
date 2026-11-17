@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Wayhunter.Domain.Modules.IdentitySocial.Entities;
+using Wayhunter.Domain.Modules.CoinsWallet.Enums;
 using Wayhunter.Infrastructure.Persistence.Models.CoinsWallet;
 
 namespace Wayhunter.Infrastructure.Persistence.Configurations.CoinsWallet;
@@ -23,6 +24,8 @@ public sealed class CoinWalletRowConfiguration
 
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).ValueGeneratedNever();
+        b.HasAlternateKey(x => new { x.Id, x.UserId })
+            .HasName("AK_CoinWallets_Id_UserId");
 
         b.Property(x => x.UserId)
             .HasMaxLength(256)
@@ -88,17 +91,29 @@ public sealed class CoinLedgerEntryRowConfiguration
             .HasForeignKey(x => x.WalletId)
             .OnDelete(DeleteBehavior.NoAction);
 
-        // Prevent duplicate reward source credits
-        // even if the recipient UserId changes.
+        // General idempotency key for reward credits within
+        // one recipient wallet.
         b.HasIndex(x => new
         {
+            x.WalletId,
             x.RewardType,
             x.SourceRecordId
         })
         .IsUnique()
         .HasFilter("[RewardType] IS NOT NULL")
         .HasDatabaseName(
-            "UX_CoinLedgerEntries_RewardSource");
+            "UX_CoinLedgerEntries_Wallet_RewardSource");
+
+        // A game can have only one verified winner, regardless
+        // of which user submits a conflicting reward event.
+        b.HasIndex(x => new
+        {
+            x.RewardType,
+            x.SourceRecordId
+        })
+        .IsUnique()
+        .HasFilter($"[RewardType] = {(int)CoinRewardType.GameWinnerApproved}")
+        .HasDatabaseName("UX_CoinLedgerEntries_GameWinnerSource");
 
         b.HasIndex(x => x.WalletId);
     }
@@ -145,6 +160,20 @@ public sealed class CoinReservationRowConfiguration
             .IsUnique()
             .HasDatabaseName(
                 "UX_CoinReservations_RequestId");
+
+        b.HasOne<SampleVoucherRedemptionRequestRow>()
+            .WithOne()
+            .HasForeignKey<CoinReservationRow>(x => new
+            {
+                x.RequestId,
+                x.WalletId
+            })
+            .HasPrincipalKey<SampleVoucherRedemptionRequestRow>(x => new
+            {
+                x.Id,
+                x.WalletId
+            })
+            .OnDelete(DeleteBehavior.NoAction);
     }
 }
 

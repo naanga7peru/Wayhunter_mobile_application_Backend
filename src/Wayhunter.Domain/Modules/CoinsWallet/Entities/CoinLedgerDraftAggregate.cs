@@ -11,8 +11,8 @@ namespace Wayhunter.Domain.Modules.CoinsWallet.Entities;
 ///
 /// Voucher workflow:
 /// Request -> Pending hold
-/// Admin approval -> Approved, hold remains
-/// Successful issuance -> One final debit
+/// Admin approval -> One final debit, hold consumed
+/// Successful issuance/retry -> No additional debit
 /// Cancellation of Pending -> Hold released
 ///
 /// Not a production SQL transaction implementation.
@@ -174,9 +174,23 @@ public sealed class CoinLedgerDraftAggregate
                 return false;
             }
 
-            // Approval only changes request state.
-            // Reservation stays active.
-            // No debit or ledger entry is created.
+            long cost =
+                CoinLevelRedemptionRules.SampleVoucherCostCoins;
+
+            var current = CalculateBalance();
+
+            // Validate the reservation-backed debit before
+            // modifying either the ledger or request state.
+            _ = new CoinWalletBalance(
+                checked(current.PostedCoins - cost),
+                checked(current.ReservedCoins - cost),
+                current.LifetimeEarnedCoins);
+
+            var entry = CreateEntry(
+                -cost,
+                $"voucher-approved:{requestId:N}");
+
+            _entries.Add(entry);
             _requests[requestId] = RequestState.Approved;
 
             return true;
@@ -191,8 +205,8 @@ public sealed class CoinLedgerDraftAggregate
     ///
     /// This prototype is atomic only within one
     /// in-memory aggregate. Production SQL must
-    /// commit issuance, debit and reservation consumption
-    /// together in one database transaction.
+    /// commit the issuance status idempotently without
+    /// appending another debit.
     /// </summary>
     public bool TryIssueSampleVoucher(
         Guid requestId,
@@ -216,24 +230,8 @@ public sealed class CoinLedgerDraftAggregate
                 return false;
             }
 
-            long cost =
-                CoinLevelRedemptionRules.SampleVoucherCostCoins;
-
-            var current = CalculateBalance();
-
-            // Validate before modifying the ledger.
-            _ = new CoinWalletBalance(
-                checked(current.PostedCoins - cost),
-                checked(current.ReservedCoins - cost),
-                current.LifetimeEarnedCoins);
-
-            var entry = CreateEntry(
-                -cost,
-                $"voucher-issued:{requestId:N}");
-
-            _entries.Add(entry);
-
-            // Reservation is consumed only now.
+            // Approval already consumed the reservation and
+            // appended the exactly-once debit.
             _requests[requestId] = RequestState.Issued;
 
             return true;
@@ -272,8 +270,7 @@ public sealed class CoinLedgerDraftAggregate
 
         foreach (var state in _requests.Values)
         {
-            if (state is RequestState.Pending
-                or RequestState.Approved)
+            if (state == RequestState.Pending)
             {
                 reserved = checked(
                     reserved +

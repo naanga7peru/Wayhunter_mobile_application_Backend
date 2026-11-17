@@ -10,6 +10,7 @@ using Wayhunter.Domain.Modules.HunterPlaces.Entities;
 
 // Persistence Models
 using Wayhunter.Infrastructure.Persistence.Models.CoinsWallet;
+using Wayhunter.Infrastructure.Persistence.Models.Games;
 using Wayhunter.Infrastructure.Persistence.Models.HunterPlaces;
 
 // EF Core Configurations
@@ -18,6 +19,7 @@ using Wayhunter.Infrastructure.Persistence.Configurations.TravelPlanning;
 using Wayhunter.Infrastructure.Persistence.Configurations.TripSafety;
 using Wayhunter.Infrastructure.Persistence.Configurations.HomeAdsAnalytics;
 using Wayhunter.Infrastructure.Persistence.Configurations.CoinsWallet;
+using Wayhunter.Infrastructure.Persistence.Configurations.Games;
 using Wayhunter.Infrastructure.Persistence.Configurations.HunterPlaces;
 
 namespace Wayhunter.Infrastructure.Persistence.DbContexts;
@@ -29,7 +31,7 @@ namespace Wayhunter.Infrastructure.Persistence.DbContexts;
 /// M2: TravelPlanning
 /// M3: TripSafety
 /// M4: HunterPlaces proposed persistence mappings
-/// M5: Games mappings pending
+/// M5: Games persistence mappings
 /// M6: CoinsWallet persistence mappings
 /// M7: HomeAdsAnalytics
 ///
@@ -110,6 +112,49 @@ public sealed class WayhunterSharedDbContext : DbContext
 
     public DbSet<HunterCaptureSessionRow> HunterCaptureSessions
         => Set<HunterCaptureSessionRow>();
+
+    // ==========================================
+    // M5 - Games
+    // ==========================================
+
+    public DbSet<GameRow> Games
+        => Set<GameRow>();
+
+    public DbSet<GameStepRow> GameSteps
+        => Set<GameStepRow>();
+
+    public DbSet<GameHintRow> GameHints
+        => Set<GameHintRow>();
+
+    public DbSet<GameAttemptRow> GameAttempts
+        => Set<GameAttemptRow>();
+
+    public DbSet<GameAttemptProgressRow> GameAttemptProgress
+        => Set<GameAttemptProgressRow>();
+
+    public DbSet<GameProofEvidenceRow> GameProofEvidence
+        => Set<GameProofEvidenceRow>();
+
+    public DbSet<GameCompletionResultRow> GameCompletionResults
+        => Set<GameCompletionResultRow>();
+
+    public DbSet<GameCompletionEvidenceRow> GameCompletionEvidence
+        => Set<GameCompletionEvidenceRow>();
+
+    public DbSet<GameWinnerRow> GameWinners
+        => Set<GameWinnerRow>();
+
+    public DbSet<GameCreationApprovalRow> GameCreationApprovals
+        => Set<GameCreationApprovalRow>();
+
+    public DbSet<GameModerationDecisionRow> GameModerationDecisions
+        => Set<GameModerationDecisionRow>();
+
+    public DbSet<GameProofReviewDecisionRow> GameProofReviewDecisions
+        => Set<GameProofReviewDecisionRow>();
+
+    public DbSet<GameResultDecisionRow> GameResultDecisions
+        => Set<GameResultDecisionRow>();
 
     // ==========================================
     // M7 - Advertisement
@@ -236,6 +281,49 @@ public sealed class WayhunterSharedDbContext : DbContext
             new HunterCaptureSessionRowConfiguration());
 
         // ======================================
+        // M5 - Games
+        // ======================================
+
+        modelBuilder.ApplyConfiguration(
+            new GameRowConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new GameStepRowConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new GameHintRowConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new GameAttemptRowConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new GameAttemptProgressRowConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new GameProofEvidenceRowConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new GameCompletionResultRowConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new GameCompletionEvidenceRowConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new GameWinnerRowConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new GameCreationApprovalRowConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new GameModerationDecisionRowConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new GameProofReviewDecisionRowConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new GameResultDecisionRowConfiguration());
+
+        // ======================================
         // M7 - Advertisement
         // ======================================
 
@@ -280,7 +368,5 @@ public sealed class WayhunterSharedDbContext : DbContext
         modelBuilder.ApplyConfiguration(
             new CoinRewardConsumerDeliveryRowConfiguration());
 
-        // M5 Games mappings remain pending.
-        // No other module mapping is changed here.
     }
 }
