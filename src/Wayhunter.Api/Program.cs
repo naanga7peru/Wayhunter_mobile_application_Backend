@@ -1,3 +1,4 @@
+
 using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Api.Hubs.TripSafety;
@@ -45,6 +46,11 @@ else
 // ==========================================
 
 builder.Services.AddTravelPlanningModule();
+
+// Use SQL persistence only when the feature flag is enabled.
+// Otherwise, retain the default InMemory repository.
+builder.Services.AddConfiguredTravelPlanningPersistence(
+    builder.Configuration);
 
 builder.Services.AddSingleton(TimeProvider.System);
 
