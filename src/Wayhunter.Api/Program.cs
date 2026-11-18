@@ -1,5 +1,6 @@
 
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Extensions;
@@ -7,9 +8,11 @@ using Wayhunter.Api.Hubs.TripSafety;
 using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Api.Services.TripSafety;
 
+using Wayhunter.Application.Modules.TravelPlanning.Interfaces;
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
 using Wayhunter.Application.Modules.TripSafety.Services;
 
+using Wayhunter.Infrastructure.Integrations.Maps;
 using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -37,10 +40,6 @@ if (enableSharedAuthentication)
 
     builder.Services.AddCoinsWalletSqlReader(
         builder.Configuration);
-
-    // M6 - SQL Reward Writer (opt-in).
-    // Default: false.
-    // No automatic migrations or worker.
 
     if (builder.Configuration.GetValue<bool>(
         "CoinsWallet:EnableSqlRewardWriter"))
@@ -76,13 +75,8 @@ else
 
 builder.Services.AddTravelPlanningModule();
 
-// SQL persistence is opt-in.
-// Existing InMemory behavior remains the default.
-
 builder.Services.AddConfiguredTravelPlanningPersistence(
     builder.Configuration);
-
-// Shared trusted server clock.
 
 builder.Services.AddSingleton(TimeProvider.System);
 
@@ -90,13 +84,11 @@ builder.Services.AddSingleton(TimeProvider.System);
 // M5 - Games SQL Repository
 // ==========================================
 
-// SQL Game CRUD is opt-in.
-
 builder.Services.AddConfiguredGamesPersistence(
     builder.Configuration);
 
 // ==========================================
-// M3 - Trip Safety / GPS Consent
+// M3 - GPS Consent (Existing)
 // ==========================================
 
 builder.Services.AddSingleton<
@@ -116,11 +108,8 @@ builder.Services.AddScoped<
     TripSharingConsentService>();
 
 // ==========================================
-// M3 - InMemory Session Foundation
+// M3 - Live Trip Session (Task 3)
 // ==========================================
-
-// Preserve default in-memory behavior.
-// Shared SQL registration may override the interface.
 
 builder.Services.AddSingleton<
     InMemoryLiveTripSessionRepository>();
@@ -131,7 +120,7 @@ builder.Services.AddSingleton<
         InMemoryLiveTripSessionRepository>());
 
 // ==========================================
-// M3 - InMemory Invitation Foundation
+// M3 - Trip Invitations (Task 3)
 // ==========================================
 
 builder.Services.AddSingleton<
@@ -143,7 +132,7 @@ builder.Services.AddSingleton<
         InMemoryTripInvitationDecisionRepository>());
 
 // ==========================================
-// M3 - InMemory Membership Foundation
+// M3 - Membership Revocation (Task 3)
 // ==========================================
 
 builder.Services.AddSingleton<
@@ -155,16 +144,33 @@ builder.Services.AddSingleton<
         InMemoryTripMembershipRevocationRepository>());
 
 // ==========================================
-// M3 - Configured SQL Persistence
+// M3 - Hazard Backend (Task 4)
 // ==========================================
 
-// TripSafety:EnableSqlPersistence
+// InMemory persistence is for unit/demo use.
+// SQL registration below overrides this interface.
+
+builder.Services.AddSingleton<
+    InMemoryHazardReportRepository>();
+
+builder.Services.AddSingleton<
+    IHazardReportRepository>(
+    sp => sp.GetRequiredService<
+        InMemoryHazardReportRepository>());
+
+// The M2 route provider is still an integration
+// dependency. Never fake straight-line road geometry.
 //
-// Default: false.
-// When true, the M3 SQL registration extension
-// replaces the corresponding repository interfaces.
-//
-// No automatic migrations.
+// An actual M2 IRoutesProvider registration,
+// when supplied, takes priority over this fallback.
+
+builder.Services.TryAddSingleton<
+    IRoutesProvider,
+    UnavailableHazardRoutesProvider>();
+
+// ==========================================
+// M3 - Configured SQL Persistence
+// ==========================================
 
 builder.Services.AddConfiguredTripSafetyPersistence(
     builder.Configuration);
@@ -192,6 +198,38 @@ builder.Services.AddScoped<
 
 builder.Services.AddScoped<
     LiveTripSessionRecoveryService>();
+
+// Hazard Reporting, Verification,
+// Resolution, Route Query and Expiry
+
+builder.Services.AddScoped<
+    TripHazardService>();
+
+// ==========================================
+// M3 - Optional SQL Hazard Expiry Worker
+// ==========================================
+
+// Default: OFF.
+//
+// Enable only after approved SQL migration,
+// with M2 and M3 SQL sharing the same database.
+
+var enableHazardExpiryWorker = builder.Configuration
+    .GetValue<bool>("TripSafety:EnableHazardExpiryWorker");
+
+var enableM3Sql = builder.Configuration
+    .GetValue<bool>("TripSafety:EnableSqlPersistence");
+
+var enableM2Sql = builder.Configuration
+    .GetValue<bool>("TravelPlanning:EnableSqlPersistence");
+
+if (enableHazardExpiryWorker &&
+    enableM3Sql &&
+    enableM2Sql)
+{
+    builder.Services.AddHostedService<
+        HazardExpiryHostedService>();
+}
 
 // ==========================================
 // M3 - SignalR Infrastructure

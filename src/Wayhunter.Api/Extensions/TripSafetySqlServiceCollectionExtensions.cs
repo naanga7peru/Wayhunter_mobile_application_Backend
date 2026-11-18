@@ -1,5 +1,6 @@
 
 using System;
+
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -22,8 +23,8 @@ public static class TripSafetySqlServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        // Reuse the shared SQL DbContext registration.
-        // This does NOT create or migrate database tables.
+        // Reuse shared SQL DbContext.
+        // This does not create or migrate the database.
         services.AddWayhunterSharedPersistence(configuration);
 
         // M3 - Live Trip Sessions
@@ -48,7 +49,6 @@ public static class TripSafetySqlServiceCollectionExtensions
             EfTripMembershipRevocationRepository>();
 
         // M3 - GPS Consent
-        // One scoped SQL repository implements both contracts.
         services.RemoveAll<ITripSharingConsentRepository>();
         services.RemoveAll<ITripLiveLocationAccessReader>();
         services.RemoveAll<EfTripSharingConsentRepository>();
@@ -63,6 +63,14 @@ public static class TripSafetySqlServiceCollectionExtensions
             sp => sp.GetRequiredService<
                 EfTripSharingConsentRepository>());
 
+        // M3 - Hazard Persistence
+        // New SQL fields require an approved migration.
+        services.RemoveAll<IHazardReportRepository>();
+
+        services.AddScoped<
+            IHazardReportRepository,
+            EfHazardReportRepository>();
+
         return services;
     }
 
@@ -73,10 +81,7 @@ public static class TripSafetySqlServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        var enableSql =
-            configuration.GetValue<bool>(SqlPersistenceFlag);
-
-        if (enableSql)
+        if (configuration.GetValue<bool>(SqlPersistenceFlag))
         {
             services.AddTripSafetySqlPersistence(configuration);
         }
