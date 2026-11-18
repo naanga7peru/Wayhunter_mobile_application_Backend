@@ -94,4 +94,37 @@ public sealed class SessionAuthenticationRegistrationTests
             services.AddWayhunterSessionAuthentication(
                 CreateConfiguration(secret: "short")));
     }
+
+
+    [Fact]
+    public void SessionAuthentication_DoesNotRegisterAdministratorRoleResolution()
+    {
+        var services = new ServiceCollection();
+
+        services.AddLogging();
+        services.AddSingleton(TimeProvider.System);
+
+        services.AddWayhunterSessionAuthentication(
+            CreateConfiguration());
+
+        Assert.DoesNotContain(
+            services,
+            descriptor =>
+                descriptor.ServiceType ==
+                typeof(ITrustedAdministratorRoleReader));
+
+        Assert.DoesNotContain(
+            services,
+            descriptor =>
+                descriptor.ServiceType ==
+                typeof(TrustedAdministratorRoleResolutionService));
+
+        using var provider = services.BuildServiceProvider();
+
+        Assert.Null(
+            provider.GetService<ITrustedAdministratorRoleReader>());
+
+        Assert.Null(
+            provider.GetService<TrustedAdministratorRoleResolutionService>());
+    }
 }

@@ -244,4 +244,25 @@ public sealed class SessionBearerAuthenticationHandlerTests
 
         Assert.False(result.Succeeded);
     }
+
+
+    [Fact]
+    public async Task ValidBearerToken_DoesNotAutomaticallyGrantAdministratorRole()
+    {
+        using var setup = new TestSetup();
+
+        var result = await setup.AuthenticateAsync(
+            "Bearer " + setup.Token);
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(result.Principal);
+
+        var principal = result.Principal;
+
+        Assert.Empty(
+            principal.FindAll(ClaimTypes.Role));
+
+        Assert.False(
+            principal.IsInRole("Admin"));
+    }
 }
