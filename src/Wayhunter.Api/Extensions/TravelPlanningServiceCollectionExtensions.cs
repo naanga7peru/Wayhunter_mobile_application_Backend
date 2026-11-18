@@ -39,6 +39,9 @@ public static class TravelPlanningServiceCollectionExtensions
         // M2 - Add Trip Stop API (NEW)
         services.AddScoped<AddTripStopService>();
 
+        services.AddScoped<RemoveTripStopService>();
+
+
         return services;
     }
 }
