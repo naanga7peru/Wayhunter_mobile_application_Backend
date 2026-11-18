@@ -12,6 +12,7 @@ using Wayhunter.Domain.Modules.HunterPlaces.Entities;
 using Wayhunter.Infrastructure.Persistence.Models.CoinsWallet;
 using Wayhunter.Infrastructure.Persistence.Models.Games;
 using Wayhunter.Infrastructure.Persistence.Models.HunterPlaces;
+using Wayhunter.Infrastructure.Persistence.Models.TripSafety;
 
 // EF Core Configurations
 using Wayhunter.Infrastructure.Persistence.Configurations.IdentitySocial;
@@ -90,6 +91,11 @@ public sealed class WayhunterSharedDbContext : DbContext
 
     public DbSet<TripMember> TripMembers
         => Set<TripMember>();
+
+    // M3 - Membership Revocation Outbox
+    public DbSet<TripMembershipRevocationOutboxRow>
+        TripMembershipRevocationOutbox
+        => Set<TripMembershipRevocationOutboxRow>();
 
     public DbSet<TripGpsConsent> TripGpsConsents
         => Set<TripGpsConsent>();
@@ -258,6 +264,10 @@ public sealed class WayhunterSharedDbContext : DbContext
         modelBuilder.ApplyConfiguration(
             new TripMemberConfiguration());
 
+        // M3 - Membership Revocation Outbox
+        modelBuilder.ApplyConfiguration(
+            new TripMembershipRevocationOutboxConfiguration());
+
         modelBuilder.ApplyConfiguration(
             new TripGpsConsentConfiguration());
 
@@ -367,6 +377,5 @@ public sealed class WayhunterSharedDbContext : DbContext
 
         modelBuilder.ApplyConfiguration(
             new CoinRewardConsumerDeliveryRowConfiguration());
-
     }
 }
