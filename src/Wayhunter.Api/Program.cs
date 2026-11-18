@@ -1,10 +1,11 @@
-﻿
+
 using Microsoft.AspNetCore.Authentication;
 
 using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Api.Hubs.TripSafety;
 using Wayhunter.Api.Services.IdentitySocial;
+using Wayhunter.Api.Services.TripSafety;
 
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
 using Wayhunter.Application.Modules.TripSafety.Services;
@@ -36,8 +37,11 @@ if (enableSharedAuthentication)
 
     builder.Services.AddCoinsWalletSqlReader(
         builder.Configuration);
+
     // M6 - SQL Reward Writer (opt-in).
-    // Default: false. No automatic migrations or worker.
+    // Default: false.
+    // No automatic migrations or worker.
+
     if (builder.Configuration.GetValue<bool>(
         "CoinsWallet:EnableSqlRewardWriter"))
     {
@@ -72,11 +76,13 @@ else
 
 builder.Services.AddTravelPlanningModule();
 
-// M2 SQL persistence is opt-in.
-// Keep existing InMemory persistence by default.
+// SQL persistence is opt-in.
+// Existing InMemory behavior remains the default.
 
 builder.Services.AddConfiguredTravelPlanningPersistence(
     builder.Configuration);
+
+// Shared trusted server clock.
 
 builder.Services.AddSingleton(TimeProvider.System);
 
@@ -92,9 +98,6 @@ builder.Services.AddConfiguredGamesPersistence(
 // ==========================================
 // M3 - Trip Safety / GPS Consent
 // ==========================================
-
-// Preserve existing InMemory registrations.
-// These remain active when M3 SQL is disabled.
 
 builder.Services.AddSingleton<
     InMemoryTripSharingConsentRepository>();
@@ -113,17 +116,82 @@ builder.Services.AddScoped<
     TripSharingConsentService>();
 
 // ==========================================
+// M3 - InMemory Session Foundation
+// ==========================================
+
+// Preserve default in-memory behavior.
+// Shared SQL registration may override the interface.
+
+builder.Services.AddSingleton<
+    InMemoryLiveTripSessionRepository>();
+
+builder.Services.AddSingleton<
+    ILiveTripSessionRepository>(
+    sp => sp.GetRequiredService<
+        InMemoryLiveTripSessionRepository>());
+
+// ==========================================
+// M3 - InMemory Invitation Foundation
+// ==========================================
+
+builder.Services.AddSingleton<
+    InMemoryTripInvitationDecisionRepository>();
+
+builder.Services.AddSingleton<
+    ITripInvitationDecisionRepository>(
+    sp => sp.GetRequiredService<
+        InMemoryTripInvitationDecisionRepository>());
+
+// ==========================================
+// M3 - InMemory Membership Foundation
+// ==========================================
+
+builder.Services.AddSingleton<
+    InMemoryTripMembershipRevocationRepository>();
+
+builder.Services.AddSingleton<
+    ITripMembershipRevocationRepository>(
+    sp => sp.GetRequiredService<
+        InMemoryTripMembershipRevocationRepository>());
+
+// ==========================================
 // M3 - Configured SQL Persistence
 // ==========================================
 
 // TripSafety:EnableSqlPersistence
 //
-// Default: false
+// Default: false.
+// When true, the M3 SQL registration extension
+// replaces the corresponding repository interfaces.
+//
 // No automatic migrations.
-// SQL is enabled only by explicit configuration.
 
 builder.Services.AddConfiguredTripSafetyPersistence(
     builder.Configuration);
+
+// ==========================================
+// M3 - Application Services / Authorization
+// ==========================================
+
+builder.Services.AddScoped<
+    LiveTripSessionService>();
+
+builder.Services.AddScoped<
+    TripInvitationDecisionService>();
+
+builder.Services.AddScoped<
+    TripMembershipRevocationService>();
+
+builder.Services.AddScoped<
+    TripSafetyTripAccessService>();
+
+builder.Services.AddScoped<
+    ITripSessionRecoveryAccessChecker>(
+    sp => sp.GetRequiredService<
+        TripSafetyTripAccessService>());
+
+builder.Services.AddScoped<
+    LiveTripSessionRecoveryService>();
 
 // ==========================================
 // M3 - SignalR Infrastructure
@@ -183,4 +251,3 @@ app.Run();
 public partial class Program
 {
 }
-
