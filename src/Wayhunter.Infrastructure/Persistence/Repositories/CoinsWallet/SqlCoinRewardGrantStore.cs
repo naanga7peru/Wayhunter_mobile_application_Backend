@@ -3,6 +3,9 @@ using System;
 using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Security.Cryptography;
+using System.Text;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Wayhunter.Application.Modules.CoinsWallet.Dtos;
@@ -52,6 +55,23 @@ public sealed class SqlCoinRewardGrantStore : ICoinRewardGrantStore
                 .SingleOrDefaultAsync(
                     x => x.UserId == ownerId,
                     cancellationToken);
+
+
+
+            if (request.RewardType ==
+                CoinRewardType.GameWinnerApproved)
+            {
+                await AcquireTransactionLockAsync(
+                    "game-winner",
+                    sourceId,
+                    cancellationToken);
+            }
+
+            await AcquireTransactionLockAsync(
+                "wallet",
+                ownerId,
+                cancellationToken);
+
 
             // One verified game winner per source globally.
             if (request.RewardType ==
@@ -148,4 +168,63 @@ public sealed class SqlCoinRewardGrantStore : ICoinRewardGrantStore
         return exception.InnerException is SqlException sql &&
                (sql.Number == 2601 || sql.Number == 2627);
     }
+
+
+
+    private async Task AcquireTransactionLockAsync(
+        string category,
+        string key,
+        CancellationToken cancellationToken)
+    {
+        var hash = Convert.ToHexString(
+            SHA256.HashData(
+                Encoding.UTF8.GetBytes(key)));
+
+        string resource = $"m6:{category}:{hash}";
+
+        var currentTransaction =
+            _db.Database.CurrentTransaction
+            ?? throw new InvalidOperationException(
+                "A SQL transaction is required.");
+
+        var connection = _db.Database.GetDbConnection();
+
+        await using var command = connection.CreateCommand();
+
+        command.Transaction =
+            currentTransaction.GetDbTransaction();
+
+        command.CommandText = """
+        DECLARE @lockResult int;
+
+        EXEC @lockResult = sys.sp_getapplock
+            @Resource = @resource,
+            @LockMode = 'Exclusive',
+            @LockOwner = 'Transaction',
+            @LockTimeout = 15000;
+
+        SELECT @lockResult;
+        """;
+
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "@resource";
+        parameter.Value = resource;
+
+        command.Parameters.Add(parameter);
+
+        object? result =
+            await command.ExecuteScalarAsync(
+                cancellationToken);
+
+        int lockResult = Convert.ToInt32(result);
+
+        if (lockResult < 0)
+        {
+            throw new InvalidOperationException(
+                $"Could not acquire M6 transaction lock: {lockResult}");
+        }
+    }
+
+
+
 }

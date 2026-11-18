@@ -1,12 +1,15 @@
 
+using Microsoft.AspNetCore.Authentication;
+
 using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Api.Hubs.TripSafety;
 using Wayhunter.Api.Services.IdentitySocial;
+
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
 using Wayhunter.Application.Modules.TripSafety.Services;
+
 using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
-using Microsoft.AspNetCore.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,7 +22,6 @@ builder.Services.AddControllers();
 var enableSharedAuthentication = builder.Configuration
     .GetValue<bool>("Identity:EnableSharedAuthentication");
 
-
 if (enableSharedAuthentication)
 {
     builder.Services.AddWayhunterIdentityPersistence(
@@ -28,29 +30,12 @@ if (enableSharedAuthentication)
     builder.Services.AddWayhunterSessionAuthentication(
         builder.Configuration);
 
-    // M6 - Authenticated wallet SQL read
+    // ==========================================
+    // M6 - Authenticated Wallet SQL Read
+    // ==========================================
+
     builder.Services.AddCoinsWalletSqlReader(
         builder.Configuration);
-<<<<<<< Updated upstream
-=======
-
-    // ==========================================
-    // M6 - SQL Reward Writer (Opt-In)
-    // ==========================================
-
-    // Default: false.
-    //
-    // Enable only after dedicated SQL verification.
-    // This registers SQL reward persistence.
-    // It does NOT start background reward processing.
-    // No automatic migrations are executed.
-
-    if (builder.Configuration.GetValue<bool>(
-        "CoinsWallet:EnableSqlRewardWriter"))
-    {
-        builder.Services.AddCoinsWalletSqlRewardWriter(
-            builder.Configuration);
-    }
 
     // ==========================================
     // M7 - Advertisement SQL Runtime
@@ -58,9 +43,7 @@ if (enableSharedAuthentication)
 
     builder.Services.AddHomeAdsAnalyticsSqlPersistence(
         builder.Configuration);
->>>>>>> Stashed changes
 }
-
 else
 {
     builder.Services
@@ -81,26 +64,29 @@ else
 
 builder.Services.AddTravelPlanningModule();
 
-// Use SQL persistence only when the feature flag is enabled.
-// Otherwise, retain the default InMemory repository.
+// M2 SQL persistence is opt-in.
+// Keep existing InMemory persistence by default.
+
 builder.Services.AddConfiguredTravelPlanningPersistence(
     builder.Configuration);
 
 builder.Services.AddSingleton(TimeProvider.System);
-
 
 // ==========================================
 // M5 - Games SQL Repository
 // ==========================================
 
 // SQL Game CRUD is opt-in.
-// Other Game workflows require separate SQL integration.
+
 builder.Services.AddConfiguredGamesPersistence(
     builder.Configuration);
 
 // ==========================================
 // M3 - Trip Safety / GPS Consent
 // ==========================================
+
+// Preserve existing InMemory registrations.
+// These remain active when M3 SQL is disabled.
 
 builder.Services.AddSingleton<
     InMemoryTripSharingConsentRepository>();
@@ -119,14 +105,12 @@ builder.Services.AddScoped<
     TripSharingConsentService>();
 
 // ==========================================
-<<<<<<< Updated upstream
-=======
 // M3 - Configured SQL Persistence
 // ==========================================
 
 // TripSafety:EnableSqlPersistence
 //
-// Default: false.
+// Default: false
 // No automatic migrations.
 // SQL is enabled only by explicit configuration.
 
@@ -134,7 +118,6 @@ builder.Services.AddConfiguredTripSafetyPersistence(
     builder.Configuration);
 
 // ==========================================
->>>>>>> Stashed changes
 // M3 - SignalR Infrastructure
 // ==========================================
 

@@ -1,12 +1,17 @@
+
 using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
+
 using Microsoft.EntityFrameworkCore;
+
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
+
 using Wayhunter.Domain.Modules.TripSafety.Entities;
 using Wayhunter.Domain.Modules.TripSafety.Enums;
+
 using Wayhunter.Infrastructure.Persistence.DbContexts;
 
 namespace Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
@@ -83,115 +88,132 @@ public sealed class EfTripInvitationDecisionRepository
                 "A pending invitation has no decision to save.");
         }
 
-        await using var transaction =
-            await _dbContext.Database.BeginTransactionAsync(
-                IsolationLevel.Serializable,
-                cancellationToken);
+        var strategy =
+            _dbContext.Database.CreateExecutionStrategy();
 
-        var stored =
-            await _dbContext.TripInvitations
+        var attempt = 0;
+
+        await strategy.ExecuteAsync(async () =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (attempt++ > 0)
+            {
+                _dbContext.ChangeTracker.Clear();
+            }
+
+            await using var transaction =
+                await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
+
+            var stored = await _dbContext.TripInvitations
                 .SingleOrDefaultAsync(
                     x => x.Id == invitation.Id,
                     cancellationToken);
 
-        if (stored is null)
-        {
-            throw new KeyNotFoundException(
-                "Trip invitation was not found.");
-        }
+            if (stored is null)
+            {
+                throw new KeyNotFoundException(
+                    "Trip invitation was not found.");
+            }
 
-        if (stored.TripPlanId != invitation.TripPlanId ||
-            stored.CreatedAtUtc != invitation.CreatedAtUtc ||
-            !string.Equals(
-                stored.SenderUserId,
-                invitation.SenderUserId,
-                StringComparison.Ordinal) ||
-            !string.Equals(
-                stored.RecipientUserId,
-                invitation.RecipientUserId,
-                StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                "Invitation details do not match stored data.");
-        }
-
-        if (stored.Status != TripInvitationStatus.Pending)
-        {
-            throw new InvalidOperationException(
-                "Invitation decision has already been saved.");
-        }
-
-        if (invitation.RespondedAtUtc.Value <
-            stored.CreatedAtUtc)
-        {
-            throw new InvalidOperationException(
-                "Decision time cannot precede creation.");
-        }
-
-        switch (invitation.Status)
-        {
-            case TripInvitationStatus.Accepted:
-                await ValidateAcceptedDecisionAsync(
-                    invitation,
-                    memberToAdd,
-                    cancellationToken);
-                break;
-
-            case TripInvitationStatus.Rejected:
-            case TripInvitationStatus.Cancelled:
-                if (memberToAdd is not null)
-                {
-                    throw new InvalidOperationException(
-                        "Rejected or cancelled invitation cannot add membership.");
-                }
-
-                break;
-
-            default:
+            if (stored.TripPlanId != invitation.TripPlanId ||
+                stored.CreatedAtUtc != invitation.CreatedAtUtc ||
+                !string.Equals(
+                    stored.SenderUserId,
+                    invitation.SenderUserId,
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    stored.RecipientUserId,
+                    invitation.RecipientUserId,
+                    StringComparison.Ordinal))
+            {
                 throw new InvalidOperationException(
-                    "Unsupported invitation decision.");
-        }
+                    "Invitation details do not match stored data.");
+            }
 
-        switch (invitation.Status)
-        {
-            case TripInvitationStatus.Accepted:
-                stored.Accept(
-                    invitation.RespondedAtUtc.Value);
-                break;
+            if (stored.Status != TripInvitationStatus.Pending)
+            {
+                throw new InvalidOperationException(
+                    "Invitation decision has already been saved.");
+            }
 
-            case TripInvitationStatus.Rejected:
-                stored.Reject(
-                    invitation.RespondedAtUtc.Value);
-                break;
+            if (invitation.RespondedAtUtc.Value <
+                stored.CreatedAtUtc)
+            {
+                throw new InvalidOperationException(
+                    "Decision time cannot precede creation.");
+            }
 
-            case TripInvitationStatus.Cancelled:
-                stored.Cancel(
-                    invitation.RespondedAtUtc.Value);
-                break;
-        }
+            switch (invitation.Status)
+            {
+                case TripInvitationStatus.Accepted:
+                    await ValidateAcceptedDecisionAsync(
+                        invitation,
+                        memberToAdd,
+                        cancellationToken);
+                    break;
 
-        if (memberToAdd is not null)
-        {
-            _dbContext.TripMembers.Add(memberToAdd);
-        }
+                case TripInvitationStatus.Rejected:
+                case TripInvitationStatus.Cancelled:
+                    if (memberToAdd is not null)
+                    {
+                        throw new InvalidOperationException(
+                            "Rejected or cancelled invitation " +
+                            "cannot add membership.");
+                    }
 
-        try
-        {
-            await _dbContext.SaveChangesAsync(
-                cancellationToken);
+                    break;
 
-            await transaction.CommitAsync(
-                cancellationToken);
-        }
-        catch (DbUpdateException exception)
-        {
-            await transaction.RollbackAsync(
-                cancellationToken);
+                default:
+                    throw new InvalidOperationException(
+                        "Unsupported invitation decision.");
+            }
 
-            throw new InvalidOperationException(
-                "Invitation decision could not be saved because a conflicting decision or membership already exists.",
-                exception);
-        }
+            switch (invitation.Status)
+            {
+                case TripInvitationStatus.Accepted:
+                    stored.Accept(
+                        invitation.RespondedAtUtc.Value);
+                    break;
+
+                case TripInvitationStatus.Rejected:
+                    stored.Reject(
+                        invitation.RespondedAtUtc.Value);
+                    break;
+
+                case TripInvitationStatus.Cancelled:
+                    stored.Cancel(
+                        invitation.RespondedAtUtc.Value);
+                    break;
+            }
+
+            if (memberToAdd is not null)
+            {
+                _dbContext.TripMembers.Add(memberToAdd);
+            }
+
+            try
+            {
+                await _dbContext.SaveChangesAsync(
+                    cancellationToken);
+
+                await transaction.CommitAsync(
+                    cancellationToken);
+            }
+            catch (DbUpdateException exception)
+            {
+                await transaction.RollbackAsync(
+                    cancellationToken);
+
+                throw new InvalidOperationException(
+                    "Invitation decision could not be saved " +
+                    "because a conflicting decision or " +
+                    "membership already exists.",
+                    exception);
+            }
+        });
     }
 
     private async Task ValidateAcceptedDecisionAsync(

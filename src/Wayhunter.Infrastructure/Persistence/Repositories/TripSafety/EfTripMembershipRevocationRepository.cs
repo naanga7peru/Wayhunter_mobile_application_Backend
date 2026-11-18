@@ -2,12 +2,18 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
+
 using Wayhunter.Domain.Modules.TravelPlanning.Entities;
 using Wayhunter.Domain.Modules.TripSafety.Entities;
+
 using Wayhunter.Infrastructure.Persistence.DbContexts;
 using Wayhunter.Infrastructure.Persistence.Models.TripSafety;
 
@@ -66,7 +72,7 @@ public sealed class EfTripMembershipRevocationRepository
                 nameof(memberUserId));
         }
 
-        string userId = memberUserId.Trim();
+        var userId = memberUserId.Trim();
 
         return await _dbContext.TripMembers
             .AsNoTracking()
@@ -108,102 +114,190 @@ public sealed class EfTripMembershipRevocationRepository
                 nameof(removedAtUtc));
         }
 
-        // Serializable isolation protects the
-        // membership transition and outbox insertion
-        // within a single transaction.
+        var strategy =
+            _dbContext.Database.CreateExecutionStrategy();
 
-        await using var transaction =
-            await _dbContext.Database.BeginTransactionAsync(
-                IsolationLevel.Serializable,
-                cancellationToken);
+        var attempt = 0;
 
-        var member = await _dbContext.TripMembers
-            .SingleOrDefaultAsync(
-                x =>
-                    x.Id == memberId &&
-                    x.TripPlanId == tripPlanId,
-                cancellationToken);
-
-        if (member is null)
+        return await strategy.ExecuteAsync(async () =>
         {
-            throw new KeyNotFoundException(
-                "Trip member was not found.");
-        }
+            cancellationToken.ThrowIfCancellationRequested();
 
-        // Preserve historical inactive membership.
-        // Repeated removal must be idempotent.
+            if (attempt++ > 0)
+            {
+                _dbContext.ChangeTracker.Clear();
+            }
 
-        if (!member.IsActive)
-        {
-            await transaction.RollbackAsync(
-                cancellationToken);
-
-            return false;
-        }
-
-        if (removedAtUtc < member.JoinedAtUtc)
-        {
-            throw new InvalidOperationException(
-                "Removal cannot precede joining.");
-        }
-
-        // One revocation event per membership.
-
-        bool notificationExists =
-            await _dbContext.TripMembershipRevocationOutbox
-                .AnyAsync(
-                    x => x.MemberId == memberId,
+            // Begin the transaction inside the strategy.
+            await using var transaction =
+                await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
                     cancellationToken);
 
-        if (notificationExists)
-        {
-            throw new InvalidOperationException(
-                "A revocation notification already exists.");
-        }
+            // Serialize operations targeting the same
+            // member before reading membership state.
+            if (_dbContext.Database.IsSqlServer())
+            {
+                await AcquireMembershipLockAsync(
+                    memberId,
+                    cancellationToken);
+            }
 
-        // Apply the domain membership transition.
-        // This never deletes historical membership data.
+            TripMember? member;
 
-        bool removed = member.Remove(removedAtUtc);
+            if (_dbContext.Database.IsSqlServer())
+            {
+                member = await _dbContext.TripMembers
+                    .FromSqlInterpolated(
+                        $"""
+                        SELECT *
+                        FROM [TripSafety_TripMembers]
+                            WITH (UPDLOCK, HOLDLOCK)
+                        WHERE [Id] = {memberId}
+                          AND [TripPlanId] = {tripPlanId}
+                        """)
+                    .SingleOrDefaultAsync(cancellationToken);
+            }
+            else
+            {
+                // Provider-neutral path for InMemory tests.
+                member = await _dbContext.TripMembers
+                    .SingleOrDefaultAsync(
+                        x =>
+                            x.Id == memberId &&
+                            x.TripPlanId == tripPlanId,
+                        cancellationToken);
+            }
 
-        if (!removed)
-        {
-            await transaction.RollbackAsync(
+            if (member is null)
+            {
+                throw new KeyNotFoundException(
+                    "Trip member was not found.");
+            }
+
+            // Repeated removal is idempotent.
+            if (!member.IsActive)
+            {
+                return false;
+            }
+
+            if (removedAtUtc < member.JoinedAtUtc)
+            {
+                throw new InvalidOperationException(
+                    "Removal cannot precede joining.");
+            }
+
+            // One outbox event per membership.
+            var notificationExists =
+                await _dbContext.TripMembershipRevocationOutbox
+                    .AnyAsync(
+                        x => x.MemberId == member.Id,
+                        cancellationToken);
+
+            if (notificationExists)
+            {
+                throw new InvalidOperationException(
+                    "An active membership already has " +
+                    "a revocation notification.");
+            }
+
+            var removed = member.Remove(removedAtUtc);
+
+            if (!removed)
+            {
+                return false;
+            }
+
+            var notification =
+                new TripMembershipRevocationOutboxRow
+                {
+                    Id = Guid.NewGuid(),
+                    TripPlanId = member.TripPlanId,
+                    MemberId = member.Id,
+                    MemberUserId = member.MemberUserId,
+                    RemovedAtUtc = removedAtUtc,
+                    CreatedAtUtc = removedAtUtc,
+                    IsDelivered = false,
+                    DeliveredAtUtc = null,
+                    DeliveryAttempts = 0
+                };
+
+            _dbContext.TripMembershipRevocationOutbox
+                .Add(notification);
+
+            // Membership update and notification
+            // must be committed together.
+            await _dbContext.SaveChangesAsync(
                 cancellationToken);
 
-            return false;
+            await transaction.CommitAsync(
+                cancellationToken);
+
+            return true;
+        });
+    }
+
+    private async Task AcquireMembershipLockAsync(
+        Guid memberId,
+        CancellationToken cancellationToken)
+    {
+        var currentTransaction =
+            _dbContext.Database.CurrentTransaction
+            ?? throw new InvalidOperationException(
+                "A SQL transaction is required.");
+
+        var connection =
+            _dbContext.Database.GetDbConnection();
+
+        await using var command =
+            connection.CreateCommand();
+
+        command.Transaction =
+            currentTransaction.GetDbTransaction();
+
+        command.CommandType = CommandType.Text;
+
+        command.CommandText =
+            """
+            DECLARE @lockResult int;
+
+            EXEC @lockResult = sys.sp_getapplock
+                @Resource = @resource,
+                @LockMode = 'Exclusive',
+                @LockOwner = 'Transaction',
+                @LockTimeout = 15000;
+
+            SELECT @lockResult;
+            """;
+
+        var parameter = command.CreateParameter();
+
+        parameter.ParameterName = "@resource";
+        parameter.DbType = DbType.String;
+        parameter.Size = 255;
+
+        parameter.Value =
+            $"M3:MembershipRevocation:{memberId:N}";
+
+        command.Parameters.Add(parameter);
+
+        var result =
+            await command.ExecuteScalarAsync(
+                cancellationToken);
+
+        if (result is null || result is DBNull)
+        {
+            throw new InvalidOperationException(
+                "SQL Server did not return an application lock result.");
         }
 
-        // Queue notification for later delivery.
-        // No notification is sent directly here.
-        // GPS consent is not automatically changed.
+        var lockResult = Convert.ToInt32(result);
 
-        var notification =
-            new TripMembershipRevocationOutboxRow
-            {
-                Id = Guid.NewGuid(),
-                TripPlanId = tripPlanId,
-                MemberId = member.Id,
-                MemberUserId = member.MemberUserId,
-                RemovedAtUtc = removedAtUtc,
-                CreatedAtUtc = removedAtUtc,
-                IsDelivered = false,
-                DeliveredAtUtc = null,
-                DeliveryAttempts = 0
-            };
-
-        _dbContext.TripMembershipRevocationOutbox
-            .Add(notification);
-
-        // Membership update and outbox insertion
-        // must be committed together.
-
-        await _dbContext.SaveChangesAsync(
-            cancellationToken);
-
-        await transaction.CommitAsync(
-            cancellationToken);
-
-        return true;
+        if (lockResult < 0)
+        {
+            throw new InvalidOperationException(
+                $"Could not acquire M3 membership lock. " +
+                $"SQL result: {lockResult}.");
+        }
     }
 }

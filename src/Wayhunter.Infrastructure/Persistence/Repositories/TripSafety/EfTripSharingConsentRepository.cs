@@ -1,14 +1,19 @@
+
 using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
+
 using Microsoft.EntityFrameworkCore;
+
 using Wayhunter.Application.Modules.TripSafety.Dtos;
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
 using Wayhunter.Application.Modules.TripSafety.Validators;
+
 using Wayhunter.Domain.Modules.TripSafety.Entities;
 using Wayhunter.Domain.Modules.TripSafety.Enums;
+
 using Wayhunter.Infrastructure.Persistence.DbContexts;
 
 namespace Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
@@ -59,90 +64,112 @@ public sealed class EfTripSharingConsentRepository
         var userId = authenticatedUserId.Trim();
         var now = serverTimeUtc.ToUniversalTime();
 
-        await using var transaction =
-            await _dbContext.Database.BeginTransactionAsync(
-                IsolationLevel.Serializable,
+        // The complete SQL transaction must run
+        // inside the provider's execution strategy.
+
+        var strategy =
+            _dbContext.Database.CreateExecutionStrategy();
+
+        var attempt = 0;
+
+        return await strategy.ExecuteAsync(async () =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // A transient retry must not reuse entity
+            // states from an unsuccessful attempt.
+            if (attempt++ > 0)
+            {
+                _dbContext.ChangeTracker.Clear();
+            }
+
+            await using var transaction =
+                await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
+
+            var session = await _dbContext.LiveTripSessions
+                .SingleOrDefaultAsync(
+                    x => x.SessionId == sessionId,
+                    cancellationToken);
+
+            if (session is null)
+            {
+                throw new KeyNotFoundException(
+                    "Live trip session was not found.");
+            }
+
+            if (session.TripPlanId != tripPlanId)
+            {
+                throw new UnauthorizedAccessException(
+                    "Session belongs to another trip.");
+            }
+
+            if (session.Status == LiveTripStatus.Finished)
+            {
+                throw new InvalidOperationException(
+                    "Finished trips cannot change GPS consent.");
+            }
+
+            var member = await _dbContext.TripMembers
+                .SingleOrDefaultAsync(
+                    x =>
+                        x.TripPlanId == tripPlanId &&
+                        x.MemberUserId == userId &&
+                        x.IsActive,
+                    cancellationToken);
+
+            if (member is null ||
+                member.TripPlanId != tripPlanId ||
+                !string.Equals(
+                    member.MemberUserId,
+                    userId,
+                    StringComparison.Ordinal))
+            {
+                throw new UnauthorizedAccessException(
+                    "Active accepted membership is required.");
+            }
+
+            if (now < member.JoinedAtUtc ||
+                now < session.StartedAtUtc)
+            {
+                throw new InvalidOperationException(
+                    "Consent time cannot precede joining or trip start.");
+            }
+
+            var consent = await _dbContext.TripGpsConsents
+                .SingleOrDefaultAsync(
+                    x =>
+                        x.SessionId == sessionId &&
+                        x.UserId == userId,
+                    cancellationToken);
+
+            if (consent is null)
+            {
+                consent = TripGpsConsent.CreateDisabled(
+                    sessionId,
+                    userId);
+
+                _dbContext.TripGpsConsents.Add(consent);
+            }
+
+            if (grant)
+            {
+                consent.Grant(now);
+            }
+            else
+            {
+                consent.Revoke(now);
+            }
+
+            await _dbContext.SaveChangesAsync(
                 cancellationToken);
 
-        var session = await _dbContext.LiveTripSessions
-            .SingleOrDefaultAsync(
-                x => x.SessionId == sessionId,
+            await transaction.CommitAsync(
                 cancellationToken);
 
-        if (session is null)
-        {
-            throw new KeyNotFoundException(
-                "Live trip session was not found.");
-        }
-
-        if (session.TripPlanId != tripPlanId)
-        {
-            throw new UnauthorizedAccessException(
-                "Session belongs to another trip.");
-        }
-
-        if (session.Status == LiveTripStatus.Finished)
-        {
-            throw new InvalidOperationException(
-                "Finished trips cannot change GPS consent.");
-        }
-
-        var member = await _dbContext.TripMembers
-            .SingleOrDefaultAsync(
-                x =>
-                    x.TripPlanId == tripPlanId &&
-                    x.MemberUserId == userId &&
-                    x.IsActive,
-                cancellationToken);
-
-        if (member is null ||
-            member.TripPlanId != tripPlanId ||
-            !string.Equals(
-                member.MemberUserId,
-                userId,
-                StringComparison.Ordinal))
-        {
-            throw new UnauthorizedAccessException(
-                "Active accepted membership is required.");
-        }
-
-        if (now < member.JoinedAtUtc ||
-            now < session.StartedAtUtc)
-        {
-            throw new InvalidOperationException(
-                "Consent time cannot precede joining or trip start.");
-        }
-
-        var consent = await _dbContext.TripGpsConsents
-            .SingleOrDefaultAsync(
-                x =>
-                    x.SessionId == sessionId &&
-                    x.UserId == userId,
-                cancellationToken);
-
-        if (consent is null)
-        {
-            consent = TripGpsConsent.CreateDisabled(
-                sessionId,
-                userId);
-
-            _dbContext.TripGpsConsents.Add(consent);
-        }
-
-        if (grant)
-        {
-            consent.Grant(now);
-        }
-        else
-        {
-            consent.Revoke(now);
-        }
-
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
-        await transaction.CommitAsync(cancellationToken);
-
-        return GpsConsentDto.FromDomain(consent);
+            return GpsConsentDto.FromDomain(consent);
+        });
     }
 
     public async Task EnsureAllowedAsync(
