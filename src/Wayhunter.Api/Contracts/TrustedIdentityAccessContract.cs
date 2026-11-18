@@ -94,6 +94,9 @@ public static class TrustedIdentityAccessContract
         if (account.Status != UserAccountStatus.Active)
             return false;
 
+        if (account.DeletionRequestedAtUtc.HasValue)
+            return false;
+
         if (!account.VerifiedAtUtc.HasValue)
             return false;
 
