@@ -1,4 +1,3 @@
-
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -71,6 +70,8 @@ public sealed class ValidJwtCrossModuleHttpTests
         private readonly string _ownerId;
         private readonly string _otherId;
 
+        public bool ReturnMissingWallet { get; set; }
+
         public TestWalletReader(
             string ownerId,
             string otherId)
@@ -84,6 +85,11 @@ public sealed class ValidJwtCrossModuleHttpTests
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (ReturnMissingWallet)
+            {
+                return Task.FromResult<CoinWalletSnapshot?>(null);
+            }
 
             CoinWalletSnapshot? snapshot = null;
 
@@ -113,15 +119,21 @@ public sealed class ValidJwtCrossModuleHttpTests
         public IdentitySession OwnerSession { get; }
         public IdentitySession OtherSession { get; }
 
+        public TestWalletReader WalletReader { get; private set; } = null!;
+
         public AuthenticatedFactory()
         {
             var now = DateTimeOffset.UtcNow;
 
             Owner = CreateAccount(
-                "Owner", "owner@example.com", now);
+                "Owner",
+                "owner@example.com",
+                now);
 
             Other = CreateAccount(
-                "Other", "other@example.com", now);
+                "Other",
+                "other@example.com",
+                now);
 
             OwnerSession = IdentitySession.Create(
                 Owner.UserId,
@@ -196,12 +208,14 @@ public sealed class ValidJwtCrossModuleHttpTests
                         new[] { Owner, Other },
                         new[] { OwnerSession, OtherSession }));
 
-                // M6 production repository wiring is pending.
-                // Register a test-only wallet reader.
+                WalletReader = new TestWalletReader(
+                    Owner.UserId,
+                    Other.UserId);
+
+                services.RemoveAll<ICoinWalletReader>();
+
                 services.AddSingleton<ICoinWalletReader>(
-                    new TestWalletReader(
-                        Owner.UserId,
-                        Other.UserId));
+                    WalletReader);
 
                 services.AddScoped<GetMyCoinWalletService>();
             });
@@ -223,16 +237,21 @@ public sealed class ValidJwtCrossModuleHttpTests
 
             client.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue(
-                    "Bearer", token);
+                    "Bearer",
+                    token);
 
             return client;
         }
 
         public HttpClient OwnerClient()
-            => CreateAuthenticatedClient(Owner, OwnerSession);
+            => CreateAuthenticatedClient(
+                Owner,
+                OwnerSession);
 
         public HttpClient OtherClient()
-            => CreateAuthenticatedClient(Other, OtherSession);
+            => CreateAuthenticatedClient(
+                Other,
+                OtherSession);
     }
 
     [Fact]
@@ -269,8 +288,11 @@ public sealed class ValidJwtCrossModuleHttpTests
         var path =
             $"/api/mobile/trip-plans/{trip.TripPlanId}";
 
-        using var ownerResponse = await owner.GetAsync(path);
-        using var otherResponse = await other.GetAsync(path);
+        using var ownerResponse =
+            await owner.GetAsync(path);
+
+        using var otherResponse =
+            await other.GetAsync(path);
 
         Assert.Equal(
             HttpStatusCode.OK,
@@ -310,21 +332,25 @@ public sealed class ValidJwtCrossModuleHttpTests
             factory.Owner.UserId,
             now.AddMinutes(-9));
 
-        invitation.Accept(now.AddMinutes(-8));
+        invitation.Accept(
+            now.AddMinutes(-8));
 
-        var member = TripMember.FromAcceptedInvitation(
-            Guid.NewGuid(),
-            invitation);
+        var member =
+            TripMember.FromAcceptedInvitation(
+                Guid.NewGuid(),
+                invitation);
 
-        repository.SeedAcceptedMemberForTests(member);
+        repository.SeedAcceptedMemberForTests(
+            member);
 
         var path =
             $"/api/mobile/trips/{tripId}/sessions/" +
             $"{liveSessionId}/gps-consent";
 
-        using var accepted = await owner.PutAsJsonAsync(
-            path,
-            new { isGranted = true });
+        using var accepted =
+            await owner.PutAsJsonAsync(
+                path,
+                new { isGranted = true });
 
         Assert.Equal(
             HttpStatusCode.OK,
@@ -335,21 +361,24 @@ public sealed class ValidJwtCrossModuleHttpTests
 
         Assert.NotNull(consent);
         Assert.True(consent.IsGranted);
+
         Assert.Equal(
             factory.Owner.UserId,
             consent.UserId);
 
-        using var rejected = await other.PutAsJsonAsync(
-            path,
-            new { isGranted = true });
+        using var rejected =
+            await other.PutAsJsonAsync(
+                path,
+                new { isGranted = true });
 
         Assert.Equal(
             HttpStatusCode.Forbidden,
             rejected.StatusCode);
 
-        Assert.Null(repository.GetSnapshotForTests(
-            liveSessionId,
-            factory.Other.UserId));
+        Assert.Null(
+            repository.GetSnapshotForTests(
+                liveSessionId,
+                factory.Other.UserId));
     }
 
     [Fact]
@@ -377,17 +406,54 @@ public sealed class ValidJwtCrossModuleHttpTests
             HttpStatusCode.OK,
             otherResponse.StatusCode);
 
-        var ownerWallet = await ownerResponse.Content
-            .ReadFromJsonAsync<MyCoinWalletResponse>();
+        var ownerWallet =
+            await ownerResponse.Content
+                .ReadFromJsonAsync<MyCoinWalletResponse>();
 
-        var otherWallet = await otherResponse.Content
-            .ReadFromJsonAsync<MyCoinWalletResponse>();
+        var otherWallet =
+            await otherResponse.Content
+                .ReadFromJsonAsync<MyCoinWalletResponse>();
 
         Assert.NotNull(ownerWallet);
         Assert.NotNull(otherWallet);
 
-        Assert.Equal(200L, ownerWallet.PostedCoins);
-        Assert.Equal(50L, otherWallet.PostedCoins);
+        Assert.Equal(
+            200L,
+            ownerWallet.PostedCoins);
+
+        Assert.Equal(
+            50L,
+            otherWallet.PostedCoins);
+    }
+
+    [Fact]
+    public async Task M6_Wallet_UnauthenticatedRequest_Returns401()
+    {
+        using var factory = new AuthenticatedFactory();
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync(
+            "/api/mobile/coins-wallet/me");
+
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            response.StatusCode);
+    }
+
+    [Fact]
+    public async Task M6_Wallet_MissingWallet_Returns404()
+    {
+        using var factory = new AuthenticatedFactory();
+        using var client = factory.OwnerClient();
+
+        factory.WalletReader.ReturnMissingWallet = true;
+
+        using var response = await client.GetAsync(
+            "/api/mobile/coins-wallet/me");
+
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            response.StatusCode);
     }
 
     [Fact]
