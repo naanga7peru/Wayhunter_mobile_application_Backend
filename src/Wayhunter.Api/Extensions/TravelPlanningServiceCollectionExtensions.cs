@@ -30,10 +30,14 @@ public static class TravelPlanningServiceCollectionExtensions
             ITripPlanRepository,
             InMemoryTripPlanRepository>();
 
+        // M2 - Trip Planning Services
         services.AddScoped<CreateTripPlanService>();
         services.AddScoped<GetTripPlanService>();
         services.AddScoped<UpdateTripPlanService>();
         services.AddScoped<CancelTripPlanService>();
+
+        // M2 - Add Trip Stop API (NEW)
+        services.AddScoped<AddTripStopService>();
 
         return services;
     }

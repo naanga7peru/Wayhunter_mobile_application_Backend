@@ -25,6 +25,9 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
             ?? throw new ArgumentNullException(nameof(dbContext));
     }
 
+    // ==========================================
+    // GET TRIP BY ID
+    // ==========================================
     public async Task<TripPlan?> GetByIdAsync(
         Guid tripPlanId,
         CancellationToken cancellationToken = default)
@@ -44,6 +47,9 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
                 cancellationToken);
     }
 
+    // ==========================================
+    // GET MY TRIP PLANS
+    // ==========================================
     public async Task<IReadOnlyList<TripPlan>> GetByOwnerAsync(
         string ownerUserId,
         CancellationToken cancellationToken = default)
@@ -63,6 +69,9 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
             .ToListAsync(cancellationToken);
     }
 
+    // ==========================================
+    // CREATE TRIP PLAN
+    // ==========================================
     public async Task AddAsync(
         TripPlan tripPlan,
         CancellationToken cancellationToken = default)
@@ -77,6 +86,9 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
             cancellationToken);
     }
 
+    // ==========================================
+    // UPDATE TRIP PLAN
+    // ==========================================
     public async Task UpdateAsync(
         TripPlan tripPlan,
         CancellationToken cancellationToken = default)
@@ -94,6 +106,10 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
             cancellationToken);
     }
 
+    // ==========================================
+    // UPDATE WITH SQL ROWVERSION PROTECTION
+    // Used by Trip Update and Trip Stop Add.
+    // ==========================================
     public async Task UpdateWithConcurrencyAsync(
         TripPlan tripPlan,
         byte[] expectedRowVersion,
@@ -120,13 +136,26 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
             entry.State = EntityState.Modified;
         }
 
-        // Use the client's original token for the SQL UPDATE predicate.
-        // SQL Server will reject the update if the stored RowVersion
-        // no longer matches this value.
+        // Use the client's original RowVersion
+        // to detect concurrent changes.
         entry.Property(trip => trip.RowVersion).OriginalValue =
             expectedRowVersion.ToArray();
 
+        // SQL Server generates RowVersion automatically.
+        // Never send RowVersion as a modified column.
         entry.Property(trip => trip.RowVersion).IsModified = false;
+
+        // ==========================================
+        // NEW: TRIP STOP CONCURRENCY PROTECTION
+        // ==========================================
+        // Adding a TripStop may only change the child table.
+        //
+        // Force an UPDATE on the parent Trips row so that
+        // SQL Server checks the expected RowVersion and
+        // generates a fresh RowVersion.
+        //
+        // This also protects against concurrent stop edits.
+        entry.Property(trip => trip.TripName).IsModified = true;
 
         try
         {
