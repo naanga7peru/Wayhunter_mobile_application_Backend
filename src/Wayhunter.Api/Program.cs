@@ -1,4 +1,6 @@
 
+using Microsoft.AspNetCore.Authentication;
+
 using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Api.Hubs.TripSafety;
@@ -8,8 +10,6 @@ using Wayhunter.Application.Modules.TripSafety.Interfaces;
 using Wayhunter.Application.Modules.TripSafety.Services;
 
 using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
-
-using Microsoft.AspNetCore.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,8 +30,18 @@ if (enableSharedAuthentication)
     builder.Services.AddWayhunterSessionAuthentication(
         builder.Configuration);
 
-    // M6 - Authenticated wallet SQL read
+    // ==========================================
+    // M6 - Authenticated Wallet SQL Read
+    // ==========================================
+
     builder.Services.AddCoinsWalletSqlReader(
+        builder.Configuration);
+
+    // ==========================================
+    // M7 - Advertisement SQL Runtime
+    // ==========================================
+
+    builder.Services.AddHomeAdsAnalyticsSqlPersistence(
         builder.Configuration);
 }
 else
@@ -55,6 +65,8 @@ else
 builder.Services.AddTravelPlanningModule();
 
 // M2 SQL persistence is opt-in.
+// Keep existing InMemory persistence by default.
+
 builder.Services.AddConfiguredTravelPlanningPersistence(
     builder.Configuration);
 
@@ -65,6 +77,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 // ==========================================
 
 // SQL Game CRUD is opt-in.
+
 builder.Services.AddConfiguredGamesPersistence(
     builder.Configuration);
 
@@ -72,34 +85,34 @@ builder.Services.AddConfiguredGamesPersistence(
 // M3 - Trip Safety / GPS Consent
 // ==========================================
 
-// Default InMemory repositories remain available.
-// SQL registrations replace the exposed contracts
-// only when the M3 feature flag is enabled.
+// Preserve existing InMemory registrations.
+// These remain active when M3 SQL is disabled.
 
 builder.Services.AddSingleton<
     InMemoryTripSharingConsentRepository>();
 
-builder.Services.AddSingleton<ITripSharingConsentRepository>(
+builder.Services.AddSingleton<
+    ITripSharingConsentRepository>(
     sp => sp.GetRequiredService<
         InMemoryTripSharingConsentRepository>());
 
-builder.Services.AddSingleton<ITripLiveLocationAccessReader>(
+builder.Services.AddSingleton<
+    ITripLiveLocationAccessReader>(
     sp => sp.GetRequiredService<
         InMemoryTripSharingConsentRepository>());
 
-builder.Services.AddScoped<TripSharingConsentService>();
+builder.Services.AddScoped<
+    TripSharingConsentService>();
 
 // ==========================================
 // M3 - Configured SQL Persistence
 // ==========================================
 
-// Flag:
 // TripSafety:EnableSqlPersistence
 //
 // Default: false
-//
-// No automatic migrations or database updates.
-// Shared SQL schema must exist before enabling SQL.
+// No automatic migrations.
+// SQL is enabled only by explicit configuration.
 
 builder.Services.AddConfiguredTripSafetyPersistence(
     builder.Configuration);
