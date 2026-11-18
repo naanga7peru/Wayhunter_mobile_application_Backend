@@ -91,6 +91,91 @@ public sealed class Game
         CreatorUserId = creatorUserId;
     }
 
+
+    // =====================================
+    // RESTORE GAME FROM SQL PERSISTENCE
+    // =====================================
+
+    public static Game RestoreFromPersistence(
+        Guid id,
+        string creatorUserId,
+        string? title,
+        string? description,
+        int? durationMinutes,
+        GameStatus status,
+        DateTimeOffset? submittedAtUtc,
+        DateTimeOffset? approvedAtUtc,
+        DateTimeOffset? expiresAtUtc,
+        string? winnerUserId,
+        bool isFlaggedForReview,
+        string? flagReason,
+        string? rejectionReason,
+        string? disabledReason,
+        DateTimeOffset? lastModeratedAtUtc,
+        IReadOnlyList<GameStep> steps,
+        IReadOnlyList<GameHint> hints)
+    {
+        ArgumentNullException.ThrowIfNull(steps);
+        ArgumentNullException.ThrowIfNull(hints);
+
+        if (!Enum.IsDefined(status))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(status));
+        }
+
+        var stepIds = new HashSet<Guid>();
+        var stepNumbers = new HashSet<int>();
+
+        foreach (var step in steps)
+        {
+            if (step is null ||
+                step.GameId != id ||
+                !stepIds.Add(step.Id) ||
+                !stepNumbers.Add(step.StepNumber))
+            {
+                throw new InvalidOperationException(
+                    "Invalid persisted game stage.");
+            }
+        }
+
+        var hintIds = new HashSet<Guid>();
+
+        foreach (var hint in hints)
+        {
+            if (hint is null ||
+                !hintIds.Add(hint.Id) ||
+                !stepIds.Contains(hint.GameStepId))
+            {
+                throw new InvalidOperationException(
+                    "Invalid persisted game hint.");
+            }
+        }
+
+        var game = new Game(id, creatorUserId)
+        {
+            Title = title,
+            Description = description,
+            DurationMinutes = durationMinutes,
+            Status = status,
+            SubmittedAtUtc = submittedAtUtc,
+            ApprovedAtUtc = approvedAtUtc,
+            ExpiresAtUtc = expiresAtUtc,
+            WinnerUserId = winnerUserId,
+            IsFlaggedForReview = isFlaggedForReview,
+            FlagReason = flagReason,
+            RejectionReason = rejectionReason,
+            DisabledReason = disabledReason,
+            LastModeratedAtUtc = lastModeratedAtUtc
+        };
+
+        game._draftSteps.AddRange(steps);
+        game._draftHints.AddRange(hints);
+
+        return game;
+    }
+
+
     // =====================================
     // CREATE GAME DRAFT
     // =====================================
