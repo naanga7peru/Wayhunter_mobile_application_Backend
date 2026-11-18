@@ -34,8 +34,7 @@ public sealed class TripPlansControllerTests
             new DateOnly(2026, 11, 22),
             15000m,
             "Car",
-            3
-        );
+            3);
     }
 
     private static TripPlan CreateTrip()
@@ -47,10 +46,8 @@ public sealed class TripPlansControllerTests
             new DateOnly(2026, 11, 22),
             15000m,
             "Car",
-            3
-        );
+            3);
 
-        // Simulate SQL Server-generated RowVersion.
         SetRowVersion(trip, TestRowVersion);
 
         return trip;
@@ -103,6 +100,7 @@ public sealed class TripPlansControllerTests
         return controller;
     }
 
+    // EXISTING TEST 1
     [Fact]
     public async Task Create_ValidUser_ReturnsCreated()
     {
@@ -130,6 +128,7 @@ public sealed class TripPlansControllerTests
         Assert.Equal("user-001", saved.OwnerUserId);
     }
 
+    // EXISTING TEST 2
     [Fact]
     public async Task Create_NoUser_ReturnsUnauthorized()
     {
@@ -147,6 +146,7 @@ public sealed class TripPlansControllerTests
             response.Result);
     }
 
+    // EXISTING TEST 3
     [Fact]
     public async Task Get_ValidOwner_ReturnsOk()
     {
@@ -171,6 +171,7 @@ public sealed class TripPlansControllerTests
         Assert.Equal(TestRowVersion, result.RowVersion);
     }
 
+    // EXISTING TEST 4
     [Fact]
     public async Task Get_DifferentOwner_ReturnsNotFound()
     {
@@ -191,6 +192,7 @@ public sealed class TripPlansControllerTests
             response.Result);
     }
 
+    // EXISTING TEST 5
     [Fact]
     public async Task Update_ValidOwner_ReturnsOk()
     {
@@ -207,8 +209,7 @@ public sealed class TripPlansControllerTests
             new DateOnly(2026, 11, 24),
             20000m,
             "Bus",
-            4
-        )
+            4)
         {
             ExpectedRowVersion = TestRowVersion.ToArray()
         };
@@ -231,11 +232,10 @@ public sealed class TripPlansControllerTests
         Assert.Equal(TestRowVersion, result.RowVersion);
     }
 
-
+    // EXISTING TEST 6
     [Fact]
     public async Task Update_StaleRowVersion_ReturnsConflict()
     {
-        // Arrange: create a trip with a known RowVersion.
         var repository = new FakeRepository();
         var trip = CreateTrip();
 
@@ -243,10 +243,9 @@ public sealed class TripPlansControllerTests
 
         var controller = CreateController(repository);
 
-        // Simulate an outdated RowVersion from the client.
         var staleRowVersion = new byte[]
         {
-        8, 7, 6, 5, 4, 3, 2, 1
+            8, 7, 6, 5, 4, 3, 2, 1
         };
 
         var request = new UpdateTripPlanDto(
@@ -255,32 +254,27 @@ public sealed class TripPlansControllerTests
             new DateOnly(2026, 11, 24),
             20000m,
             "Bus",
-            4
-        )
+            4)
         {
             ExpectedRowVersion = staleRowVersion
         };
 
-        // Act.
         var response = await controller.Update(
             trip.Id,
             request,
             CancellationToken.None);
 
-        // Assert: stale updates must return HTTP 409.
         var conflict = Assert.IsType<ConflictObjectResult>(
             response.Result);
 
         Assert.Equal(409, conflict.StatusCode);
 
-        // The existing trip must remain unchanged.
         Assert.Equal("Jaffna Tour", trip.TripName);
         Assert.Equal(15000m, trip.BudgetLkr);
-
-        // The original RowVersion must remain unchanged.
         Assert.Equal(TestRowVersion, trip.RowVersion);
     }
 
+    // EXISTING TEST 7
     [Fact]
     public async Task Cancel_ValidOwner_ReturnsNoContent()
     {
@@ -302,6 +296,7 @@ public sealed class TripPlansControllerTests
             trip.DraftStatus);
     }
 
+    // EXISTING TEST 8
     [Fact]
     public async Task Cancel_AlreadyCancelled_ReturnsConflict()
     {
@@ -320,15 +315,128 @@ public sealed class TripPlansControllerTests
             trip.Id,
             CancellationToken.None);
 
-        Assert.IsType<ConflictObjectResult>(
-            response);
+        Assert.IsType<ConflictObjectResult>(response);
+    }
+
+    // NEW TEST 9
+    [Fact]
+    public async Task GetMyPlans_NoUser_ReturnsUnauthorized()
+    {
+        var repository = new FakeRepository();
+        var controller = CreateController(
+            repository,
+            userId: null);
+
+        var response = await controller.GetMyPlans(
+            CancellationToken.None);
+
+        Assert.IsType<UnauthorizedResult>(
+            response.Result);
+    }
+
+    // NEW TEST 10
+    [Fact]
+    public async Task GetMyPlans_EmptyRepository_ReturnsOkEmptyList()
+    {
+        var repository = new FakeRepository();
+        var controller = CreateController(repository);
+
+        var response = await controller.GetMyPlans(
+            CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(
+            response.Result);
+
+        var plans = Assert.IsAssignableFrom<
+            IReadOnlyList<TripPlanResponseDto>>(ok.Value);
+
+        Assert.Empty(plans);
+    }
+
+    // NEW TEST 11
+    [Fact]
+    public async Task GetMyPlans_ReturnsOnlyAuthenticatedUsersTrips()
+    {
+        var repository = new FakeRepository();
+
+        var ownTrip = CreateTrip();
+
+        var otherTrip = new TripPlan(
+            "user-002",
+            "Other User Trip",
+            new DateOnly(2026, 11, 23),
+            new DateOnly(2026, 11, 25),
+            10000m,
+            "Bus",
+            2);
+
+        await repository.AddAsync(ownTrip);
+        await repository.AddAsync(otherTrip);
+
+        var controller = CreateController(
+            repository,
+            "user-001");
+
+        var response = await controller.GetMyPlans(
+            CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(
+            response.Result);
+
+        var plans = Assert.IsAssignableFrom<
+            IReadOnlyList<TripPlanResponseDto>>(ok.Value);
+
+        var plan = Assert.Single(plans);
+
+        Assert.Equal(ownTrip.Id, plan.TripPlanId);
+        Assert.Equal("Jaffna Tour", plan.TripName);
+        Assert.Equal(TestRowVersion, plan.RowVersion);
+
+        Assert.DoesNotContain(
+            plans,
+            p => p.TripPlanId == otherTrip.Id);
+    }
+
+    // NEW TEST 12
+    [Fact]
+    public async Task GetMyPlans_ReturnsLatestTripFirst()
+    {
+        var repository = new FakeRepository();
+
+        var olderTrip = CreateTrip();
+
+        var newerTrip = new TripPlan(
+            "user-001",
+            "December Tour",
+            new DateOnly(2026, 12, 10),
+            new DateOnly(2026, 12, 12),
+            20000m,
+            "Car",
+            4);
+
+        await repository.AddAsync(olderTrip);
+        await repository.AddAsync(newerTrip);
+
+        var controller = CreateController(repository);
+
+        var response = await controller.GetMyPlans(
+            CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(
+            response.Result);
+
+        var plans = Assert.IsAssignableFrom<
+            IReadOnlyList<TripPlanResponseDto>>(ok.Value);
+
+        Assert.Equal(2, plans.Count);
+        Assert.Equal(newerTrip.Id, plans[0].TripPlanId);
+        Assert.Equal(olderTrip.Id, plans[1].TripPlanId);
     }
 
     private sealed class FakeRepository
         : ITripPlanRepository
     {
-        private readonly Dictionary<Guid, TripPlan>
-            _plans = new();
+        private readonly Dictionary<Guid, TripPlan> _plans = new();
 
         public Task<TripPlan?> GetByIdAsync(
             Guid tripPlanId,
@@ -342,10 +450,9 @@ public sealed class TripPlansControllerTests
             string ownerUserId,
             CancellationToken cancellationToken = default)
         {
-            IReadOnlyList<TripPlan> result =
-                _plans.Values
-                    .Where(p => p.OwnerUserId == ownerUserId)
-                    .ToList();
+            IReadOnlyList<TripPlan> result = _plans.Values
+                .Where(p => p.OwnerUserId == ownerUserId)
+                .ToList();
 
             return Task.FromResult(result);
         }
