@@ -1,5 +1,6 @@
-﻿
+
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.OpenApi;
 
 using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Extensions;
@@ -13,7 +14,47 @@ using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ==========================================
+// API Controllers
+// ==========================================
+
 builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+
+// ==========================================
+// Team Leader - Swagger / OpenAPI
+// ==========================================
+
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "WAYHUNTER Backend API",
+        Version = "v1",
+        Description =
+            "WAYHUNTER mobile application backend. " +
+            "API documentation for M1-M7 modules."
+    });
+
+    options.AddSecurityDefinition(
+        "Bearer",
+        new OpenApiSecurityScheme
+        {
+            Type = SecuritySchemeType.Http,
+            Scheme = "bearer",
+            BearerFormat = "JWT",
+            Description =
+                "Enter the JWT access token. " +
+                "Do not include the Bearer prefix."
+        });
+
+    options.AddSecurityRequirement(document =>
+        new OpenApiSecurityRequirement
+        {
+            [new OpenApiSecuritySchemeReference(
+                "Bearer", document)] = []
+        });
+});
 
 // ==========================================
 // M1 - Identity Authentication
@@ -36,8 +77,11 @@ if (enableSharedAuthentication)
 
     builder.Services.AddCoinsWalletSqlReader(
         builder.Configuration);
-    // M6 - SQL Reward Writer (opt-in).
-    // Default: false. No automatic migrations or worker.
+
+    // ==========================================
+    // M6 - SQL Reward Writer (Opt-In)
+    // ==========================================
+
     if (builder.Configuration.GetValue<bool>(
         "CoinsWallet:EnableSqlRewardWriter"))
     {
@@ -72,9 +116,6 @@ else
 
 builder.Services.AddTravelPlanningModule();
 
-// M2 SQL persistence is opt-in.
-// Keep existing InMemory persistence by default.
-
 builder.Services.AddConfiguredTravelPlanningPersistence(
     builder.Configuration);
 
@@ -84,17 +125,12 @@ builder.Services.AddSingleton(TimeProvider.System);
 // M5 - Games SQL Repository
 // ==========================================
 
-// SQL Game CRUD is opt-in.
-
 builder.Services.AddConfiguredGamesPersistence(
     builder.Configuration);
 
 // ==========================================
 // M3 - Trip Safety / GPS Consent
 // ==========================================
-
-// Preserve existing InMemory registrations.
-// These remain active when M3 SQL is disabled.
 
 builder.Services.AddSingleton<
     InMemoryTripSharingConsentRepository>();
@@ -115,12 +151,6 @@ builder.Services.AddScoped<
 // ==========================================
 // M3 - Configured SQL Persistence
 // ==========================================
-
-// TripSafety:EnableSqlPersistence
-//
-// Default: false
-// No automatic migrations.
-// SQL is enabled only by explicit configuration.
 
 builder.Services.AddConfiguredTripSafetyPersistence(
     builder.Configuration);
@@ -165,13 +195,37 @@ var app = builder.Build();
 app.UseMiddleware<
     Wayhunter.Api.Middleware.CorrelationIdMiddleware>();
 
+// ==========================================
+// Swagger - Development Only
+// ==========================================
+
 if (app.Environment.IsDevelopment())
 {
+    app.UseSwagger();
+
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint(
+            "/swagger/v1/swagger.json",
+            "WAYHUNTER Backend API v1");
+
+        options.DocumentTitle =
+            "WAYHUNTER API Documentation";
+    });
+
     app.UseCors("LocalDevelopment");
 }
 
+// ==========================================
+// Authentication / Authorization
+// ==========================================
+
 app.UseAuthentication();
 app.UseAuthorization();
+
+// ==========================================
+// API Routes
+// ==========================================
 
 app.MapControllers();
 
@@ -183,4 +237,3 @@ app.Run();
 public partial class Program
 {
 }
-
