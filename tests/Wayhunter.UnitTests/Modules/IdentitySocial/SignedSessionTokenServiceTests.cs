@@ -132,4 +132,64 @@ public sealed class SignedSessionTokenServiceTests
         Assert.Throws<InvalidOperationException>(() =>
             CreateService().Issue(account, session, now));
     }
+
+
+    [Fact]
+    public void DifferentIssuer_IsRejected()
+    {
+        var (account, session, now) = Setup();
+
+        var token = CreateService().Issue(
+            account, session, now);
+
+        var otherIssuerService =
+            new SignedSessionTokenService(
+                "different-issuer",
+                Audience,
+                TestSecret);
+
+        Assert.Throws<SecurityTokenInvalidIssuerException>(() =>
+            otherIssuerService.Validate(token));
+    }
+
+    [Fact]
+    public void ExpiredJwt_IsRejected()
+    {
+        var (account, _, now) = Setup();
+
+        // Session was valid when the token was issued.
+        // Its JWT expiration is now in the past.
+        var expiredSession = IdentitySession.Create(
+            account.UserId,
+            now.AddMinutes(-50),
+            now.AddMinutes(-30));
+
+        var token = CreateService().Issue(
+            account,
+            expiredSession,
+            now.AddMinutes(-45));
+
+        Assert.Throws<SecurityTokenExpiredException>(() =>
+            CreateService().Validate(token));
+    }
+
+    [Fact]
+    public void FutureNotBeforeJwt_IsRejected()
+    {
+        var (account, _, now) = Setup();
+
+        // JWT must not be accepted before its nbf time.
+        var futureSession = IdentitySession.Create(
+            account.UserId,
+            now.AddMinutes(20),
+            now.AddMinutes(60));
+
+        var token = CreateService().Issue(
+            account,
+            futureSession,
+            now.AddMinutes(30));
+
+        Assert.Throws<SecurityTokenNotYetValidException>(() =>
+            CreateService().Validate(token));
+    }
 }
