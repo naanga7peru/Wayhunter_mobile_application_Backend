@@ -1,5 +1,6 @@
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,20 +23,10 @@ public interface ITripPlanRepository
         TripPlan tripPlan,
         CancellationToken cancellationToken = default);
 
-    // Existing update contract retained for compatibility.
     Task UpdateAsync(
         TripPlan tripPlan,
         CancellationToken cancellationToken = default);
 
-    // Concurrency-aware update contract.
-    //
-    // SQL Server EF repository MUST override this method
-    // and configure the client's token as the OriginalValue
-    // of the EF Core RowVersion property before SaveChangesAsync.
-    //
-    // The default implementation is a compatibility fallback
-    // for existing non-SQL repositories and test fakes.
-    // It is NOT atomic against concurrent writes.
     async Task UpdateWithConcurrencyAsync(
         TripPlan tripPlan,
         byte[] expectedRowVersion,
@@ -45,21 +36,15 @@ public interface ITripPlanRepository
         ArgumentNullException.ThrowIfNull(expectedRowVersion);
 
         if (expectedRowVersion.Length != 8)
-        {
             throw new ArgumentException(
-                "A valid 8-byte RowVersion is required.",
-                nameof(expectedRowVersion));
-        }
+                "A valid 8-byte RowVersion is required.");
 
         var current = await GetByIdAsync(
-            tripPlan.Id,
-            cancellationToken);
+            tripPlan.Id, cancellationToken);
 
         if (current is null)
-        {
             throw new KeyNotFoundException(
                 "Trip plan not found.");
-        }
 
         if (current.RowVersion is null ||
             !current.RowVersion.SequenceEqual(expectedRowVersion))
@@ -67,8 +52,51 @@ public interface ITripPlanRepository
             throw new TripPlanConcurrencyException(tripPlan.Id);
         }
 
-        await UpdateAsync(
-            tripPlan,
-            cancellationToken);
+        await UpdateAsync(tripPlan, cancellationToken);
+    }
+
+    // Default fallback for InMemory repositories and test fakes.
+    // SQL repository MUST override this for atomic removal.
+    async Task<TripPlan> RemoveStopWithConcurrencyAsync(
+        TripPlan tripPlan,
+        Guid stopId,
+        byte[]? expectedRowVersion,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(tripPlan);
+
+        if (tripPlan.RowVersion.Length == 8)
+        {
+            if (expectedRowVersion is null ||
+                expectedRowVersion.Length != 8)
+            {
+                throw new ArgumentException(
+                    "A valid RowVersion is required.");
+            }
+
+            if (!tripPlan.RowVersion.SequenceEqual(
+                    expectedRowVersion))
+            {
+                throw new TripPlanConcurrencyException(tripPlan.Id);
+            }
+        }
+
+        if (!tripPlan.RemoveStop(stopId))
+            throw new KeyNotFoundException(
+                "Trip stop not found.");
+
+        if (tripPlan.RowVersion.Length == 8)
+        {
+            await UpdateWithConcurrencyAsync(
+                tripPlan,
+                expectedRowVersion!,
+                cancellationToken);
+        }
+        else
+        {
+            await UpdateAsync(tripPlan, cancellationToken);
+        }
+
+        return tripPlan;
     }
 }
