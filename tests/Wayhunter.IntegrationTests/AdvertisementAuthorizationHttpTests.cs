@@ -6,6 +6,7 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Threading;
 using System.Threading.Tasks;
+
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -13,10 +14,14 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+
+using Wayhunter.Api.Authorization;
 using Wayhunter.Api.Controllers.Admin.HomeAdsAnalytics;
+
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Dtos;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Interfaces;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Services;
+
 using Xunit;
 
 namespace Wayhunter.IntegrationTests;
@@ -137,6 +142,8 @@ public sealed class AdvertisementAuthorizationHttpTests
 
         builder.WebHost.UseTestServer();
 
+        // Approved M1/M7 Administrator role contract.
+        // Used only for authorization verification.
         builder.Configuration[
             "Identity:AdministratorRole"] = "Admin";
 
@@ -155,7 +162,16 @@ public sealed class AdvertisementAuthorizationHttpTests
                 TestScheme,
                 _ => { });
 
-        builder.Services.AddAuthorization();
+        // ==========================================
+        // M7 - Centralized Administrator Policy
+        // ==========================================
+
+        // Register the same policy used by Program.cs.
+        // Without this registration, Admin endpoints
+        // throw a policy-not-found exception (HTTP 500).
+
+        builder.Services.AddAdvertisementAdministratorPolicy(
+            builder.Configuration);
 
         // ==========================================
         // M7 Test Dependency Injection
@@ -179,6 +195,7 @@ public sealed class AdvertisementAuthorizationHttpTests
 
         app.UseAuthentication();
         app.UseAuthorization();
+
         app.MapControllers();
 
         await app.StartAsync();

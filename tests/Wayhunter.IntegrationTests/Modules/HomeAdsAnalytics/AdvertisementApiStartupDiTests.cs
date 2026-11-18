@@ -2,7 +2,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -21,27 +20,42 @@ public sealed class AdvertisementApiStartupDiTests
     private sealed class M7StartupFactory
         : WebApplicationFactory<Program>
     {
-        private readonly bool _enabled;
+        private readonly bool _sharedAuthenticationEnabled;
+        private readonly bool _advertisementSqlEnabled;
 
-        public M7StartupFactory(bool enabled)
+        public M7StartupFactory(
+            bool sharedAuthenticationEnabled,
+            bool advertisementSqlEnabled)
         {
-            _enabled = enabled;
+            _sharedAuthenticationEnabled =
+                sharedAuthenticationEnabled;
+
+            _advertisementSqlEnabled =
+                advertisementSqlEnabled;
         }
 
         protected override IHost CreateHost(
             IHostBuilder builder)
         {
-            // Apply settings before Program.cs reads configuration.
+            // Configuration must be available before
+            // Program.cs evaluates the feature flags.
             builder.ConfigureHostConfiguration(configuration =>
             {
                 configuration.AddInMemoryCollection(
                     new Dictionary<string, string?>
                     {
                         ["Identity:EnableSharedAuthentication"] =
-                            _enabled ? "true" : "false",
+                            _sharedAuthenticationEnabled
+                                ? "true"
+                                : "false",
 
-                        // Test-only SQL connection string.
-                        // No database operations are performed.
+                        ["Advertisements:EnableSqlPersistence"] =
+                            _advertisementSqlEnabled
+                                ? "true"
+                                : "false",
+
+                        // Test-only connection string.
+                        // No database connection is opened.
                         ["ConnectionStrings:WayhunterSharedDb"] =
                             "Server=localhost;" +
                             "Database=Wayhunter_M7_Startup_DI;" +
@@ -63,11 +77,17 @@ public sealed class AdvertisementApiStartupDiTests
         }
     }
 
-    [Fact]
-    public void SharedAuthenticationDisabled_M7SqlServicesAbsent()
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void M7SqlDisabled_AdvertisementServicesAbsent(
+        bool sharedAuthenticationEnabled,
+        bool advertisementSqlEnabled)
     {
         using var factory = new M7StartupFactory(
-            enabled: false);
+            sharedAuthenticationEnabled,
+            advertisementSqlEnabled);
 
         using var scope = factory.Services.CreateScope();
 
@@ -82,40 +102,46 @@ public sealed class AdvertisementApiStartupDiTests
         Assert.Null(
             provider.GetService<AdvertisementService>());
 
-        Assert.Null(
-            provider.GetService<WayhunterSharedDbContext>());
+        // M1 may still register the shared DbContext.
+        // Therefore, its absence is not required here.
     }
 
     [Fact]
-    public void SharedAuthenticationEnabled_M7SqlServicesResolve()
+    public void BothFlagsEnabled_M7SqlServicesResolve()
     {
         using var factory = new M7StartupFactory(
-            enabled: true);
+            sharedAuthenticationEnabled: true,
+            advertisementSqlEnabled: true);
 
         using var scope = factory.Services.CreateScope();
 
         var provider = scope.ServiceProvider;
 
         Assert.IsType<AdvertisementRepository>(
-            provider.GetRequiredService<IAdvertisementRepository>());
+            provider.GetRequiredService<
+                IAdvertisementRepository>());
 
         Assert.IsType<AdvertisementRepository>(
-            provider.GetRequiredService<IAdvertisementWriteRepository>());
+            provider.GetRequiredService<
+                IAdvertisementWriteRepository>());
 
         Assert.NotNull(
-            provider.GetRequiredService<AdvertisementService>());
+            provider.GetRequiredService<
+                AdvertisementService>());
 
         var dbContext =
-            provider.GetRequiredService<WayhunterSharedDbContext>();
+            provider.GetRequiredService<
+                WayhunterSharedDbContext>();
 
         Assert.True(dbContext.Database.IsSqlServer());
     }
 
     [Fact]
-    public void SharedAuthenticationEnabled_ReusesOneSharedDbContext()
+    public void BothFlagsEnabled_ReusesOneSharedDbContext()
     {
         using var factory = new M7StartupFactory(
-            enabled: true);
+            sharedAuthenticationEnabled: true,
+            advertisementSqlEnabled: true);
 
         using var scope = factory.Services.CreateScope();
 
@@ -128,10 +154,36 @@ public sealed class AdvertisementApiStartupDiTests
         Assert.Single(contexts);
 
         var resolvedContext =
-            provider.GetRequiredService<WayhunterSharedDbContext>();
+            provider.GetRequiredService<
+                WayhunterSharedDbContext>();
 
         Assert.Same(contexts[0], resolvedContext);
 
-        Assert.True(resolvedContext.Database.IsSqlServer());
+        Assert.True(
+            resolvedContext.Database.IsSqlServer());
+    }
+
+    [Fact]
+    public void M1Enabled_M7Disabled_SharedDbContextRemainsAvailable()
+    {
+        using var factory = new M7StartupFactory(
+            sharedAuthenticationEnabled: true,
+            advertisementSqlEnabled: false);
+
+        using var scope = factory.Services.CreateScope();
+
+        var provider = scope.ServiceProvider;
+
+        var context =
+            provider.GetRequiredService<
+                WayhunterSharedDbContext>();
+
+        Assert.True(context.Database.IsSqlServer());
+
+        Assert.Null(
+            provider.GetService<IAdvertisementRepository>());
+
+        Assert.Null(
+            provider.GetService<IAdvertisementWriteRepository>());
     }
 }

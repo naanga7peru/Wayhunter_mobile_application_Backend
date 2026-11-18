@@ -1,6 +1,7 @@
 
 using Microsoft.AspNetCore.Authentication;
 
+using Wayhunter.Api.Authorization;
 using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Api.Hubs.TripSafety;
@@ -14,6 +15,17 @@ using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
+
+// ==========================================
+// M7 - Centralized Administrator Authorization
+// ==========================================
+
+// Register the Advertisement Administrator policy.
+// This does not grant Administrator privileges.
+// Actual trusted M1 role resolution remains pending.
+
+builder.Services.AddAdvertisementAdministratorPolicy(
+    builder.Configuration);
 
 // ==========================================
 // M1 - Identity Authentication
@@ -41,8 +53,24 @@ if (enableSharedAuthentication)
     // M7 - Advertisement SQL Runtime
     // ==========================================
 
-    builder.Services.AddHomeAdsAnalyticsSqlPersistence(
-        builder.Configuration);
+    // Advertisement SQL persistence is separately opt-in.
+    // Default: false.
+    //
+    // Enabling M1 shared authentication must not
+    // automatically activate M7 SQL persistence.
+    //
+    // No migrations or database schema changes
+    // are executed during service registration.
+
+    var enableAdvertisementSqlPersistence =
+        builder.Configuration.GetValue<bool>(
+            "Advertisements:EnableSqlPersistence");
+
+    if (enableAdvertisementSqlPersistence)
+    {
+        builder.Services.AddHomeAdsAnalyticsSqlPersistence(
+            builder.Configuration);
+    }
 }
 else
 {
@@ -93,13 +121,13 @@ builder.Services.AddSingleton<
 
 builder.Services.AddSingleton<
     ITripSharingConsentRepository>(
-    sp => sp.GetRequiredService<
-        InMemoryTripSharingConsentRepository>());
+        sp => sp.GetRequiredService<
+            InMemoryTripSharingConsentRepository>());
 
 builder.Services.AddSingleton<
     ITripLiveLocationAccessReader>(
-    sp => sp.GetRequiredService<
-        InMemoryTripSharingConsentRepository>());
+        sp => sp.GetRequiredService<
+            InMemoryTripSharingConsentRepository>());
 
 builder.Services.AddScoped<
     TripSharingConsentService>();
