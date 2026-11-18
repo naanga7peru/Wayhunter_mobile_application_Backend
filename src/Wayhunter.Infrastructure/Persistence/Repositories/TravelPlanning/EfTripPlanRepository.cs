@@ -1,4 +1,3 @@
-
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -146,8 +145,8 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
         // Never send RowVersion as a modified column.
         entry.Property(trip => trip.RowVersion).IsModified = false;
 
-        // Force parent UPDATE so SQL Server checks
-        // and advances RowVersion for child changes.
+        // Force a parent trip UPDATE for child stop changes.
+        // SQL Server checks and advances the RowVersion.
         entry.Property(trip => trip.TripName).IsModified = true;
 
         try
@@ -163,7 +162,7 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
     }
 
     // ==========================================
-    // REMOVE TRIP STOP WITH SQL CONCURRENCY
+    // NEW: REMOVE TRIP STOP WITH SQL CONCURRENCY
     // ==========================================
     public async Task<TripPlan> RemoveStopWithConcurrencyAsync(
         TripPlan tripPlan,
@@ -181,7 +180,7 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
                 "Valid Trip Plan ID and Stop ID are required.");
         }
 
-        // STEP 1 - Validate RowVersion.
+        // Step 1: Validate SQL RowVersion.
         if (expectedRowVersion is null ||
             expectedRowVersion.Length != SqlServerRowVersionLength)
         {
@@ -195,14 +194,14 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
             throw new TripPlanConcurrencyException(tripPlan.Id);
         }
 
-        // STEP 2 - Check editable status.
+        // Step 2: Only draft trips can be modified.
         if (tripPlan.DraftStatus != TripDraftStatus.Draft)
         {
             throw new InvalidOperationException(
                 "Only draft trip plans can be modified.");
         }
 
-        // STEP 3 - Find requested stop.
+        // Step 3: Confirm stop belongs to trip.
         var removedStop = tripPlan.Stops
             .FirstOrDefault(stop => stop.Id == stopId);
 
@@ -217,7 +216,8 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
         var maxOrder = tripPlan.Stops
             .Max(stop => stop.OrderIndex);
 
-        // STEP 4 - Prevent integer overflow.
+        // Step 4: Prevent overflow when calculating
+        // temporary order indexes.
         if (maxOrder < 0 ||
             ((long)maxOrder * 2 + 1) > int.MaxValue)
         {
@@ -227,12 +227,14 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
 
         var offset = maxOrder + 1;
 
-        // STEP 5 - Begin SQL transaction.
+        // Step 5: Begin atomic SQL transaction.
         await using var transaction =
             await _dbContext.Database.BeginTransactionAsync(
                 cancellationToken);
 
-        // STEP 6 - Validate parent RowVersion.
+        // Step 6: Check and advance parent RowVersion.
+        // A zero-row result means stale version,
+        // wrong owner or no longer editable trip.
         var draftStatus = (int)TripDraftStatus.Draft;
 
         var updated = await _dbContext.Database
@@ -251,7 +253,7 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
                 tripPlan.Id);
         }
 
-        // STEP 7 - Delete requested stop.
+        // Step 7: Delete the requested stop.
         var deleted = await _dbContext.Database
             .ExecuteSqlInterpolatedAsync(
                 $@"DELETE FROM [TripStops]
@@ -265,12 +267,18 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
                 tripPlan.Id);
         }
 
-        // STEP 8 - Reorder remaining stops.
-        // Unique index: (TripPlanId, OrderIndex)
+        // Step 8: Reorder remaining stops.
+        // Existing unique index:
+        // (TripPlanId, OrderIndex)
+        //
+        // Use a two-phase shift to avoid
+        // temporary unique-index collisions.
+
         if (removedOrder < maxOrder)
         {
-            // Phase A - Move following stops
-            // outside the existing index range.
+            // Phase A:
+            // Move following stops outside their
+            // original index range.
             await _dbContext.Database
                 .ExecuteSqlInterpolatedAsync(
                     $@"UPDATE [TripStops]
@@ -280,7 +288,8 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
                          AND [OrderIndex] > {removedOrder}",
                     cancellationToken);
 
-            // Phase B - Normalize indexes.
+            // Phase B:
+            // Normalize to continuous indexes.
             await _dbContext.Database
                 .ExecuteSqlInterpolatedAsync(
                     $@"UPDATE [TripStops]
@@ -291,13 +300,16 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
                     cancellationToken);
         }
 
-        // STEP 9 - Commit transaction.
+        // Step 9: Commit all changes together.
         await transaction.CommitAsync(cancellationToken);
 
-        // STEP 10 - Clear tracked SQL state.
+        // Step 10:
+        // Raw SQL bypassed EF tracked entities.
+        // Clear tracked state to avoid stale results.
         _dbContext.ChangeTracker.Clear();
 
-        // STEP 11 - Reload fresh trip.
+        // Step 11:
+        // Reload fresh stops and new RowVersion.
         return await GetByIdAsync(
             tripPlan.Id,
             cancellationToken)
@@ -305,8 +317,9 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
                 "Updated trip plan could not be reloaded.");
     }
 
+
     // ==========================================
-    // NEW: REORDER TRIP STOPS WITH SQL CONCURRENCY
+    // M2-MS04 - REORDER TRIP STOPS
     // ==========================================
     public async Task<TripPlan> ReorderStopsWithConcurrencyAsync(
         TripPlan tripPlan,
@@ -319,6 +332,12 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
 
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (tripPlan.Id == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Valid Trip Plan ID is required.");
+        }
+
         // STEP 1 - Validate RowVersion.
         if (expectedRowVersion is null ||
             expectedRowVersion.Length != SqlServerRowVersionLength)
@@ -327,158 +346,179 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
                 "An 8-byte RowVersion is required.");
         }
 
-        if (tripPlan.RowVersion is null ||
-            !tripPlan.RowVersion.SequenceEqual(expectedRowVersion))
+        if (!tripPlan.RowVersion.SequenceEqual(
+                expectedRowVersion))
         {
             throw new TripPlanConcurrencyException(
                 tripPlan.Id);
         }
 
-        // STEP 2 - Only draft trips can be reordered.
+        // STEP 2 - Only draft trips are editable.
         if (tripPlan.DraftStatus != TripDraftStatus.Draft)
         {
             throw new InvalidOperationException(
-                "Only draft trip plans can be reordered.");
+                "Only draft trips can be reordered.");
         }
 
-        // STEP 3 - Load current stop ordering.
         var existingStops = tripPlan.Stops
             .OrderBy(stop => stop.OrderIndex)
             .ToList();
 
-        // STEP 4 - Validate all stop IDs.
-        if (orderedStopIds.Count != existingStops.Count ||
-            orderedStopIds.Distinct().Count() !=
-                orderedStopIds.Count)
-        {
-            throw new ArgumentException(
-                "Every trip stop must appear exactly once.");
-        }
-
+        // STEP 3 - Validate stop IDs.
         var existingIds = existingStops
             .Select(stop => stop.Id)
             .ToHashSet();
 
-        if (orderedStopIds.Any(
-            stopId => !existingIds.Contains(stopId)))
+        if (orderedStopIds.Count != existingStops.Count ||
+            orderedStopIds.Distinct().Count() !=
+                orderedStopIds.Count ||
+            existingIds.Count != existingStops.Count ||
+            orderedStopIds.Any(
+                id => !existingIds.Contains(id)))
         {
             throw new ArgumentException(
-                "Invalid or foreign trip stop ID.");
+                "Every existing stop must appear exactly once.");
         }
-
-        // STEP 5 - Skip unchanged order.
-        var currentOrder = existingStops
-            .Select(stop => stop.Id);
-
-        if (currentOrder.SequenceEqual(orderedStopIds))
-        {
-            return tripPlan;
-        }
-
-        // STEP 6 - Calculate temporary unique indexes.
-        var maxOrder = existingStops
-            .Max(stop => stop.OrderIndex);
 
         if (existingStops.Any(
                 stop => stop.OrderIndex < 0) ||
-            maxOrder > int.MaxValue - existingStops.Count)
+            existingStops.Select(stop => stop.OrderIndex)
+                .Distinct().Count() != existingStops.Count)
         {
             throw new InvalidOperationException(
-                "Trip stop order exceeds supported limits.");
+                "Stored stop ordering is invalid.");
         }
 
-        var temporaryStart = maxOrder + 1;
+        var currentOrder = existingStops
+            .Select(stop => stop.Id)
+            .ToArray();
 
-        var temporaryIndexes =
-            new Dictionary<Guid, int>();
+        var unchanged =
+            currentOrder.SequenceEqual(orderedStopIds);
 
-        // STEP 7 - Begin atomic SQL transaction.
-        await using var transaction =
-            await _dbContext.Database.BeginTransactionAsync(
-                cancellationToken);
+        var temporaryStart = 0;
 
-        // STEP 8 - Check parent RowVersion and lock trip.
+        if (!unchanged)
+        {
+            var maxOrder = existingStops[^1].OrderIndex;
+
+            if ((long)maxOrder + existingStops.Count >
+                int.MaxValue)
+            {
+                throw new InvalidOperationException(
+                    "Temporary stop indexes exceed supported limits.");
+            }
+
+            temporaryStart = maxOrder + 1;
+        }
+
         var draftStatus = (int)TripDraftStatus.Draft;
 
-        var updated = await _dbContext.Database
-            .ExecuteSqlInterpolatedAsync(
-                $@"UPDATE [Trips]
-                   SET [TripName] = [TripName]
-                   WHERE [Id] = {tripPlan.Id}
-                     AND [OwnerUserId] = {tripPlan.OwnerUserId}
-                     AND [RowVersion] = {expectedRowVersion}
-                     AND [DraftStatus] = {draftStatus}",
+        // STEP 4 - Use EF execution strategy.
+        // The entire transaction must be inside
+        // ExecuteAsync when SQL retries are enabled.
+        var strategy = _dbContext.Database
+            .CreateExecutionStrategy();
+
+        await strategy.ExecuteAsync(async () =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Fresh dictionary for every retry attempt.
+            var temporaryIndexes =
+                new Dictionary<Guid, int>();
+
+            await using var transaction =
+                await _dbContext.Database.BeginTransactionAsync(
+                    cancellationToken);
+
+            // STEP 5 - Atomic SQL RowVersion guard.
+            // Also runs when stop order is unchanged.
+            var updated = await _dbContext.Database
+                .ExecuteSqlInterpolatedAsync(
+                    $@"UPDATE [Trips]
+                       SET [TripName] = [TripName]
+                       WHERE [Id] = {tripPlan.Id}
+                         AND [OwnerUserId] = {tripPlan.OwnerUserId}
+                         AND [RowVersion] = {expectedRowVersion}
+                         AND [DraftStatus] = {draftStatus}",
+                    cancellationToken);
+
+            if (updated != 1)
+            {
+                throw new TripPlanConcurrencyException(
+                    tripPlan.Id);
+            }
+
+            // STEP 6 - Reorder only when changed.
+            if (!unchanged)
+            {
+                // Phase A:
+                // Move individual stops to unused
+                // temporary order indexes.
+                for (var index = 0;
+                     index < existingStops.Count;
+                     index++)
+                {
+                    var stop = existingStops[index];
+
+                    var temporaryIndex =
+                        temporaryStart + index;
+
+                    var affected = await _dbContext.Database
+                        .ExecuteSqlInterpolatedAsync(
+                            $@"UPDATE [TripStops]
+                               SET [OrderIndex] = {temporaryIndex}
+                               WHERE [Id] = {stop.Id}
+                                 AND [TripPlanId] = {tripPlan.Id}
+                                 AND [OrderIndex] = {stop.OrderIndex}",
+                            cancellationToken);
+
+                    if (affected != 1)
+                    {
+                        throw new TripPlanConcurrencyException(
+                            tripPlan.Id);
+                    }
+
+                    temporaryIndexes.Add(
+                        stop.Id,
+                        temporaryIndex);
+                }
+
+                // Phase B:
+                // Assign final order: 0, 1, 2...
+                for (var index = 0;
+                     index < orderedStopIds.Count;
+                     index++)
+                {
+                    var stopId = orderedStopIds[index];
+
+                    var temporaryIndex =
+                        temporaryIndexes[stopId];
+
+                    var affected = await _dbContext.Database
+                        .ExecuteSqlInterpolatedAsync(
+                            $@"UPDATE [TripStops]
+                               SET [OrderIndex] = {index}
+                               WHERE [Id] = {stopId}
+                                 AND [TripPlanId] = {tripPlan.Id}
+                                 AND [OrderIndex] = {temporaryIndex}",
+                            cancellationToken);
+
+                    if (affected != 1)
+                    {
+                        throw new TripPlanConcurrencyException(
+                            tripPlan.Id);
+                    }
+                }
+            }
+
+            // STEP 7 - Commit inside execution strategy.
+            await transaction.CommitAsync(
                 cancellationToken);
+        });
 
-        if (updated != 1)
-        {
-            throw new TripPlanConcurrencyException(
-                tripPlan.Id);
-        }
-
-        // STEP 9 - Move stops to temporary indexes.
-        // Each update targets one row, avoiding
-        // intermediate unique-index collisions.
-        for (var index = 0;
-             index < existingStops.Count;
-             index++)
-        {
-            var stop = existingStops[index];
-
-            var temporaryIndex =
-                temporaryStart + index;
-
-            var affected = await _dbContext.Database
-                .ExecuteSqlInterpolatedAsync(
-                    $@"UPDATE [TripStops]
-                       SET [OrderIndex] = {temporaryIndex}
-                       WHERE [Id] = {stop.Id}
-                         AND [TripPlanId] = {tripPlan.Id}
-                         AND [OrderIndex] = {stop.OrderIndex}",
-                    cancellationToken);
-
-            if (affected != 1)
-            {
-                throw new TripPlanConcurrencyException(
-                    tripPlan.Id);
-            }
-
-            temporaryIndexes.Add(
-                stop.Id,
-                temporaryIndex);
-        }
-
-        // STEP 10 - Assign final indexes 0, 1, 2...
-        for (var index = 0;
-             index < orderedStopIds.Count;
-             index++)
-        {
-            var stopId = orderedStopIds[index];
-
-            var temporaryIndex =
-                temporaryIndexes[stopId];
-
-            var affected = await _dbContext.Database
-                .ExecuteSqlInterpolatedAsync(
-                    $@"UPDATE [TripStops]
-                       SET [OrderIndex] = {index}
-                       WHERE [Id] = {stopId}
-                         AND [TripPlanId] = {tripPlan.Id}
-                         AND [OrderIndex] = {temporaryIndex}",
-                    cancellationToken);
-
-            if (affected != 1)
-            {
-                throw new TripPlanConcurrencyException(
-                    tripPlan.Id);
-            }
-        }
-
-        // STEP 11 - Commit all changes together.
-        await transaction.CommitAsync(cancellationToken);
-
-        // STEP 12 - Detach affected tracked stops.
-        // Avoid clearing unrelated tracked entities.
+        // STEP 8 - Reload latest SQL data.
         foreach (var stop in existingStops)
         {
             _dbContext.Entry(stop).State =
@@ -488,11 +528,11 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
         _dbContext.Entry(tripPlan).State =
             EntityState.Detached;
 
-        // STEP 13 - Reload latest stops and RowVersion.
         return await GetByIdAsync(
             tripPlan.Id,
             cancellationToken)
             ?? throw new InvalidOperationException(
                 "Updated trip plan could not be reloaded.");
     }
+
 }

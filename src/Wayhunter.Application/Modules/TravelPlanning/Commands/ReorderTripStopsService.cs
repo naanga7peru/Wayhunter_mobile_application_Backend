@@ -41,21 +41,21 @@ public sealed class ReorderTripStopsService
             throw new ArgumentException(
                 "Stop IDs are required.");
 
-        // STEP 1: Load trip.
+        // STEP 1 - Load trip.
         var trip = await _repository.GetByIdAsync(
             tripPlanId,
             cancellationToken);
 
-        // STEP 2: Verify ownership.
+        // STEP 2 - Validate ownership.
         if (trip is null || trip.OwnerUserId != ownerUserId)
             return null;
 
-        // STEP 3: Reject cancelled trips.
+        // STEP 3 - Reject cancelled trip.
         if (trip.DraftStatus == TripDraftStatus.Cancelled)
             throw new InvalidOperationException(
                 "Cancelled trip plans cannot be edited.");
 
-        // STEP 4: Validate RowVersion.
+        // STEP 4 - Validate RowVersion.
         var currentVersion = trip.RowVersion;
 
         if (currentVersion.Length == 8)
@@ -76,7 +76,7 @@ public sealed class ReorderTripStopsService
         }
         else if (currentVersion.Length == 0)
         {
-            // In-memory demo mode.
+            // In-memory demo storage.
             if (request.ExpectedRowVersion is { Length: > 0 })
             {
                 throw new ArgumentException(
@@ -89,7 +89,7 @@ public sealed class ReorderTripStopsService
                 "Invalid stored RowVersion.");
         }
 
-        // STEP 5: Validate all submitted stop IDs.
+        // STEP 5 - Validate submitted stop IDs.
         var existingIds = trip.Stops
             .Select(stop => stop.Id)
             .ToHashSet();
@@ -104,7 +104,7 @@ public sealed class ReorderTripStopsService
                 "Every existing stop must be included exactly once.");
         }
 
-        // STEP 6: Detect whether order changed.
+        // STEP 6 - Detect current ordering.
         var currentOrder = trip.Stops
             .OrderBy(stop => stop.OrderIndex)
             .Select(stop => stop.Id);
@@ -112,17 +112,28 @@ public sealed class ReorderTripStopsService
         var changed = !currentOrder.SequenceEqual(
             request.StopIds);
 
-        // STEP 7: Persist changed order.
-        // SQL implementation will perform this atomically.
-        var updatedTrip = changed
-            ? await _repository.ReorderStopsWithConcurrencyAsync(
-                trip,
-                request.StopIds,
-                request.ExpectedRowVersion,
-                cancellationToken)
-            : trip;
+        // STEP 7 - SQL-backed trips must always
+        // enter the repository's atomic concurrency
+        // verification path, even if order is unchanged.
+        //
+        // Otherwise, concurrent DB changes after the
+        // initial read could be missed.
+        //
+        // Demo in-memory storage can skip no-op writes.
+        var requiresSqlConcurrencyCheck =
+            currentVersion.Length == 8;
 
-        // STEP 8: Build response.
+        var updatedTrip =
+            changed || requiresSqlConcurrencyCheck
+                ? await _repository
+                    .ReorderStopsWithConcurrencyAsync(
+                        trip,
+                        request.StopIds,
+                        request.ExpectedRowVersion,
+                        cancellationToken)
+                : trip;
+
+        // STEP 8 - Build ordered response.
         var stops = updatedTrip.Stops
             .OrderBy(stop => stop.OrderIndex)
             .Select(stop => new TripStopResponseDto(
