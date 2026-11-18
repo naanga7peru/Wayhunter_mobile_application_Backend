@@ -1,5 +1,6 @@
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,12 +19,12 @@ public sealed class GetTripPlanService
             ?? throw new ArgumentNullException(nameof(repository));
     }
 
+    // Get a single trip plan by ID.
     public async Task<TripPlanResponseDto?> GetByIdAsync(
         Guid tripPlanId,
         string ownerUserId,
         CancellationToken cancellationToken = default)
     {
-        // Step 1: Validate request.
         if (tripPlanId == Guid.Empty)
         {
             throw new ArgumentException(
@@ -38,18 +39,46 @@ public sealed class GetTripPlanService
                 nameof(ownerUserId));
         }
 
-        // Step 2: Retrieve existing trip.
         var trip = await _repository.GetByIdAsync(
             tripPlanId,
             cancellationToken);
 
-        // Step 3: Verify ownership.
         if (trip is null || trip.OwnerUserId != ownerUserId)
         {
             return null;
         }
 
-        // Step 4: Map ordered stops.
+        return MapToResponse(trip);
+    }
+
+    // Get all trip plans belonging to the authenticated user.
+    public async Task<IReadOnlyList<TripPlanResponseDto>> GetByOwnerAsync(
+        string ownerUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(ownerUserId))
+        {
+            throw new ArgumentException(
+                "Authenticated User ID is required.",
+                nameof(ownerUserId));
+        }
+
+        var trips = await _repository.GetByOwnerAsync(
+            ownerUserId,
+            cancellationToken);
+
+        return trips
+            .Where(trip => trip.OwnerUserId == ownerUserId)
+            .OrderByDescending(trip => trip.StartDate)
+            .ThenBy(trip => trip.Id)
+            .Select(MapToResponse)
+            .ToList();
+    }
+
+    // Shared response mapping for single and list queries.
+    private static TripPlanResponseDto MapToResponse(
+        Wayhunter.Domain.Modules.TravelPlanning.Entities.TripPlan trip)
+    {
         var stops = trip.Stops
             .OrderBy(stop => stop.OrderIndex)
             .Select(stop => new TripStopResponseDto(
@@ -61,7 +90,6 @@ public sealed class GetTripPlanService
                 stop.Longitude))
             .ToList();
 
-        // Step 5: Return trip with latest RowVersion.
         return new TripPlanResponseDto(
             trip.Id,
             trip.TripName,

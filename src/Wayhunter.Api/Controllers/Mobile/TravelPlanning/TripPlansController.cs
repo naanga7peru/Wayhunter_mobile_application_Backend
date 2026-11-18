@@ -1,5 +1,6 @@
 
 using System;
+using System.Collections.Generic;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
@@ -45,6 +46,7 @@ public sealed class TripPlansController : ControllerBase
             ?? User.FindFirstValue("sub");
     }
 
+    // POST /api/mobile/trip-plans
     [HttpPost]
     public async Task<ActionResult<TripPlanResponseDto>> Create(
         [FromBody] CreateTripPlanDto request,
@@ -78,6 +80,37 @@ public sealed class TripPlansController : ControllerBase
         }
     }
 
+    // GET /api/mobile/trip-plans
+    // Return only the authenticated user's trip plans.
+    [HttpGet]
+    public async Task<ActionResult<IReadOnlyList<TripPlanResponseDto>>> GetMyPlans(
+        CancellationToken cancellationToken)
+    {
+        var userId = GetAuthenticatedUserId();
+
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            var result = await _getService.GetByOwnerAsync(
+                userId,
+                cancellationToken);
+
+            return Ok(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new
+            {
+                message = ex.Message
+            });
+        }
+    }
+
+    // GET /api/mobile/trip-plans/{tripPlanId}
     [HttpGet("{tripPlanId:guid}")]
     public async Task<ActionResult<TripPlanResponseDto>> GetById(
         Guid tripPlanId,
@@ -113,6 +146,7 @@ public sealed class TripPlansController : ControllerBase
         }
     }
 
+    // PUT /api/mobile/trip-plans/{tripPlanId}
     [HttpPut("{tripPlanId:guid}")]
     public async Task<ActionResult<TripPlanResponseDto>> Update(
         Guid tripPlanId,
@@ -141,9 +175,6 @@ public sealed class TripPlansController : ControllerBase
 
             return Ok(result);
         }
-        // M2 RowVersion concurrency conflict.
-        // Return HTTP 409 when the trip was modified
-        // by another request.
         catch (TripPlanConcurrencyException ex)
         {
             return Conflict(new
@@ -169,6 +200,7 @@ public sealed class TripPlansController : ControllerBase
         }
     }
 
+    // DELETE /api/mobile/trip-plans/{tripPlanId}
     [HttpDelete("{tripPlanId:guid}")]
     public async Task<IActionResult> Cancel(
         Guid tripPlanId,
