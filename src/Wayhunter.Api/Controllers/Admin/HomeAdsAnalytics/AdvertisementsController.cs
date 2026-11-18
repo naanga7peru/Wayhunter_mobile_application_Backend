@@ -1,7 +1,10 @@
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+
+using Wayhunter.Api.Authorization;
 using Wayhunter.Api.Contracts.HomeAdsAnalytics;
+
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Dtos;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Interfaces;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Validators;
@@ -9,7 +12,7 @@ using Wayhunter.Application.Modules.HomeAdsAnalytics.Validators;
 namespace Wayhunter.Api.Controllers.Admin.HomeAdsAnalytics;
 
 [ApiController]
-[Authorize]
+[Authorize(Policy = AdvertisementAdministratorPolicy.Name)]
 [Route(AdvertisementAdminEndpointContract.AdminBaseRoute)]
 public sealed class AdvertisementsController : ControllerBase
 {
@@ -31,6 +34,20 @@ public sealed class AdvertisementsController : ControllerBase
         _configuration = configuration ??
             throw new ArgumentNullException(nameof(configuration));
     }
+
+    // ==========================================
+    // M7 - Administrator Authorization
+    // ==========================================
+
+    // Defense-in-depth check.
+    // The centralized authorization policy protects
+    // HTTP requests before controller execution.
+    //
+    // This additional check preserves direct-controller
+    // authorization behavior in existing unit tests.
+    //
+    // No Administrator privileges are generated here.
+    // M1 must provide trusted server-side role claims.
 
     private bool IsAdministrator()
     {
