@@ -11,13 +11,8 @@ namespace Wayhunter.IntegrationTests.Modules.HomeAdsAnalytics;
 
 public sealed class AdvertisementMobileRouteSafetyTests
 {
-    // Pre-integration safety baseline.
-    // The mobile advertisement endpoint is only a contract.
-    // No HTTP route should be exposed until the approved
-    // authentication, persistence and publication integration.
-
     [Fact]
-    public async Task MobileAdvertisementRoute_ShouldNotBeExposed()
+    public async Task MobileAdvertisementRoute_RequiresAuthentication()
     {
         using var factory = new WebApplicationFactory<Program>();
         using var client = factory.CreateClient();
@@ -27,13 +22,15 @@ public sealed class AdvertisementMobileRouteSafetyTests
 
         using var response = await client.GetAsync("/" + route);
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            response.StatusCode);
     }
 
     [Theory]
     [InlineData("HomeBanner")]
     [InlineData("SponsoredPoi")]
-    public async Task PlacementFilter_ShouldNotExposeRoute(
+    public async Task PlacementFilter_RequiresAuthentication(
         string placement)
     {
         using var factory = new WebApplicationFactory<Program>();
@@ -47,14 +44,17 @@ public sealed class AdvertisementMobileRouteSafetyTests
 
         using var response = await client.GetAsync(url);
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            response.StatusCode);
     }
 
     [Fact]
-    public async Task DistrictFilter_ShouldNotExposeRoute()
+    public async Task DistrictTargeting_RemainsUnsupported()
     {
         Assert.False(
-            AdvertisementMobileReadEndpointContract.DistrictTargetingReady);
+            AdvertisementMobileReadEndpointContract
+                .DistrictTargetingReady);
 
         using var factory = new WebApplicationFactory<Program>();
         using var client = factory.CreateClient();
@@ -65,11 +65,13 @@ public sealed class AdvertisementMobileRouteSafetyTests
         using var response = await client.GetAsync(
             "/" + route + "?district=Jaffna");
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            response.StatusCode);
     }
 
     [Fact]
-    public async Task ClientSuppliedTime_ShouldNotExposeRoute()
+    public async Task ClientSuppliedTime_RemainsUnsupported()
     {
         Assert.False(
             AdvertisementMobileReadEndpointContract
@@ -84,7 +86,9 @@ public sealed class AdvertisementMobileRouteSafetyTests
         using var response = await client.GetAsync(
             "/" + route + "?atUtc=2026-11-16T10%3A00%3A00Z");
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            response.StatusCode);
     }
 
     [Theory]
@@ -92,7 +96,7 @@ public sealed class AdvertisementMobileRouteSafetyTests
     [InlineData("PUT")]
     [InlineData("PATCH")]
     [InlineData("DELETE")]
-    public async Task MobileAdvertisementWriteMethods_ShouldNotBeExposed(
+    public async Task MobileAdvertisementWriteMethods_Return405(
         string method)
     {
         using var factory = new WebApplicationFactory<Program>();
@@ -107,6 +111,8 @@ public sealed class AdvertisementMobileRouteSafetyTests
 
         using var response = await client.SendAsync(request);
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(
+            HttpStatusCode.MethodNotAllowed,
+            response.StatusCode);
     }
 }
