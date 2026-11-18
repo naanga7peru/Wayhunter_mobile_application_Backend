@@ -83,11 +83,20 @@ public sealed class M3MembershipRevocationSqlConcurrencyTests
         return connectionString;
     }
 
+    // SQL deadlock retry support for concurrency tests.
     private static WayhunterSharedDbContext CreateContext()
     {
         var options =
             new DbContextOptionsBuilder<WayhunterSharedDbContext>()
-                .UseSqlServer(GetConnectionString())
+                .UseSqlServer(
+                    GetConnectionString(),
+                    sqlOptions =>
+                    {
+                        sqlOptions.EnableRetryOnFailure(
+                            maxRetryCount: 5,
+                            maxRetryDelay: TimeSpan.FromSeconds(5),
+                            errorNumbersToAdd: new[] { 1205 });
+                    })
                 .Options;
 
         return new WayhunterSharedDbContext(options);
