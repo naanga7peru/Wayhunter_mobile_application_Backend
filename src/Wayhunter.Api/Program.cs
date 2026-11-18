@@ -1,4 +1,4 @@
-
+﻿
 using Microsoft.AspNetCore.Authentication;
 
 using Wayhunter.Api.Contracts.Responses;
@@ -36,6 +36,14 @@ if (enableSharedAuthentication)
 
     builder.Services.AddCoinsWalletSqlReader(
         builder.Configuration);
+    // M6 - SQL Reward Writer (opt-in).
+    // Default: false. No automatic migrations or worker.
+    if (builder.Configuration.GetValue<bool>(
+        "CoinsWallet:EnableSqlRewardWriter"))
+    {
+        builder.Services.AddCoinsWalletSqlRewardWriter(
+            builder.Configuration);
+    }
 
     // ==========================================
     // M7 - Advertisement SQL Runtime
@@ -175,3 +183,4 @@ app.Run();
 public partial class Program
 {
 }
+
