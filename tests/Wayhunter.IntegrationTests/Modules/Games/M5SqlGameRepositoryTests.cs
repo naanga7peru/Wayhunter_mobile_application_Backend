@@ -94,10 +94,10 @@ public sealed class M5SqlGameRepositoryTests
 
             await using var db = CreateContext();
 
-            // Apply only the migrations already committed
-            // to the shared backend.
-            // This is an isolated test database.
-            await db.Database.MigrateAsync();
+            // Verify the existing SQL test schema without migration
+            // Schema changes are owned by the DB Coordinator.
+            // Only the isolated M5 test database is allowed.
+            await db.Games.AsNoTracking().Select(x => x.Id).Take(1).ToListAsync();
 
             _schemaReady = true;
         }
