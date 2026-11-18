@@ -94,4 +94,68 @@ public sealed class CoinsWalletSqlRegistrationTests
                 descriptor.ServiceType ==
                 typeof(DbContextOptions<WayhunterSharedDbContext>));
     }
+
+
+
+
+
+
+
+    [Fact]
+    public void RewardWriter_RegistersSqlStore()
+    {
+        var services = new ServiceCollection();
+
+        services.AddLogging();
+
+        services.AddCoinsWalletSqlRewardWriter(
+            CreateConfiguration());
+
+        using var provider = services.BuildServiceProvider(
+            validateScopes: true);
+
+        using var scope = provider.CreateScope();
+
+        var store = scope.ServiceProvider
+            .GetRequiredService<ICoinRewardGrantStore>();
+
+        Assert.IsType<SqlCoinRewardGrantStore>(store);
+
+        var db = scope.ServiceProvider
+            .GetRequiredService<WayhunterSharedDbContext>();
+
+        Assert.True(db.Database.IsSqlServer());
+    }
+
+    [Fact]
+    public void RewardWriter_RepeatedRegistration_DoesNotDuplicateContext()
+    {
+        var services = new ServiceCollection();
+        var configuration = CreateConfiguration();
+
+        services.AddCoinsWalletSqlRewardWriter(configuration);
+        services.AddCoinsWalletSqlRewardWriter(configuration);
+
+        Assert.Single(
+            services,
+            descriptor =>
+                descriptor.ServiceType ==
+                typeof(ICoinRewardGrantStore));
+
+        Assert.Single(
+            services,
+            descriptor =>
+                descriptor.ServiceType ==
+                typeof(DbContextOptions<WayhunterSharedDbContext>));
+    }
+
+
+
+
+
+
+
+
+
+
 }

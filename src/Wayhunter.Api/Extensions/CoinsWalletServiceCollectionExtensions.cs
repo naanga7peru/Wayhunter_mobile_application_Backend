@@ -28,4 +28,20 @@ public static class CoinsWalletServiceCollectionExtensions
 
         return services;
     }
+
+    public static IServiceCollection AddCoinsWalletSqlRewardWriter(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        services.AddWayhunterSharedPersistence(configuration);
+
+        services.TryAddScoped<
+            ICoinRewardGrantStore,
+            SqlCoinRewardGrantStore>();
+
+        return services;
+    }
 }
