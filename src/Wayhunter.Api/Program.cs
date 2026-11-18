@@ -19,6 +19,7 @@ builder.Services.AddControllers();
 var enableSharedAuthentication = builder.Configuration
     .GetValue<bool>("Identity:EnableSharedAuthentication");
 
+
 if (enableSharedAuthentication)
 {
     builder.Services.AddWayhunterIdentityPersistence(
@@ -26,7 +27,12 @@ if (enableSharedAuthentication)
 
     builder.Services.AddWayhunterSessionAuthentication(
         builder.Configuration);
+
+    // M6 - Authenticated wallet SQL read
+    builder.Services.AddCoinsWalletSqlReader(
+        builder.Configuration);
 }
+
 else
 {
     builder.Services
