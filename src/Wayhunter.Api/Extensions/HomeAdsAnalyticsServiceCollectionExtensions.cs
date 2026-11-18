@@ -19,10 +19,17 @@ public static class HomeAdsAnalyticsServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        // Advertisement read repository
         services.TryAddScoped<
             IAdvertisementRepository,
             AdvertisementRepository>();
 
+        // Advertisement write repository
+        services.TryAddScoped<
+            IAdvertisementWriteRepository,
+            AdvertisementRepository>();
+
+        // Advertisement application service
         services.TryAddScoped<AdvertisementService>();
 
         return services;
