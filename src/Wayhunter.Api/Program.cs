@@ -31,6 +31,34 @@ if (enableSharedAuthentication)
     // M6 - Authenticated wallet SQL read
     builder.Services.AddCoinsWalletSqlReader(
         builder.Configuration);
+<<<<<<< Updated upstream
+=======
+
+    // ==========================================
+    // M6 - SQL Reward Writer (Opt-In)
+    // ==========================================
+
+    // Default: false.
+    //
+    // Enable only after dedicated SQL verification.
+    // This registers SQL reward persistence.
+    // It does NOT start background reward processing.
+    // No automatic migrations are executed.
+
+    if (builder.Configuration.GetValue<bool>(
+        "CoinsWallet:EnableSqlRewardWriter"))
+    {
+        builder.Services.AddCoinsWalletSqlRewardWriter(
+            builder.Configuration);
+    }
+
+    // ==========================================
+    // M7 - Advertisement SQL Runtime
+    // ==========================================
+
+    builder.Services.AddHomeAdsAnalyticsSqlPersistence(
+        builder.Configuration);
+>>>>>>> Stashed changes
 }
 
 else
@@ -91,6 +119,22 @@ builder.Services.AddScoped<
     TripSharingConsentService>();
 
 // ==========================================
+<<<<<<< Updated upstream
+=======
+// M3 - Configured SQL Persistence
+// ==========================================
+
+// TripSafety:EnableSqlPersistence
+//
+// Default: false.
+// No automatic migrations.
+// SQL is enabled only by explicit configuration.
+
+builder.Services.AddConfiguredTripSafetyPersistence(
+    builder.Configuration);
+
+// ==========================================
+>>>>>>> Stashed changes
 // M3 - SignalR Infrastructure
 // ==========================================
 
