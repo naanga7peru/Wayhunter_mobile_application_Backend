@@ -11,22 +11,37 @@ namespace Wayhunter.Application.Modules.TravelPlanning.Interfaces;
 
 public interface ITripPlanRepository
 {
+    // ==========================================
+    // GET TRIP BY ID
+    // ==========================================
     Task<TripPlan?> GetByIdAsync(
         Guid tripPlanId,
         CancellationToken cancellationToken = default);
 
+    // ==========================================
+    // GET TRIPS BY OWNER
+    // ==========================================
     Task<IReadOnlyList<TripPlan>> GetByOwnerAsync(
         string ownerUserId,
         CancellationToken cancellationToken = default);
 
+    // ==========================================
+    // CREATE TRIP PLAN
+    // ==========================================
     Task AddAsync(
         TripPlan tripPlan,
         CancellationToken cancellationToken = default);
 
+    // ==========================================
+    // UPDATE TRIP PLAN
+    // ==========================================
     Task UpdateAsync(
         TripPlan tripPlan,
         CancellationToken cancellationToken = default);
 
+    // ==========================================
+    // UPDATE WITH ROWVERSION CONCURRENCY
+    // ==========================================
     async Task UpdateWithConcurrencyAsync(
         TripPlan tripPlan,
         byte[] expectedRowVersion,
@@ -36,15 +51,20 @@ public interface ITripPlanRepository
         ArgumentNullException.ThrowIfNull(expectedRowVersion);
 
         if (expectedRowVersion.Length != 8)
+        {
             throw new ArgumentException(
                 "A valid 8-byte RowVersion is required.");
+        }
 
         var current = await GetByIdAsync(
-            tripPlan.Id, cancellationToken);
+            tripPlan.Id,
+            cancellationToken);
 
         if (current is null)
+        {
             throw new KeyNotFoundException(
                 "Trip plan not found.");
+        }
 
         if (current.RowVersion is null ||
             !current.RowVersion.SequenceEqual(expectedRowVersion))
@@ -52,11 +72,18 @@ public interface ITripPlanRepository
             throw new TripPlanConcurrencyException(tripPlan.Id);
         }
 
-        await UpdateAsync(tripPlan, cancellationToken);
+        await UpdateAsync(
+            tripPlan,
+            cancellationToken);
     }
 
-    // Default fallback for InMemory repositories and test fakes.
-    // SQL repository MUST override this for atomic removal.
+    // ==========================================
+    // REMOVE TRIP STOP WITH CONCURRENCY
+    // ==========================================
+    // Default fallback for InMemory repositories
+    // and test fakes.
+    // SQL repository MUST override this method
+    // for atomic stop removal and reordering.
     async Task<TripPlan> RemoveStopWithConcurrencyAsync(
         TripPlan tripPlan,
         Guid stopId,
@@ -77,13 +104,16 @@ public interface ITripPlanRepository
             if (!tripPlan.RowVersion.SequenceEqual(
                     expectedRowVersion))
             {
-                throw new TripPlanConcurrencyException(tripPlan.Id);
+                throw new TripPlanConcurrencyException(
+                    tripPlan.Id);
             }
         }
 
         if (!tripPlan.RemoveStop(stopId))
+        {
             throw new KeyNotFoundException(
                 "Trip stop not found.");
+        }
 
         if (tripPlan.RowVersion.Length == 8)
         {
@@ -94,7 +124,91 @@ public interface ITripPlanRepository
         }
         else
         {
-            await UpdateAsync(tripPlan, cancellationToken);
+            await UpdateAsync(
+                tripPlan,
+                cancellationToken);
+        }
+
+        return tripPlan;
+    }
+
+    // ==========================================
+    // NEW: REORDER TRIP STOPS WITH CONCURRENCY
+    // ==========================================
+    // Compatibility fallback for InMemory storage
+    // and test fakes.
+    //
+    // SQL repository MUST override this method
+    // using an atomic transaction with unique-index-
+    // safe ordering.
+    async Task<TripPlan> ReorderStopsWithConcurrencyAsync(
+        TripPlan tripPlan,
+        IReadOnlyList<Guid> orderedStopIds,
+        byte[]? expectedRowVersion,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(tripPlan);
+        ArgumentNullException.ThrowIfNull(orderedStopIds);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // STEP 1: Validate stored RowVersion.
+        if (tripPlan.RowVersion.Length == 8)
+        {
+            if (expectedRowVersion is null ||
+                expectedRowVersion.Length != 8)
+            {
+                throw new ArgumentException(
+                    "A valid 8-byte RowVersion is required.");
+            }
+
+            if (!tripPlan.RowVersion.SequenceEqual(
+                    expectedRowVersion))
+            {
+                throw new TripPlanConcurrencyException(
+                    tripPlan.Id);
+            }
+        }
+        else if (tripPlan.RowVersion.Length == 0)
+        {
+            // InMemory demo storage has no SQL
+            // concurrency token.
+            if (expectedRowVersion is { Length: > 0 })
+            {
+                throw new ArgumentException(
+                    "RowVersion is unavailable in demo storage.");
+            }
+        }
+        else
+        {
+            throw new InvalidOperationException(
+                "Invalid stored RowVersion.");
+        }
+
+        // STEP 2: Domain validates stop IDs,
+        // cancelled-trip status and new ordering.
+        var changed = tripPlan.ReorderStops(
+            orderedStopIds);
+
+        // No write needed when ordering is unchanged.
+        if (!changed)
+        {
+            return tripPlan;
+        }
+
+        // STEP 3: Persist the changed order.
+        if (tripPlan.RowVersion.Length == 8)
+        {
+            await UpdateWithConcurrencyAsync(
+                tripPlan,
+                expectedRowVersion!,
+                cancellationToken);
+        }
+        else
+        {
+            await UpdateAsync(
+                tripPlan,
+                cancellationToken);
         }
 
         return tripPlan;

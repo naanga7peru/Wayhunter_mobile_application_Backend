@@ -41,6 +41,8 @@ public static class TravelPlanningServiceCollectionExtensions
 
         services.AddScoped<RemoveTripStopService>();
 
+        services.AddScoped<ReorderTripStopsService>();
+
 
         return services;
     }
