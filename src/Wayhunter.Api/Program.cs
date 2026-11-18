@@ -60,6 +60,16 @@ builder.Services.AddConfiguredTravelPlanningPersistence(
 
 builder.Services.AddSingleton(TimeProvider.System);
 
+
+// ==========================================
+// M5 - Games SQL Repository
+// ==========================================
+
+// SQL Game CRUD is opt-in.
+// Other Game workflows require separate SQL integration.
+builder.Services.AddConfiguredGamesPersistence(
+    builder.Configuration);
+
 // ==========================================
 // M3 - Trip Safety / GPS Consent
 // ==========================================
