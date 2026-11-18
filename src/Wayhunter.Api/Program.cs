@@ -3,9 +3,12 @@ using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Api.Hubs.TripSafety;
 using Wayhunter.Api.Services.IdentitySocial;
+
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
 using Wayhunter.Application.Modules.TripSafety.Services;
+
 using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
+
 using Microsoft.AspNetCore.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -19,7 +22,6 @@ builder.Services.AddControllers();
 var enableSharedAuthentication = builder.Configuration
     .GetValue<bool>("Identity:EnableSharedAuthentication");
 
-
 if (enableSharedAuthentication)
 {
     builder.Services.AddWayhunterIdentityPersistence(
@@ -32,7 +34,6 @@ if (enableSharedAuthentication)
     builder.Services.AddCoinsWalletSqlReader(
         builder.Configuration);
 }
-
 else
 {
     builder.Services
@@ -53,20 +54,17 @@ else
 
 builder.Services.AddTravelPlanningModule();
 
-// Use SQL persistence only when the feature flag is enabled.
-// Otherwise, retain the default InMemory repository.
+// M2 SQL persistence is opt-in.
 builder.Services.AddConfiguredTravelPlanningPersistence(
     builder.Configuration);
 
 builder.Services.AddSingleton(TimeProvider.System);
-
 
 // ==========================================
 // M5 - Games SQL Repository
 // ==========================================
 
 // SQL Game CRUD is opt-in.
-// Other Game workflows require separate SQL integration.
 builder.Services.AddConfiguredGamesPersistence(
     builder.Configuration);
 
@@ -74,21 +72,37 @@ builder.Services.AddConfiguredGamesPersistence(
 // M3 - Trip Safety / GPS Consent
 // ==========================================
 
+// Default InMemory repositories remain available.
+// SQL registrations replace the exposed contracts
+// only when the M3 feature flag is enabled.
+
 builder.Services.AddSingleton<
     InMemoryTripSharingConsentRepository>();
 
-builder.Services.AddSingleton<
-    ITripSharingConsentRepository>(
+builder.Services.AddSingleton<ITripSharingConsentRepository>(
     sp => sp.GetRequiredService<
         InMemoryTripSharingConsentRepository>());
 
-builder.Services.AddSingleton<
-    ITripLiveLocationAccessReader>(
+builder.Services.AddSingleton<ITripLiveLocationAccessReader>(
     sp => sp.GetRequiredService<
         InMemoryTripSharingConsentRepository>());
 
-builder.Services.AddScoped<
-    TripSharingConsentService>();
+builder.Services.AddScoped<TripSharingConsentService>();
+
+// ==========================================
+// M3 - Configured SQL Persistence
+// ==========================================
+
+// Flag:
+// TripSafety:EnableSqlPersistence
+//
+// Default: false
+//
+// No automatic migrations or database updates.
+// Shared SQL schema must exist before enabling SQL.
+
+builder.Services.AddConfiguredTripSafetyPersistence(
+    builder.Configuration);
 
 // ==========================================
 // M3 - SignalR Infrastructure
