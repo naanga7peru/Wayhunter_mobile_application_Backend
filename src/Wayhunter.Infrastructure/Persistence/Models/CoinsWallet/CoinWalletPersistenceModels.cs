@@ -39,6 +39,8 @@ public sealed class CoinLedgerEntryRow
     public DateTimeOffset RecordedAtUtc { get; set; }
 
     public Guid? CorrectionOfEntryId { get; set; }
+    public string? ActorUserId { get; set; }
+    public string? Reason { get; set; }
 }
 
 public enum CoinReservationState
@@ -72,4 +74,8 @@ public sealed class CoinRuleVersionRow
     public long VoucherCostCoins { get; set; }
 
     public decimal VoucherReferenceLkr { get; set; }
+    public DateTimeOffset EffectiveFromUtc { get; set; }
+    public DateTimeOffset? EffectiveUntilUtc { get; set; }
+    public string CreatedByUserId { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAtUtc { get; set; }
 }

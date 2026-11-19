@@ -53,7 +53,10 @@ public static class CoinRewardConfirmedEventFactory
             ConfirmedAtUtc: confirmedAtUtc,
             State: CoinRewardConfirmationState.Confirmed,
             CorrelationId: request.CorrelationId,
-            RuleVersion: request.RuleVersion.Trim());
+            RuleVersion: request.RuleVersion.Trim())
+        {
+            RewardEventId = request.EventId
+        };
     }
 
     internal static (
@@ -83,11 +86,37 @@ public static class CoinRewardConfirmedEventFactory
                 nameof(rewardType))
         };
     }
+
+    internal static void ValidateConfirmed(
+        CoinRewardConfirmedEvent rewardEvent)
+    {
+        ArgumentNullException.ThrowIfNull(rewardEvent);
+        if (rewardEvent.State != CoinRewardConfirmationState.Confirmed ||
+            rewardEvent.LedgerEntryId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(rewardEvent.RecipientUserId) ||
+            rewardEvent.ConfirmedAtUtc == default ||
+            rewardEvent.ConfirmedAtUtc.Offset != TimeSpan.Zero ||
+            rewardEvent.CorrelationId == Guid.Empty)
+            throw new InvalidOperationException(
+                "Unconfirmed or invalid ledger event.");
+
+        var (module, category) = MapSource(rewardEvent.RewardType);
+        if (rewardEvent.SourceModule != module ||
+            rewardEvent.SourceCategory != category ||
+            rewardEvent.CoinsAmount != CoinRewardRules.GetAmount(rewardEvent.RewardType) ||
+            rewardEvent.DeliveryKey != CoinRewardContractRules.BuildIdempotencyKey(
+                rewardEvent.RewardType, rewardEvent.SourceRecordId) ||
+            string.IsNullOrWhiteSpace(rewardEvent.RuleVersion))
+            throw new InvalidOperationException("Invalid confirmed reward payload.");
+    }
 }
 
 public sealed record CoinRewardConsumerPublishResult(
     bool NotificationPublished,
-    bool RankingPublished);
+    bool RankingPublished)
+{
+    public bool ProfilePublished { get; init; }
+}
 
 /// <summary>
 /// T06: Dispatch a committed Coins reward to
@@ -104,9 +133,12 @@ public sealed class PublishConfirmedCoinRewardService
     private readonly ICoinRewardRankingConsumer
         _ranking;
 
+    private readonly ICoinRewardProfileConsumer? _profile;
+
     public PublishConfirmedCoinRewardService(
         ICoinRewardNotificationConsumer notifications,
-        ICoinRewardRankingConsumer ranking)
+        ICoinRewardRankingConsumer ranking,
+        ICoinRewardProfileConsumer? profile = null)
     {
         _notifications = notifications ??
             throw new ArgumentNullException(
@@ -115,6 +147,7 @@ public sealed class PublishConfirmedCoinRewardService
         _ranking = ranking ??
             throw new ArgumentNullException(
                 nameof(ranking));
+        _profile = profile;
     }
 
     public async Task<CoinRewardConsumerPublishResult>
@@ -124,40 +157,7 @@ public sealed class PublishConfirmedCoinRewardService
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        ArgumentNullException.ThrowIfNull(rewardEvent);
-
-        if (rewardEvent.State !=
-            CoinRewardConfirmationState.Confirmed ||
-            rewardEvent.LedgerEntryId == Guid.Empty ||
-            string.IsNullOrWhiteSpace(
-                rewardEvent.RecipientUserId) ||
-            rewardEvent.ConfirmedAtUtc == default ||
-            rewardEvent.ConfirmedAtUtc.Offset != TimeSpan.Zero ||
-            rewardEvent.CorrelationId == Guid.Empty)
-        {
-            throw new InvalidOperationException(
-                "Unconfirmed or invalid ledger event.");
-        }
-
-        var (expectedModule, expectedCategory) =
-            CoinRewardConfirmedEventFactory.MapSource(
-                rewardEvent.RewardType);
-
-        if (rewardEvent.SourceModule != expectedModule ||
-            rewardEvent.SourceCategory != expectedCategory ||
-            rewardEvent.CoinsAmount !=
-                CoinRewardRules.GetAmount(
-                    rewardEvent.RewardType) ||
-            rewardEvent.DeliveryKey !=
-                CoinRewardContractRules.BuildIdempotencyKey(
-                    rewardEvent.RewardType,
-                    rewardEvent.SourceRecordId) ||
-            string.IsNullOrWhiteSpace(
-                rewardEvent.RuleVersion))
-        {
-            throw new InvalidOperationException(
-                "Invalid confirmed reward payload.");
-        }
+        CoinRewardConfirmedEventFactory.ValidateConfirmed(rewardEvent);
 
         // Each consumer independently enforces
         // durable idempotency by DeliveryKey.
@@ -169,8 +169,16 @@ public sealed class PublishConfirmedCoinRewardService
             rewardEvent,
             cancellationToken);
 
+        bool profiled = _profile is not null &&
+            await _profile.PublishOnceAsync(
+                rewardEvent,
+                cancellationToken);
+
         return new CoinRewardConsumerPublishResult(
             notified,
-            ranked);
+            ranked)
+        {
+            ProfilePublished = profiled
+        };
     }
 }

@@ -71,6 +71,15 @@ public sealed class SampleVoucherRedemptionRequestRowConfiguration
         b.Property(x => x.OwnerUserId)
             .HasMaxLength(256).IsRequired();
 
+        b.Property(x => x.OwnerNameSnapshot)
+            .HasMaxLength(200).IsRequired();
+
+        b.Property(x => x.DecisionActorUserId)
+            .HasMaxLength(256);
+
+        b.Property(x => x.DecisionReason)
+            .HasMaxLength(1000);
+
         b.Property(x => x.CostCoins)
             .HasColumnType("bigint");
 
@@ -116,7 +125,12 @@ public sealed class SampleVoucherInventoryRowConfiguration
     public void Configure(
         EntityTypeBuilder<SampleVoucherInventoryRow> b)
     {
-        b.ToTable("SampleVoucherInventory");
+        b.ToTable("SampleVoucherInventory", t =>
+        {
+            t.HasCheckConstraint(
+                "CK_VoucherInventory_Expiry",
+                "[ExpiresAtUtc] > [AddedAtUtc]");
+        });
 
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).ValueGeneratedNever();
@@ -126,6 +140,20 @@ public sealed class SampleVoucherInventoryRowConfiguration
 
         b.Property(x => x.EncryptedCodeReference)
             .HasMaxLength(500).IsRequired();
+
+        b.Property(x => x.SampleImageReference)
+            .HasMaxLength(2048).IsRequired();
+
+        b.Property(x => x.AddedByAdminUserId)
+            .HasMaxLength(256).IsRequired();
+
+        b.Property(x => x.ExpiresAtUtc)
+            .HasColumnType("datetimeoffset");
+
+        b.Property(x => x.AddedAtUtc)
+            .HasColumnType("datetimeoffset");
+
+        b.Property(x => x.RowVersion).IsRowVersion();
 
         b.HasOne<SampleVoucherOfferRow>()
             .WithMany()
@@ -158,7 +186,11 @@ public sealed class SampleVoucherIssuanceRowConfiguration
         {
             t.HasCheckConstraint(
                 "CK_VoucherIssuances_Status",
-                "[Status] IN (1, 2, 3)");
+                "[Status] IN (1, 2, 3, 4, 5)");
+
+            t.HasCheckConstraint(
+                "CK_VoucherIssuances_Attempts",
+                "[AttemptCount] >= 0");
         });
 
         b.HasKey(x => x.Id);
@@ -176,6 +208,22 @@ public sealed class SampleVoucherIssuanceRowConfiguration
         b.Property(x => x.IssuedAtUtc)
             .HasColumnType("datetimeoffset");
 
+        b.Property(x => x.ExpiresAtUtc)
+            .HasColumnType("datetimeoffset");
+
+        b.Property(x => x.UsedAtUtc)
+            .HasColumnType("datetimeoffset");
+
+        b.Property(x => x.LastErrorCode)
+            .HasMaxLength(128);
+
+        b.Property(x => x.UsedByActorUserId)
+            .HasMaxLength(256);
+        b.Property(x => x.UseReason)
+            .HasMaxLength(1000);
+
+        b.Property(x => x.RowVersion).IsRowVersion();
+
         b.HasOne<SampleVoucherRedemptionRequestRow>()
             .WithMany()
             .HasForeignKey(x => x.RequestId)
@@ -192,6 +240,7 @@ public sealed class SampleVoucherIssuanceRowConfiguration
 
         b.HasIndex(x => x.InventoryId)
             .IsUnique()
+            .HasFilter("[InventoryId] IS NOT NULL")
             .HasDatabaseName("UX_VoucherIssuances_Inventory");
     }
 }

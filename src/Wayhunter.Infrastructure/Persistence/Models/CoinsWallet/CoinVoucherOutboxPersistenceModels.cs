@@ -25,12 +25,15 @@ public sealed class SampleVoucherRedemptionRequestRow
     public Guid WalletId { get; set; }
     public Guid OfferId { get; set; }
     public string OwnerUserId { get; set; } = string.Empty;
+    public string OwnerNameSnapshot { get; set; } = string.Empty;
     public long CostCoins { get; set; }
 
     public SampleVoucherRequestStatusDraft Status
     { get; set; }
 
     public Guid? AdminDecisionId { get; set; }
+    public string? DecisionActorUserId { get; set; }
+    public string? DecisionReason { get; set; }
     public DateTimeOffset RequestedAtUtc { get; set; }
     public DateTimeOffset? DecidedAtUtc { get; set; }
 }
@@ -41,14 +44,19 @@ public sealed class SampleVoucherInventoryRow
     public Guid OfferId { get; set; }
     public string CodeHash { get; set; } = string.Empty;
     public string EncryptedCodeReference { get; set; } = string.Empty;
+    public string SampleImageReference { get; set; } = string.Empty;
+    public DateTimeOffset ExpiresAtUtc { get; set; }
+    public string AddedByAdminUserId { get; set; } = string.Empty;
+    public DateTimeOffset AddedAtUtc { get; set; }
     public Guid? AssignedRequestId { get; set; }
+    public byte[] RowVersion { get; set; } = [];
 }
 
 public sealed class SampleVoucherIssuanceRow
 {
     public Guid Id { get; set; }
     public Guid RequestId { get; set; }
-    public Guid InventoryId { get; set; }
+    public Guid? InventoryId { get; set; }
 
     public SampleVoucherIssueStatusDraft Status
     { get; set; }
@@ -56,6 +64,13 @@ public sealed class SampleVoucherIssuanceRow
     public string? QrPayload { get; set; }
     public string? ImageReference { get; set; }
     public DateTimeOffset? IssuedAtUtc { get; set; }
+    public DateTimeOffset? ExpiresAtUtc { get; set; }
+    public DateTimeOffset? UsedAtUtc { get; set; }
+    public string? UsedByActorUserId { get; set; }
+    public string? UseReason { get; set; }
+    public int AttemptCount { get; set; }
+    public string? LastErrorCode { get; set; }
+    public byte[] RowVersion { get; set; } = [];
 }
 
 public enum CoinRewardOutboxState

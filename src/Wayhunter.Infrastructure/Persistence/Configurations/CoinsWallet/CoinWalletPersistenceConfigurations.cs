@@ -86,6 +86,9 @@ public sealed class CoinLedgerEntryRowConfiguration
         b.Property(x => x.RecordedAtUtc)
             .HasColumnType("datetimeoffset");
 
+        b.Property(x => x.ActorUserId).HasMaxLength(256);
+        b.Property(x => x.Reason).HasMaxLength(1000);
+
         b.HasOne<CoinWalletRow>()
             .WithMany()
             .HasForeignKey(x => x.WalletId)
@@ -116,6 +119,23 @@ public sealed class CoinLedgerEntryRowConfiguration
         .HasDatabaseName("UX_CoinLedgerEntries_GameWinnerSource");
 
         b.HasIndex(x => x.WalletId);
+
+        b.HasIndex(x => x.CorrectionOfEntryId)
+            .IsUnique()
+            .HasFilter("[CorrectionOfEntryId] IS NOT NULL")
+            .HasDatabaseName("UX_CoinLedgerEntries_CorrectionOf");
+
+        // Non-reward mutations use a stable source record such as
+        // voucher-debit:{RequestId} or correction:{EntryId}.
+        b.HasIndex(x => new
+        {
+            x.WalletId,
+            x.SourceRecordId
+        })
+        .IsUnique()
+        .HasFilter("[RewardType] IS NULL")
+        .HasDatabaseName(
+            "UX_CoinLedgerEntries_Wallet_NonRewardSource");
     }
 }
 
@@ -203,6 +223,15 @@ public sealed class CoinRuleVersionRowConfiguration
 
         b.Property(x => x.VoucherReferenceLkr)
             .HasColumnType("decimal(18,2)");
+
+        b.Property(x => x.EffectiveFromUtc)
+            .HasColumnType("datetimeoffset");
+        b.Property(x => x.EffectiveUntilUtc)
+            .HasColumnType("datetimeoffset");
+        b.Property(x => x.CreatedByUserId)
+            .HasMaxLength(256).IsRequired();
+        b.Property(x => x.CreatedAtUtc)
+            .HasColumnType("datetimeoffset");
 
         b.HasIndex(x => x.VersionCode)
             .IsUnique()
