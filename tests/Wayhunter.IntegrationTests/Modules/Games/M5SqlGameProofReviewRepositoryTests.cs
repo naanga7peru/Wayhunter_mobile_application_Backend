@@ -1046,4 +1046,206 @@ public sealed class M5SqlGameProofReviewRepositoryTests
         }
     }
 
+    [M5SqlIntegrationFact]
+    public async Task MultiplePendingProofs_ShouldFailClosedWithoutApproval()
+    {
+        var seed = await SeedPendingProofAsync();
+
+        try
+        {
+            // The seed already has one unreviewed proof.
+            // Add another unreviewed proof for the same stage.
+            await using (var prepareDb = CreateContext())
+            {
+                prepareDb.GameProofEvidence.Add(
+                    new GameProofEvidenceRow
+                    {
+                        Id = Guid.NewGuid(),
+                        GameId = seed.GameId,
+                        AttemptId = seed.AttemptId,
+                        StepNumber = 1,
+                        MediaId =
+                            $"duplicate-pending-{Guid.NewGuid():N}",
+                        SubmittedAtUtc =
+                            seed.ReviewedAtUtc.AddSeconds(-5)
+                    });
+
+                await prepareDb.SaveChangesAsync();
+            }
+
+            // Ambiguous pending evidence must not be approved.
+            await using (var db = CreateContext())
+            {
+                var repo = new SqlGameProofReviewRepository(
+                    db,
+                    new TestAuthorizer(
+                        seed.ReviewerUserId,
+                        seed.GameId));
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => repo.ApplyDecisionAsync(
+                        Command(seed, approved: true),
+                        seed.ReviewerUserId,
+                        seed.ReviewedAtUtc));
+            }
+
+            await using var verifyDb = CreateContext();
+
+            var progress = await verifyDb.GameAttemptProgress
+                .AsNoTracking()
+                .SingleAsync(
+                    x => x.AttemptId == seed.AttemptId);
+
+            Assert.Equal(1, progress.CurrentStepNumber);
+
+            Assert.Equal(
+                GameProgressStatus.WaitingForVerification,
+                progress.Status);
+
+            Assert.Equal(0, progress.RejectedEvidenceCount);
+
+            // No review decision should be persisted.
+            Assert.Equal(
+                0,
+                await verifyDb.GameProofReviewDecisions
+                    .CountAsync(x =>
+                        verifyDb.GameProofEvidence.Any(e =>
+                            e.Id == x.EvidenceId &&
+                            e.AttemptId == seed.AttemptId)));
+        }
+        finally
+        {
+            await CleanupAsync(seed);
+        }
+    }
+
+    [M5SqlIntegrationFact]
+    public async Task PreviouslyRejectedProof_WithNewDecisionId_ShouldNotBeApproved()
+    {
+        var seed = await SeedPendingProofAsync();
+
+        try
+        {
+            // First decision: reject Evidence A.
+            var firstCommand = Command(
+                seed,
+                approved: false,
+                reason: "Retake required");
+
+            await using (var db = CreateContext())
+            {
+                var repo = new SqlGameProofReviewRepository(
+                    db,
+                    new TestAuthorizer(
+                        seed.ReviewerUserId,
+                        seed.GameId));
+
+                var result = await repo.ApplyDecisionAsync(
+                    firstCommand,
+                    seed.ReviewerUserId,
+                    seed.ReviewedAtUtc);
+
+                Assert.Equal(1, result.RejectedEvidenceCount);
+            }
+
+            // Player submits Evidence B for the same stage.
+            var newEvidenceId = Guid.NewGuid();
+
+            await using (var db = CreateContext())
+            {
+                db.GameProofEvidence.Add(
+                    new GameProofEvidenceRow
+                    {
+                        Id = newEvidenceId,
+                        GameId = seed.GameId,
+                        AttemptId = seed.AttemptId,
+                        StepNumber = 1,
+                        MediaId = $"retake-{Guid.NewGuid():N}",
+                        SubmittedAtUtc =
+                            seed.ReviewedAtUtc.AddSeconds(2)
+                    });
+
+                await db.SaveChangesAsync();
+
+                var updated = await db.GameAttemptProgress
+                    .Where(x =>
+                        x.AttemptId == seed.AttemptId &&
+                        x.Status == GameProgressStatus.InProgress &&
+                        x.RejectedEvidenceCount == 1)
+                    .ExecuteUpdateAsync(
+                        setters => setters.SetProperty(
+                            x => x.Status,
+                            GameProgressStatus.WaitingForVerification));
+
+                Assert.Equal(1, updated);
+            }
+
+            // Attack: use a NEW DecisionId to approve
+            // the already rejected Evidence A.
+            var conflictingCommand = Command(
+                seed,
+                approved: true);
+
+            await using (var db = CreateContext())
+            {
+                var repo = new SqlGameProofReviewRepository(
+                    db,
+                    new TestAuthorizer(
+                        seed.ReviewerUserId,
+                        seed.GameId));
+
+                var error =
+                    await Assert.ThrowsAsync<InvalidOperationException>(
+                        () => repo.ApplyDecisionAsync(
+                            conflictingCommand,
+                            seed.ReviewerUserId,
+                            seed.ReviewedAtUtc.AddSeconds(5)));
+
+                Assert.Contains(
+                    "exactly one pending proof",
+                    error.Message);
+            }
+
+            // Verify SQL state was not changed.
+            await using var verifyDb = CreateContext();
+
+            var progress = await verifyDb.GameAttemptProgress
+                .AsNoTracking()
+                .SingleAsync(x =>
+                    x.AttemptId == seed.AttemptId);
+
+            Assert.Equal(1, progress.CurrentStepNumber);
+            Assert.Equal(1, progress.RejectedEvidenceCount);
+
+            Assert.Equal(
+                GameProgressStatus.WaitingForVerification,
+                progress.Status);
+
+            // Only the original rejection audit exists.
+            Assert.Equal(
+                1,
+                await verifyDb.GameProofReviewDecisions
+                    .CountAsync(x =>
+                        x.EvidenceId == seed.EvidenceId));
+
+            Assert.Equal(
+                0,
+                await verifyDb.GameProofReviewDecisions
+                    .CountAsync(x =>
+                        x.DecisionId ==
+                            conflictingCommand.DecisionId));
+
+            // Evidence B remains unreviewed.
+            Assert.Equal(
+                0,
+                await verifyDb.GameProofReviewDecisions
+                    .CountAsync(x =>
+                        x.EvidenceId == newEvidenceId));
+        }
+        finally
+        {
+            await CleanupAsync(seed);
+        }
+    }
+
 }
