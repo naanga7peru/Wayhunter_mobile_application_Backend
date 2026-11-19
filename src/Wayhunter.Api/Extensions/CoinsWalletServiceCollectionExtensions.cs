@@ -1,4 +1,4 @@
-
+﻿
 using System;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,6 +42,16 @@ public static class CoinsWalletServiceCollectionExtensions
             ICoinRewardGrantStore,
             SqlCoinRewardGrantStore>();
 
+        // M6 SQL Reward Outbox - explicit opt-in only.
+        if (configuration.GetValue<bool>(
+            "CoinsWallet:EnableSqlRewardOutboxStore"))
+        {
+            services.TryAddScoped<
+                ICoinRewardOutboxStore,
+                SqlCoinRewardOutboxStore>();
+        }
+
         return services;
     }
 }
+
