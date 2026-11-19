@@ -22,6 +22,11 @@ public sealed class TripPlan
     public string VehicleType { get; private set; }
     public int Headcount { get; private set; }
 
+    // Immutable attribution for a cloned suggested plan. Always set by
+    // server-side copy operation, not by an incoming create/edit request.
+    public Guid? SourceTripPlanId { get; private set; }
+    public string? SourceOwnerUserId { get; private set; }
+
     // Draft lifecycle belongs to M2.
     public TripDraftStatus DraftStatus { get; private set; }
         = TripDraftStatus.Draft;
@@ -74,6 +79,39 @@ public sealed class TripPlan
         BudgetLkr = budgetLkr;
         VehicleType = vehicleType.Trim();
         Headcount = headcount;
+    }
+
+    // M2-MS05-T03: snapshot PLANNED stops into an independent editable draft.
+    // Access and genuine completion are checked at the SQL store boundary.
+    public static TripPlan CreateCopyFrom(TripPlan source, string newOwnerUserId)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentException.ThrowIfNullOrWhiteSpace(newOwnerUserId);
+        if (source.OwnerUserId == newOwnerUserId)
+            throw new InvalidOperationException("Use the regular My Plans flow for your own trip.");
+        if (source.DraftStatus == TripDraftStatus.Cancelled)
+            throw new InvalidOperationException("Cannot copy a cancelled source plan.");
+
+        var ordered = source.Stops.OrderBy(stop => stop.OrderIndex).ToArray();
+        if (ordered.Length == 0 ||
+            ordered.Select(stop => stop.OrderIndex).Distinct().Count() != ordered.Length ||
+            ordered.Where((stop, index) => stop.OrderIndex != index).Any())
+            throw new InvalidOperationException("Source plan has invalid stop order.");
+
+        var draft = new TripPlan(newOwnerUserId, source.TripName,
+            source.StartDate, source.EndDate, source.BudgetLkr,
+            source.VehicleType, source.Headcount)
+        {
+            SourceTripPlanId = source.Id,
+            SourceOwnerUserId = source.OwnerUserId
+        };
+
+        foreach (var stop in ordered)
+        {
+            draft.AddStop(stop.Name, stop.PlaceId, stop.Latitude, stop.Longitude);
+        }
+
+        return draft;
     }
 
     // ==========================================
