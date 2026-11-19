@@ -1,4 +1,7 @@
-﻿using System.Security.Claims;
+using System.IdentityModel.Tokens.Jwt;
+using System.Text;
+using Microsoft.IdentityModel.Tokens;
+using System.Security.Claims;
 using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Domain.Modules.IdentitySocial.Entities;
 using Xunit;
@@ -55,7 +58,21 @@ public sealed class TrustedAdministratorRoleResolutionServiceTests
         IdentitySession Session,
         string Token);
 
-    private static TestContext CreateContext()
+    private sealed class FixedTimeProvider : TimeProvider
+    {
+        private readonly DateTimeOffset _utcNow;
+
+        public FixedTimeProvider(DateTimeOffset utcNow)
+        {
+            _utcNow = utcNow;
+        }
+
+        public override DateTimeOffset GetUtcNow()
+            => _utcNow;
+    }
+
+    private static TestContext CreateContext(
+        TimeProvider? clock = null)
     {
         var now = DateTimeOffset.UtcNow;
 
@@ -101,7 +118,7 @@ public sealed class TrustedAdministratorRoleResolutionServiceTests
             new AuthenticatedSessionAuthorizationService(
                 tokens,
                 sessions,
-                TimeProvider.System);
+                clock ?? TimeProvider.System);
 
         var resolver =
             new TrustedAdministratorRoleResolutionService(
@@ -274,6 +291,115 @@ public sealed class TrustedAdministratorRoleResolutionServiceTests
     {
         var context = CreateContext();
         context.Session.Revoke(DateTimeOffset.UtcNow);
+
+        var claim = await context.Resolver
+            .ResolveAdminRoleClaimAsync(context.Token);
+
+        Assert.Null(claim);
+        Assert.Equal(0, context.Roles.ReadCount);
+    }
+
+    [Fact]
+    public async Task UnverifiedAccount_DoesNotGrantAdmin()
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        var pendingAccount = UserAccount.RegisterPending(
+            "Pending Administrator",
+            "pending-admin@example.com",
+            "test-password-hash",
+            now.AddHours(-2));
+
+        var session = IdentitySession.Create(
+            pendingAccount.UserId,
+            now.AddMinutes(-5),
+            now.AddMinutes(30));
+
+        var tokens = new SignedSessionTokenService(
+            "wayhunter-test",
+            "wayhunter-mobile-test",
+            TestSecret);
+
+        // Synthetic signed JWT for defense-in-depth testing.
+        // Normal production token issuance rejects pending accounts.
+        var jwt = new JwtSecurityToken(
+            issuer: "wayhunter-test",
+            audience: "wayhunter-mobile-test",
+            claims:
+            [
+                new Claim("sub", pendingAccount.UserId),
+                new Claim("sid", session.SessionId),
+                new Claim("jti", Guid.NewGuid().ToString("D"))
+            ],
+            notBefore: now.UtcDateTime.AddMinutes(-1),
+            expires: session.ExpiresAtUtc.UtcDateTime,
+            signingCredentials: new SigningCredentials(
+                new SymmetricSecurityKey(
+                    Encoding.UTF8.GetBytes(TestSecret)),
+                SecurityAlgorithms.HmacSha256));
+
+        var token = new JwtSecurityTokenHandler()
+            .WriteToken(jwt);
+
+        // Confirm the JWT itself is valid.
+        Assert.NotNull(tokens.Validate(token));
+
+        var sessions = new FakeSessionReader
+        {
+            Account = pendingAccount,
+            Session = session
+        };
+
+        var roles = new FakeRoleReader
+        {
+            Assignment = new AdministratorRoleAssignment(
+                pendingAccount.UserId,
+                "Admin",
+                AdministratorRoleAssignmentStatus.Active)
+        };
+
+        var authorization =
+            new AuthenticatedSessionAuthorizationService(
+                tokens,
+                sessions,
+                TimeProvider.System);
+
+        var resolver =
+            new TrustedAdministratorRoleResolutionService(
+                authorization,
+                roles);
+
+        var claim = await resolver.ResolveAdminRoleClaimAsync(
+            token);
+
+        Assert.Null(claim);
+        Assert.Equal(0, roles.ReadCount);
+    }
+
+    [Fact]
+    public async Task DeletionRequestedAccount_DoesNotGrantAdmin()
+    {
+        var context = CreateContext();
+
+        context.Account.RequestDeletion(
+            DateTimeOffset.UtcNow);
+
+        var claim = await context.Resolver
+            .ResolveAdminRoleClaimAsync(context.Token);
+
+        Assert.Null(claim);
+        Assert.Equal(0, context.Roles.ReadCount);
+    }
+
+    [Fact]
+    public async Task ExpiredPersistedSession_DoesNotGrantAdmin()
+    {
+        // Advance the authorization clock beyond the stored
+        // session expiry without waiting for real time to pass.
+        var future = DateTimeOffset.UtcNow.AddHours(2);
+
+        var context = CreateContext(
+            new FixedTimeProvider(future));
 
         var claim = await context.Resolver
             .ResolveAdminRoleClaimAsync(context.Token);
