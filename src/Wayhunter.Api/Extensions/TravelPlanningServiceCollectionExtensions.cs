@@ -43,6 +43,12 @@ public static class TravelPlanningServiceCollectionExtensions
 
         services.AddScoped<ReorderTripStopsService>();
 
+        // M2-MS05-T01: privacy-gated suggested plans.
+        // Demo mode has no M3 completion evidence and returns no items.
+        services.AddSingleton<
+            ISuggestedTripPlansReader,
+            UnavailableSuggestedTripPlansReader>();
+        services.AddScoped<GetSuggestedTripPlansService>();
 
         return services;
     }
