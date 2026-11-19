@@ -9,6 +9,8 @@ using Wayhunter.Application.Modules.TripSafety.Interfaces;
 
 using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
 
+using Wayhunter.Api.Services.TripSafety;
+
 namespace Wayhunter.Api.Extensions;
 
 public static class TripSafetySqlServiceCollectionExtensions
@@ -40,6 +42,11 @@ public static class TripSafetySqlServiceCollectionExtensions
         services.AddScoped<
             ITripInvitationDecisionRepository,
             EfTripInvitationDecisionRepository>();
+
+        services.RemoveAll<ITripInvitationCreateStore>();
+        services.AddScoped<ITripInvitationCreateStore, EfTripInvitationCreateStore>();
+        services.RemoveAll<ITripInviteEligibilityAccess>();
+        services.AddScoped<ITripInviteEligibilityAccess, SqlTripInviteEligibilityAccess>();
 
         // M3 - Membership Revocation
         services.RemoveAll<ITripMembershipRevocationRepository>();
