@@ -674,4 +674,78 @@ public sealed class M5SqlGameProofSubmissionRepositoryTests
             await CleanupAsync(seed);
         }
     }
+    [M5SqlIntegrationFact]
+    public async Task UsedMediaInAnotherGame_ShouldRejectBeforeConsume()
+    {
+        var seed = await SeedAsync();
+        TestSeed? otherSeed = null;
+
+        try
+        {
+            otherSeed = await SeedAsync();
+
+            var command = Command(seed);
+            var verifier = new TestCaptureVerifier();
+
+            // Simulate media already accepted in another Game.
+            await using (var db = CreateContext())
+            {
+                db.GameProofEvidence.Add(
+                    new GameProofEvidenceRow
+                    {
+                        Id = Guid.NewGuid(),
+                        GameId = otherSeed.GameId,
+                        AttemptId = otherSeed.AttemptId,
+                        StepNumber = 1,
+                        MediaId = command.MediaId,
+                        SubmittedAtUtc =
+                            otherSeed.StartedAtUtc.AddSeconds(5)
+                    });
+
+                await db.SaveChangesAsync();
+            }
+
+            await using (var db = CreateContext())
+            {
+                var repository =
+                    new SqlGameProofSubmissionRepository(
+                        db, verifier);
+
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => repository.SubmitCurrentStageProofAsync(
+                        command,
+                        seed.PlayerUserId,
+                        ProofTime(seed)));
+            }
+
+            await using var verifyDb = CreateContext();
+
+            Assert.Equal(
+                0,
+                await verifyDb.GameProofEvidence.CountAsync(
+                    x => x.GameId == seed.GameId));
+
+            Assert.Equal(
+                1,
+                await verifyDb.GameProofEvidence.CountAsync(
+                    x => x.GameId == otherSeed.GameId &&
+                         x.MediaId == command.MediaId));
+
+            Assert.Equal(0, verifier.Calls);
+        }
+        finally
+        {
+            try
+            {
+                if (otherSeed is not null)
+                {
+                    await CleanupAsync(otherSeed);
+                }
+            }
+            finally
+            {
+                await CleanupAsync(seed);
+            }
+        }
+    }
 }
