@@ -26,6 +26,17 @@ public static class TravelPlanningSqlServiceCollectionExtensions
                 ITripPlanRepository,
                 EfTripPlanRepository>());
 
+        // M2 and M3 must share approved SQL persistence before the
+        // completion + membership query is usable. Otherwise fail closed.
+        if (configuration.GetValue<bool>(
+            "TripSafety:EnableSqlPersistence"))
+        {
+            services.Replace(
+                ServiceDescriptor.Scoped<
+                    ISuggestedTripPlansReader,
+                    SqlSuggestedTripPlansReader>());
+        }
+
         return services;
     }
 
