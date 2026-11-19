@@ -5,13 +5,16 @@ using System.Linq;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
+
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+
 using Wayhunter.Api.Controllers.Mobile.TripSafety;
 using Wayhunter.Application.Modules.TripSafety.Dtos;
 using Wayhunter.Application.Modules.TripSafety.Services;
 using Wayhunter.Domain.Modules.TripSafety.Entities;
 using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
+
 using Xunit;
 
 namespace Wayhunter.UnitTests.Modules.TripSafety;
@@ -112,6 +115,10 @@ public sealed class TripSharingConsentTests
                         {
                             new Claim(
                                 ClaimTypes.NameIdentifier,
+                                userId),
+
+                            new Claim(
+                                "sub",
                                 userId)
                         },
                     "test"))
@@ -513,8 +520,7 @@ public sealed class TripSharingConsentTests
             new SetMyTripGpsConsentRequest(true),
             CancellationToken.None);
 
-        Assert.IsType<UnauthorizedResult>(
-            action.Result);
+        Assert.IsType<UnauthorizedResult>(action.Result);
     }
 
     [Fact]
@@ -533,18 +539,24 @@ public sealed class TripSharingConsentTests
             new SetMyTripGpsConsentRequest(true),
             CancellationToken.None);
 
-        Assert.IsType<UnauthorizedResult>(
-            action.Result);
+        Assert.IsType<UnauthorizedResult>(action.Result);
     }
 
     [Fact]
     public async Task Controller_Allows_Authenticated_Member()
     {
-        var f = Setup();
+        // Controller identities must match the
+        // canonical M1 GUID identity contract.
+        var f = Setup(seedMember: false);
+
+        var memberId = Guid.NewGuid().ToString("D");
+
+        f.Repository.SeedAcceptedMemberForTests(
+            CreateMember(f.TripId, memberId));
 
         var controller = CreateController(
             f.Service,
-            "friend-01",
+            memberId,
             authenticated: true);
 
         var action = await controller.SetMine(
@@ -556,11 +568,10 @@ public sealed class TripSharingConsentTests
         var ok = Assert.IsType<OkObjectResult>(
             action.Result);
 
-        var dto = Assert.IsType<GpsConsentDto>(
-            ok.Value);
+        var dto = Assert.IsType<GpsConsentDto>(ok.Value);
 
         Assert.True(dto.IsGranted);
-        Assert.Equal("friend-01", dto.UserId);
+        Assert.Equal(memberId, dto.UserId);
     }
 
     [Fact]
@@ -568,9 +579,13 @@ public sealed class TripSharingConsentTests
     {
         var f = Setup();
 
+        // Valid authenticated identity,
+        // but no accepted membership.
+        var nonMemberId = Guid.NewGuid().ToString("D");
+
         var controller = CreateController(
             f.Service,
-            "stranger-01",
+            nonMemberId,
             authenticated: true);
 
         var action = await controller.SetMine(

@@ -1,9 +1,12 @@
+
 using System;
 using System.Collections.Generic;
-using System.Security.Claims;
 using System.Threading.Tasks;
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+
+using Wayhunter.Api.Contracts;
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
 
 namespace Wayhunter.Api.Hubs.TripSafety;
@@ -22,32 +25,43 @@ public sealed class TripLocationHub : Hub
         TripLocationFanoutService fanout,
         TimeProvider clock)
     {
-        _access = access;
-        _registry = registry;
-        _fanout = fanout;
-        _clock = clock;
+        _access = access
+            ?? throw new ArgumentNullException(nameof(access));
+
+        _registry = registry
+            ?? throw new ArgumentNullException(nameof(registry));
+
+        _fanout = fanout
+            ?? throw new ArgumentNullException(nameof(fanout));
+
+        _clock = clock
+            ?? throw new ArgumentNullException(nameof(clock));
     }
+
+    // ==============================================
+    // M1-M3 TRUSTED IDENTITY VALIDATION
+    // ==============================================
 
     private string AuthenticatedUserId()
     {
-        if (Context.User?.Identity?.IsAuthenticated != true)
-        {
-            throw new HubException(
-                "Authentication is required.");
-        }
+        var principal = Context.User;
 
-        var userId =
-            Context.User.FindFirstValue(
-                ClaimTypes.NameIdentifier)
-            ?? Context.User.FindFirstValue("sub");
+        // Reject anonymous, malformed, duplicate
+        // and conflicting identity claims.
+        //
+        // M1 owns authentication and trusted identity.
+        // M3 owns trip/session/GPS authorization.
 
-        if (string.IsNullOrWhiteSpace(userId))
+        if (principal is null ||
+            !TrustedIdentityAccessContract.TryResolveUserId(
+                principal,
+                out var userId))
         {
             throw new HubException(
                 "Trusted user identity is required.");
         }
 
-        return userId.Trim();
+        return userId;
     }
 
     private static string GroupName(
@@ -56,6 +70,10 @@ public sealed class TripLocationHub : Hub
     {
         return $"trip:{tripPlanId:N}:session:{sessionId:N}";
     }
+
+    // ==============================================
+    // LIVE GPS ACCESS AUTHORIZATION
+    // ==============================================
 
     private async Task RequireAccessAsync(
         Guid tripPlanId,
@@ -87,11 +105,16 @@ public sealed class TripLocationHub : Hub
         }
     }
 
+    // ==============================================
+    // JOIN TRIP
+    // ==============================================
+
     // Client invokes:
     // JoinTrip(tripPlanId, sessionId)
     //
-    // Both membership AND explicit GPS consent
-    // are required to receive precise location.
+    // Authentication alone never authorizes GPS.
+    // Membership, session state and explicit consent
+    // are verified before joining.
 
     [HubMethodName("JoinTrip")]
     public async Task JoinTripAsync(
@@ -119,6 +142,9 @@ public sealed class TripLocationHub : Hub
                     "Connection identity mismatch.");
             }
 
+            // A connection may only belong to
+            // one active trip/session subscription.
+
             if (existing.TripPlanId != tripPlanId ||
                 existing.SessionId != sessionId)
             {
@@ -133,7 +159,9 @@ public sealed class TripLocationHub : Hub
 
         await Groups.AddToGroupAsync(
             Context.ConnectionId,
-            GroupName(tripPlanId, sessionId),
+            GroupName(
+                tripPlanId,
+                sessionId),
             Context.ConnectionAborted);
 
         _registry.Register(
@@ -142,6 +170,10 @@ public sealed class TripLocationHub : Hub
             sessionId,
             userId);
     }
+
+    // ==============================================
+    // PUBLISH LIVE GPS
+    // ==============================================
 
     // Client invokes:
     // PublishLocation(tripPlanId, sessionId, request)
@@ -157,6 +189,10 @@ public sealed class TripLocationHub : Hub
         var connection = _registry.Find(
             Context.ConnectionId);
 
+        // Prevent publishing from connections
+        // that have not joined this exact
+        // trip and live session.
+
         if (connection is null ||
             connection.TripPlanId != tripPlanId ||
             connection.SessionId != sessionId ||
@@ -169,8 +205,10 @@ public sealed class TripLocationHub : Hub
                 "Join this trip session before publishing.");
         }
 
-        // Publisher must still have active membership
-        // and active, explicit GPS consent.
+        // Revalidate publisher for every update.
+        //
+        // Revoked members and users without GPS
+        // consent cannot continue publishing.
 
         await RequireAccessAsync(
             tripPlanId,
@@ -195,8 +233,15 @@ public sealed class TripLocationHub : Hub
                 "Invalid location event.");
         }
 
-        // Do not use Clients.Group() for precise GPS.
-        // Revalidate every receiver first.
+        // ==========================================
+        // GPS PRIVACY: AUTHORIZED RECEIVERS ONLY
+        // ==========================================
+
+        // Never use Clients.Group() to broadcast
+        // precise GPS without per-user checks.
+        //
+        // A user may have revoked consent or lost
+        // membership after originally joining.
 
         var recipients =
             await _fanout.GetAuthorizedRecipientsAsync(
@@ -206,8 +251,8 @@ public sealed class TripLocationHub : Hub
 
         foreach (var recipient in recipients)
         {
-            // Recheck immediately before this send.
-            // Revoked users are excluded.
+            // Recheck recipient immediately before
+            // delivering a GPS event.
 
             try
             {
@@ -233,8 +278,9 @@ public sealed class TripLocationHub : Hub
                 continue;
             }
 
-            // Ensure the connection was not reassigned
-            // after recipient selection.
+            // Protect against stale connections
+            // and connection reassignment.
+
             if (_registry.Find(
                     recipient.ConnectionId) != recipient)
             {
@@ -249,8 +295,9 @@ public sealed class TripLocationHub : Hub
         }
     }
 
-    // Allows a revoked member to leave/clean up
-    // their existing connection.
+    // ==============================================
+    // LEAVE TRIP
+    // ==============================================
 
     [HubMethodName("LeaveTrip")]
     public async Task LeaveTripAsync()
@@ -261,12 +308,14 @@ public sealed class TripLocationHub : Hub
             Context.ConnectionId);
 
         if (existing is null)
+        {
             return;
+        }
 
         if (!string.Equals(
-            existing.UserId,
-            userId,
-            StringComparison.Ordinal))
+                existing.UserId,
+                userId,
+                StringComparison.Ordinal))
         {
             throw new HubException(
                 "Connection identity mismatch.");
@@ -282,10 +331,15 @@ public sealed class TripLocationHub : Hub
             Context.ConnectionAborted);
     }
 
+    // ==============================================
+    // CONNECTION CLEANUP
+    // ==============================================
+
     public override async Task OnDisconnectedAsync(
         Exception? exception)
     {
-        _registry.Remove(Context.ConnectionId);
+        _registry.Remove(
+            Context.ConnectionId);
 
         await base.OnDisconnectedAsync(exception);
     }
