@@ -21,6 +21,11 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddSwaggerGen();
+}
 // ==========================================
 // M7 - Centralized Administrator Authorization
 // ==========================================
@@ -307,6 +312,9 @@ app.UseMiddleware<
 if (app.Environment.IsDevelopment())
 {
     app.UseCors("LocalDevelopment");
+
+    app.UseSwagger();
+    app.UseSwaggerUI();
 }
 
 app.UseAuthentication();
