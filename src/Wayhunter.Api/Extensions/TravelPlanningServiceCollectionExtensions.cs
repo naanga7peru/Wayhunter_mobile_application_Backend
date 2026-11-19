@@ -1,4 +1,5 @@
 
+using Wayhunter.Infrastructure.Integrations.Ai;
 using System;
 using Microsoft.Extensions.DependencyInjection;
 using Wayhunter.Application.Modules.TravelPlanning.Commands;
@@ -20,6 +21,22 @@ public static class TravelPlanningServiceCollectionExtensions
 
         // Server-side AI provider configuration.
         services.AddTravelPlanningAiConfiguration();
+
+        // M2-MS07: Gemini AI Trip Generation
+        // Keep Gemini API credentials on the backend.
+        //
+        // Default configuration is disabled.
+        // The real HTTP provider is only called when enabled.
+
+        services.AddHttpClient<
+            IAiTripGenerationProvider,
+            GeminiTripGenerationProvider>();
+
+        services.AddScoped<GenerateAiTripPlanService>();
+
+        services.AddSingleton<InMemoryAiTripDailyQuota>(
+            _ => new InMemoryAiTripDailyQuota(TimeProvider.System));
+
 
         // Weather provider and shared cache.
         services.AddTravelPlanningWeather();
