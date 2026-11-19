@@ -9,6 +9,7 @@ using Wayhunter.Domain.Modules.HomeAdsAnalytics.Entities;
 using Wayhunter.Domain.Modules.HunterPlaces.Entities;
 
 // Persistence Models
+using Wayhunter.Infrastructure.Persistence.Models.IdentitySocial;
 using Wayhunter.Infrastructure.Persistence.Models.CoinsWallet;
 using Wayhunter.Infrastructure.Persistence.Models.Games;
 using Wayhunter.Infrastructure.Persistence.Models.HunterPlaces;
@@ -68,6 +69,11 @@ public sealed class WayhunterSharedDbContext : DbContext
 
     public DbSet<IdentityConsent> IdentityConsents
         => Set<IdentityConsent>();
+
+    // M1 Administrator role storage.
+    // EF mapping only; runtime activation is disabled.
+    public DbSet<UserRoleAssignmentRow> UserRoleAssignments
+        => Set<UserRoleAssignmentRow>();
 
     // ==========================================
     // M2 - Travel Planning
@@ -240,6 +246,11 @@ public sealed class WayhunterSharedDbContext : DbContext
 
         modelBuilder.ApplyConfiguration(
             new IdentityConsentConfiguration());
+
+        // Approved M1 Admin role logical mapping.
+        // No shared migration or production role activation.
+        modelBuilder.ApplyConfiguration(
+            new UserRoleAssignmentConfiguration());
 
         // ======================================
         // M2 - Travel Planning
