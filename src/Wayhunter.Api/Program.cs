@@ -296,6 +296,12 @@ if (builder.Environment.IsDevelopment())
 // Application Pipeline
 // ==========================================
 
+builder.Services.AddSingleton<InMemoryTripInvitationCreateStore>();
+builder.Services.AddSingleton<ITripInvitationCreateStore>(sp => sp.GetRequiredService<InMemoryTripInvitationCreateStore>());
+builder.Services.TryAddScoped<ITripInviteBlockRelationshipReader, UnconfiguredTripInviteBlockRelationshipReader>();
+builder.Services.AddScoped<ITripInviteEligibilityAccess, UnavailableTripInviteEligibilityAccess>();
+builder.Services.AddScoped<TripInvitationCreateService>();
+
 var app = builder.Build();
 
 app.UseMiddleware<
