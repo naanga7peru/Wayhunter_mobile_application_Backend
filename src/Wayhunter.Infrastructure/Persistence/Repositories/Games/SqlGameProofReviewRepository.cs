@@ -262,9 +262,30 @@ public sealed class SqlGameProofReviewRepository
                     "Game stage is not awaiting verification.");
             }
 
+            // Require exactly one unreviewed proof for this stage.
+            var pendingProofIds = await _db.GameProofEvidence
+                .AsNoTracking()
+                .Where(x =>
+                    x.GameId == command.GameId &&
+                    x.AttemptId == command.AttemptId &&
+                    x.StepNumber == command.StepNumber &&
+                    !_db.GameProofReviewDecisions.Any(d =>
+                        d.EvidenceId == x.Id))
+                .Select(x => x.Id)
+                .Take(2)
+                .ToListAsync(cancellationToken);
+
+            if (pendingProofIds.Count != 1 ||
+                pendingProofIds[0] != command.EvidenceId)
+            {
+                throw new InvalidOperationException(
+                    "Game stage must have exactly one pending proof.");
+            }
+
             // Final-stage approval must also create the
             // PendingAdmin completion and evidence links.
             // Do not silently mark it completed here.
+
             if (command.Approved &&
                 progress.CurrentStepNumber == progress.TotalSteps)
             {
