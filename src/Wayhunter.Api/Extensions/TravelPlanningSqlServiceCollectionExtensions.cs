@@ -35,6 +35,17 @@ public static class TravelPlanningSqlServiceCollectionExtensions
                 ServiceDescriptor.Scoped<
                     ISuggestedTripPlansReader,
                     SqlSuggestedTripPlansReader>());
+
+            // Must remain disabled until the owner explicitly approves
+            // membership-based reuse permission and schema migration.
+            if (configuration.GetValue<bool>(
+                "TravelPlanning:EnableMemberPlanCopy"))
+            {
+                services.Replace(
+                    ServiceDescriptor.Scoped<
+                        ICopySuggestedTripPlanStore,
+                        SqlCopySuggestedTripPlanStore>());
+            }
         }
 
         return services;

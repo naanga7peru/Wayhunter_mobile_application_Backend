@@ -50,6 +50,13 @@ public static class TravelPlanningServiceCollectionExtensions
             UnavailableSuggestedTripPlansReader>();
         services.AddScoped<GetSuggestedTripPlansService>();
 
+        // M2-MS05-T03: default is fail-closed until reuse consent policy
+        // and shared SQL schema are explicitly approved.
+        services.AddSingleton<
+            ICopySuggestedTripPlanStore,
+            UnavailableCopySuggestedTripPlanStore>();
+        services.AddScoped<CopySuggestedTripPlanService>();
+
         return services;
     }
 }

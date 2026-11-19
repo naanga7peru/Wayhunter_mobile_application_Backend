@@ -251,6 +251,9 @@ public sealed class WayhunterSharedDbContext : DbContext
         modelBuilder.ApplyConfiguration(
             new TripStopConfiguration());
 
+        modelBuilder.ApplyConfiguration(
+            new TripPlanCopyAttributionConfiguration());
+
         // ======================================
         // M3 - Trip Safety
         // ======================================

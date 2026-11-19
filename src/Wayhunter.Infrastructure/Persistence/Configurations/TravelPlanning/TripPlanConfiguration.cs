@@ -76,6 +76,11 @@ public sealed class TripPlanConfiguration
         builder.Property(trip => trip.Headcount)
             .IsRequired();
 
+        // Provenance is persisted separately in TripPlanCopyAttributions,
+        // so existing Trips columns and reads remain compatible.
+        builder.Ignore(trip => trip.SourceTripPlanId);
+        builder.Ignore(trip => trip.SourceOwnerUserId);
+
         // Draft lifecycle status
         builder.Property(trip => trip.DraftStatus)
             .HasConversion<int>()
