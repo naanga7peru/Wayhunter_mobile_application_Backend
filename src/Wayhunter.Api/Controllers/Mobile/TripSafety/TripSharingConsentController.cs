@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 using Wayhunter.Api.Contracts;
+using Wayhunter.Api.Hubs.TripSafety;
 
 using Wayhunter.Application.Modules.TripSafety.Dtos;
 using Wayhunter.Application.Modules.TripSafety.Services;
@@ -25,25 +26,18 @@ public sealed class TripSharingConsentController
     : ControllerBase
 {
     private readonly TripSharingConsentService _service;
+    private readonly TripLocationSubscriptionCleanup? _cleanup;
 
     public TripSharingConsentController(
-        TripSharingConsentService service)
+        TripSharingConsentService service,
+        TripLocationSubscriptionCleanup? cleanup = null)
     {
         _service = service
             ?? throw new ArgumentNullException(
                 nameof(service));
-    }
 
-    // PUT /api/mobile/trips/{tripPlanId}/
-    //     sessions/{sessionId}/gps-consent
-    //
-    // Request:
-    // {
-    //     "isGranted": true
-    // }
-    //
-    // The authenticated user's own consent only.
-    // Never trust a UserId supplied by the client.
+        _cleanup = cleanup;
+    }
 
     [HttpPut("{sessionId:guid}/gps-consent")]
     public async Task<ActionResult<GpsConsentDto>> SetMine(
@@ -54,26 +48,13 @@ public sealed class TripSharingConsentController
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        // STEP 1: Resolve trusted M1 identity.
-        //
-        // This rejects:
-        // - Anonymous principal
-        // - Missing identity claims
-        // - Duplicate identity claims
-        // - Conflicting NameIdentifier/sub claims
-        // - Invalid GUID identity
-        // - Empty GUID identity
-        //
-        // Do not use FindFirstValue fallback here.
-
+        // Always validate M1 trusted identity first.
         if (!TrustedIdentityAccessContract.TryResolveUserId(
                 User,
                 out var authenticatedUserId))
         {
             return Unauthorized();
         }
-
-        // STEP 2: Validate request.
 
         if (request is null)
         {
@@ -85,18 +66,11 @@ public sealed class TripSharingConsentController
 
         try
         {
-            // STEP 3: Update only this user's consent.
-            //
-            // Existing service and repository remain
-            // responsible for:
-            // - Valid trip and session
+            // Repository validates:
             // - Active accepted membership
-            // - Session-state restrictions
-            // - Explicit GPS consent
-            // - Revocation rules
-            //
-            // A valid identity alone does not grant
-            // permission to change GPS consent.
+            // - Correct session/trip
+            // - Session state
+            // - Per-person explicit GPS consent
 
             var result = await _service.SetMyConsentAsync(
                 tripPlanId,
@@ -105,13 +79,26 @@ public sealed class TripSharingConsentController
                 request.IsGranted,
                 cancellationToken);
 
+            // Successful consent revocation:
+            // immediately remove local subscriptions.
+            //
+            // Database authorization remains
+            // authoritative even during cleanup.
+
+            if (!request.IsGranted &&
+                _cleanup is not null)
+            {
+                await _cleanup.RevokeMemberFromSessionAsync(
+                    tripPlanId,
+                    sessionId,
+                    authenticatedUserId,
+                    CancellationToken.None);
+            }
+
             return Ok(result);
         }
         catch (UnauthorizedAccessException)
         {
-            // Authenticated but not authorized
-            // for the requested trip/session.
-
             return StatusCode(
                 StatusCodes.Status403Forbidden,
                 new
@@ -122,9 +109,6 @@ public sealed class TripSharingConsentController
         }
         catch (KeyNotFoundException)
         {
-            // Do not expose details of
-            // non-existent resources.
-
             return NotFound();
         }
         catch (ArgumentException exception)
