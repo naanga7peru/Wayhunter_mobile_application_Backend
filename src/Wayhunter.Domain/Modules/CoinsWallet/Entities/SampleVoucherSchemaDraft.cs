@@ -19,7 +19,9 @@ public enum SampleVoucherIssueStatusDraft
 {
     Unissued = 1,
     Failed = 2,
-    Issued = 3
+    Issued = 3,
+    Used = 4,
+    Expired = 5
 }
 
 internal static class VoucherDraftValidation
@@ -260,7 +262,9 @@ public sealed record SampleVoucherIssuanceSchemaDraft
             throw new ArgumentOutOfRangeException(
                 nameof(status));
 
-        if (status == SampleVoucherIssueStatusDraft.Issued)
+        if (status is SampleVoucherIssueStatusDraft.Issued or
+            SampleVoucherIssueStatusDraft.Used or
+            SampleVoucherIssueStatusDraft.Expired)
         {
             if (string.IsNullOrWhiteSpace(qrPayload) ||
                 string.IsNullOrWhiteSpace(imageReference) ||

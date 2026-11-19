@@ -44,97 +44,117 @@ public sealed class SqlCoinRewardGrantStore : ICoinRewardGrantStore
                 "Reward values exceed SQL column limits.");
         }
 
+        var strategy = _db.Database.CreateExecutionStrategy();
+
         try
         {
-            await using var transaction =
-                await _db.Database.BeginTransactionAsync(
-                    IsolationLevel.Serializable,
-                    cancellationToken);
-
-            var wallet = await _db.CoinWallets
-                .SingleOrDefaultAsync(
-                    x => x.UserId == ownerId,
-                    cancellationToken);
-
-
-
-            if (request.RewardType ==
-                CoinRewardType.GameWinnerApproved)
+            return await strategy.ExecuteAsync(async () =>
             {
+                // A retry can reuse this scoped DbContext after an
+                // uncertain commit. Never retain entities from the
+                // previous attempt in the change tracker.
+                _db.ChangeTracker.Clear();
+
+                await using var transaction =
+                    await _db.Database.BeginTransactionAsync(
+                        IsolationLevel.Serializable,
+                        cancellationToken);
+
+                // Acquire every application lock before the reads it
+                // protects. The global winner lock must precede the
+                // wallet lock so all callers use one lock order.
+                if (request.RewardType ==
+                    CoinRewardType.GameWinnerApproved)
+                {
+                    await AcquireTransactionLockAsync(
+                        "game-winner",
+                        sourceId,
+                        cancellationToken);
+                }
+
                 await AcquireTransactionLockAsync(
-                    "game-winner",
-                    sourceId,
+                    "wallet",
+                    ownerId,
                     cancellationToken);
-            }
 
-            await AcquireTransactionLockAsync(
-                "wallet",
-                ownerId,
-                cancellationToken);
-
-
-            // One verified game winner per source globally.
-            if (request.RewardType ==
-                CoinRewardType.GameWinnerApproved)
-            {
-                bool winnerExists = await _db.CoinLedgerEntries
-                    .AnyAsync(
-                        x => x.RewardType == request.RewardType &&
-                             x.SourceRecordId == sourceId,
+                var wallet = await _db.CoinWallets
+                    .SingleOrDefaultAsync(
+                        x => x.UserId == ownerId,
                         cancellationToken);
 
-                if (winnerExists)
-                    return false;
-            }
+                // One verified game winner per source globally.
+                if (request.RewardType ==
+                    CoinRewardType.GameWinnerApproved)
+                {
+                    bool winnerExists = await _db.CoinLedgerEntries
+                        .AnyAsync(
+                            x => x.RewardType == request.RewardType &&
+                                 x.SourceRecordId == sourceId,
+                            cancellationToken);
 
-            if (wallet is not null)
-            {
-                bool alreadyGranted = await _db.CoinLedgerEntries
-                    .AnyAsync(
-                        x => x.WalletId == wallet.Id &&
-                             x.RewardType == request.RewardType &&
-                             x.SourceRecordId == sourceId,
-                        cancellationToken);
+                    if (winnerExists)
+                    {
+                        await transaction.RollbackAsync(
+                            cancellationToken);
+                        return false;
+                    }
+                }
 
-                if (alreadyGranted)
-                    return false;
-            }
-            else
-            {
-                wallet = new CoinWalletRow
+                if (wallet is not null)
+                {
+                    bool alreadyGranted = await _db.CoinLedgerEntries
+                        .AnyAsync(
+                            x => x.WalletId == wallet.Id &&
+                                 x.RewardType == request.RewardType &&
+                                 x.SourceRecordId == sourceId,
+                            cancellationToken);
+
+                    if (alreadyGranted)
+                    {
+                        await transaction.RollbackAsync(
+                            cancellationToken);
+                        return false;
+                    }
+                }
+                else
+                {
+                    wallet = new CoinWalletRow
+                    {
+                        Id = Guid.NewGuid(),
+                        UserId = ownerId,
+                        PostedCoins = 0,
+                        ReservedCoins = 0,
+                        LifetimeEarnedCoins = 0
+                    };
+
+                    _db.CoinWallets.Add(wallet);
+                }
+
+                wallet.PostedCoins = checked(
+                    wallet.PostedCoins + request.CoinsAmount);
+
+                wallet.LifetimeEarnedCoins = checked(
+                    wallet.LifetimeEarnedCoins + request.CoinsAmount);
+
+                _db.CoinLedgerEntries.Add(new CoinLedgerEntryRow
                 {
                     Id = Guid.NewGuid(),
-                    UserId = ownerId,
-                    PostedCoins = 0,
-                    ReservedCoins = 0,
-                    LifetimeEarnedCoins = 0
-                };
+                    WalletId = wallet.Id,
+                    DeltaCoins = request.CoinsAmount,
+                    RewardType = request.RewardType,
+                    SourceRecordId = sourceId,
+                    RuleVersion = ruleVersion,
+                    CorrelationId = request.CorrelationId,
+                    RecordedAtUtc = request.EligibilityConfirmedAtUtc
+                });
 
-                _db.CoinWallets.Add(wallet);
-            }
+                // The immutable ledger append and wallet projection are
+                // committed by the same retryable transaction.
+                await _db.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
 
-            wallet.PostedCoins = checked(
-                wallet.PostedCoins + request.CoinsAmount);
-
-            wallet.LifetimeEarnedCoins = checked(
-                wallet.LifetimeEarnedCoins + request.CoinsAmount);
-
-            _db.CoinLedgerEntries.Add(new CoinLedgerEntryRow
-            {
-                Id = Guid.NewGuid(),
-                WalletId = wallet.Id,
-                DeltaCoins = request.CoinsAmount,
-                RewardType = request.RewardType,
-                SourceRecordId = sourceId,
-                RuleVersion = ruleVersion,
-                CorrelationId = request.CorrelationId,
-                RecordedAtUtc = request.EligibilityConfirmedAtUtc
+                return true;
             });
-
-            await _db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-
-            return true;
         }
         catch (DbUpdateException ex) when (
             IsUniqueConstraintViolation(ex))
@@ -142,17 +162,20 @@ public sealed class SqlCoinRewardGrantStore : ICoinRewardGrantStore
             // Database uniqueness constraints protect against
             // concurrent duplicate reward commits. Confirm the
             // conflicting committed reward before returning false.
-            bool duplicate = await _db.CoinLedgerEntries
-                .AsNoTracking()
-                .AnyAsync(
-                    x => x.RewardType == request.RewardType &&
-                         x.SourceRecordId == sourceId &&
-                         (request.RewardType ==
-                             CoinRewardType.GameWinnerApproved ||
-                          _db.CoinWallets.Any(w =>
-                              w.Id == x.WalletId &&
-                              w.UserId == ownerId)),
-                    cancellationToken);
+            _db.ChangeTracker.Clear();
+
+            bool duplicate = await strategy.ExecuteAsync(() =>
+                _db.CoinLedgerEntries
+                    .AsNoTracking()
+                    .AnyAsync(
+                        x => x.RewardType == request.RewardType &&
+                             x.SourceRecordId == sourceId &&
+                             (request.RewardType ==
+                                 CoinRewardType.GameWinnerApproved ||
+                              _db.CoinWallets.Any(w =>
+                                  w.Id == x.WalletId &&
+                                  w.UserId == ownerId)),
+                        cancellationToken));
 
             if (duplicate)
                 return false;

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Wayhunter.Api.Authorization;
+using Wayhunter.Api.BackgroundServices;
 using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Api.Hubs.TripSafety;
@@ -25,6 +26,9 @@ builder.Services.AddControllers();
 // ==========================================
 
 builder.Services.AddAdvertisementAdministratorPolicy(
+    builder.Configuration);
+
+builder.Services.AddCoinsWalletAdministratorPolicy(
     builder.Configuration);
 
 // ==========================================
@@ -53,6 +57,22 @@ if (enableSharedAuthentication)
         "CoinsWallet:EnableSqlRewardWriter"))
     {
         builder.Services.AddCoinsWalletSqlRewardWriter(
+            builder.Configuration);
+
+        if (builder.Configuration.GetValue<bool>(
+                "CoinsWallet:EnableSqlRewardOutboxStore") &&
+            builder.Configuration.GetValue<bool>(
+                "CoinsWallet:EnableRewardOutboxWorker"))
+        {
+            builder.Services.AddHostedService<
+                CoinRewardOutboxWorker>();
+        }
+    }
+
+    if (builder.Configuration.GetValue<bool>(
+        "CoinsWallet:EnableSqlVoucherRuntime"))
+    {
+        builder.Services.AddCoinsWalletSqlVoucherRuntime(
             builder.Configuration);
     }
 

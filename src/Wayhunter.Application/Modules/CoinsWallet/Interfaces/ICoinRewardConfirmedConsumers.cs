@@ -35,7 +35,10 @@ public sealed record CoinRewardConfirmedEvent(
     CoinRewardConfirmationState State,
     Guid CorrelationId,
     string RuleVersion
-);
+)
+{
+    public Guid RewardEventId { get; init; }
+}
 
 /// <summary>
 /// Implementations must deduplicate by DeliveryKey
@@ -52,5 +55,32 @@ public interface ICoinRewardRankingConsumer
 {
     Task<bool> PublishOnceAsync(
         CoinRewardConfirmedEvent rewardEvent,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Updates profile-facing reward progress after the ledger commit.
+/// Implementations must durably deduplicate by DeliveryKey.
+/// </summary>
+public interface ICoinRewardProfileConsumer
+{
+    Task<bool> PublishOnceAsync(
+        CoinRewardConfirmedEvent rewardEvent,
+        CancellationToken cancellationToken = default);
+}
+
+public interface ICoinRewardConsumerDeliveryStore
+{
+    Task<bool> IsDeliveredAsync(
+        Guid eventId,
+        string consumerName,
+        CancellationToken cancellationToken = default);
+
+    Task RecordOutcomeAsync(
+        Guid eventId,
+        string consumerName,
+        bool delivered,
+        DateTimeOffset attemptedAtUtc,
+        string? errorCode,
         CancellationToken cancellationToken = default);
 }

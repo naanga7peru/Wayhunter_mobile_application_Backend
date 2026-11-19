@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Wayhunter.Application.Modules.CoinsWallet.Dtos;
 using Wayhunter.Application.Modules.CoinsWallet.Interfaces;
+using Wayhunter.Domain.Modules.CoinsWallet.Rules;
 
 namespace Wayhunter.Application.Modules.CoinsWallet.Queries;
 
@@ -74,6 +75,14 @@ public sealed class GetMyCoinWalletService
             balance.PostedCoins,
             balance.ReservedCoins,
             balance.SpendableCoins,
-            balance.LifetimeEarnedCoins);
+            balance.LifetimeEarnedCoins)
+        {
+            LifetimeEarnedProgressCoins =
+                CoinLevelRedemptionRules
+                    .GetInitialLevelBarProgress(
+                        balance.LifetimeEarnedCoins),
+            LifetimeEarnedProgressTargetCoins =
+                CoinLevelRedemptionRules.InitialLevelBarCoins
+        };
     }
 }

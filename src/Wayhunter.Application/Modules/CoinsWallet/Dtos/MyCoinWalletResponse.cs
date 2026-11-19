@@ -9,4 +9,10 @@ public sealed record MyCoinWalletResponse(
     long PostedCoins,
     long ReservedCoins,
     long SpendableCoins,
-    long LifetimeEarnedCoins);
+    long LifetimeEarnedCoins)
+{
+    // The complete level-number formula remains unapproved. These
+    // fields expose only the confirmed 2,000-Coin progress baseline.
+    public long LifetimeEarnedProgressCoins { get; init; }
+    public long LifetimeEarnedProgressTargetCoins { get; init; }
+}

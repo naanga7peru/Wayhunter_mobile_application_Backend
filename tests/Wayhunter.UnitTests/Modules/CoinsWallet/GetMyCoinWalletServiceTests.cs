@@ -98,6 +98,8 @@ public class GetMyCoinWalletServiceTests
         Assert.Equal(10000, result.ReservedCoins);
         Assert.Equal(100, result.SpendableCoins);
         Assert.Equal(12000, result.LifetimeEarnedCoins);
+        Assert.Equal(2000, result.LifetimeEarnedProgressCoins);
+        Assert.Equal(2000, result.LifetimeEarnedProgressTargetCoins);
 
         Assert.Equal(
             "user-001",
