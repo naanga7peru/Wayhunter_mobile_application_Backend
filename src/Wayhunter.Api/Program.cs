@@ -24,10 +24,6 @@ builder.Services.AddControllers();
 // M7 - Centralized Administrator Authorization
 // ==========================================
 
-// Register the Advertisement Administrator policy.
-// This does not grant Administrator privileges.
-// Actual trusted M1 role resolution remains pending.
-
 builder.Services.AddAdvertisementAdministratorPolicy(
     builder.Configuration);
 
@@ -64,15 +60,7 @@ if (enableSharedAuthentication)
     // M7 - Advertisement SQL Runtime
     // ==========================================
 
-    // Advertisement SQL persistence is separately opt-in.
-    // Default: false.
-    //
-    // Enabling M1 shared authentication must not
-    // automatically activate M7 SQL persistence.
-    //
-    // No migrations or database schema changes
-    // are executed during service registration.
-
+    // M7 SQL persistence remains separately opt-in.
     var enableAdvertisementSqlPersistence =
         builder.Configuration.GetValue<bool>(
             "Advertisements:EnableSqlPersistence");
@@ -116,7 +104,7 @@ builder.Services.AddConfiguredGamesPersistence(
     builder.Configuration);
 
 // ==========================================
-// M3 - GPS Consent (Existing)
+// M3 - GPS Consent
 // ==========================================
 
 builder.Services.AddSingleton<
@@ -124,19 +112,19 @@ builder.Services.AddSingleton<
 
 builder.Services.AddSingleton<
     ITripSharingConsentRepository>(
-        sp => sp.GetRequiredService<
-            InMemoryTripSharingConsentRepository>());
+    sp => sp.GetRequiredService<
+        InMemoryTripSharingConsentRepository>());
 
 builder.Services.AddSingleton<
     ITripLiveLocationAccessReader>(
-        sp => sp.GetRequiredService<
-            InMemoryTripSharingConsentRepository>());
+    sp => sp.GetRequiredService<
+        InMemoryTripSharingConsentRepository>());
 
 builder.Services.AddScoped<
     TripSharingConsentService>();
 
 // ==========================================
-// M3 - Live Trip Session (Task 3)
+// M3 - Live Trip Session
 // ==========================================
 
 builder.Services.AddSingleton<
@@ -148,7 +136,7 @@ builder.Services.AddSingleton<
         InMemoryLiveTripSessionRepository>());
 
 // ==========================================
-// M3 - Trip Invitations (Task 3)
+// M3 - Trip Invitations
 // ==========================================
 
 builder.Services.AddSingleton<
@@ -160,7 +148,7 @@ builder.Services.AddSingleton<
         InMemoryTripInvitationDecisionRepository>());
 
 // ==========================================
-// M3 - Membership Revocation (Task 3)
+// M3 - Membership Revocation
 // ==========================================
 
 builder.Services.AddSingleton<
@@ -172,11 +160,8 @@ builder.Services.AddSingleton<
         InMemoryTripMembershipRevocationRepository>());
 
 // ==========================================
-// M3 - Hazard Backend (Task 4)
+// M3 - Hazard Backend
 // ==========================================
-
-// InMemory persistence is for unit/demo use.
-// SQL registration below overrides this interface.
 
 builder.Services.AddSingleton<
     InMemoryHazardReportRepository>();
@@ -185,12 +170,6 @@ builder.Services.AddSingleton<
     IHazardReportRepository>(
     sp => sp.GetRequiredService<
         InMemoryHazardReportRepository>());
-
-// The M2 route provider is still an integration
-// dependency. Never fake straight-line road geometry.
-//
-// An actual M2 IRoutesProvider registration,
-// when supplied, takes priority over this fallback.
 
 builder.Services.TryAddSingleton<
     IRoutesProvider,
@@ -202,6 +181,20 @@ builder.Services.TryAddSingleton<
 
 builder.Services.AddConfiguredTripSafetyPersistence(
     builder.Configuration);
+
+// ==========================================
+// M3 - Task 5: Notification Outbox Worker
+// ==========================================
+
+// Default OFF.
+// Requires M3 SQL persistence, approved outbox
+// schema, and a trusted durable webhook receiver.
+//
+// This does not run migrations.
+
+builder.Services
+    .AddConfiguredTripSafetyNotificationOutboxWorker(
+        builder.Configuration);
 
 // ==========================================
 // M3 - Application Services / Authorization
@@ -227,20 +220,12 @@ builder.Services.AddScoped<
 builder.Services.AddScoped<
     LiveTripSessionRecoveryService>();
 
-// Hazard Reporting, Verification,
-// Resolution, Route Query and Expiry
-
 builder.Services.AddScoped<
     TripHazardService>();
 
 // ==========================================
 // M3 - Optional SQL Hazard Expiry Worker
 // ==========================================
-
-// Default: OFF.
-//
-// Enable only after approved SQL migration,
-// with M2 and M3 SQL sharing the same database.
 
 var enableHazardExpiryWorker = builder.Configuration
     .GetValue<bool>("TripSafety:EnableHazardExpiryWorker");
