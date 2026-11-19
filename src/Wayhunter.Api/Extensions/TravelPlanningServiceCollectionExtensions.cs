@@ -55,8 +55,20 @@ public static class TravelPlanningServiceCollectionExtensions
         services.AddSingleton<
             ICopySuggestedTripPlanStore,
             UnavailableCopySuggestedTripPlanStore>();
+
         services.AddScoped<CopySuggestedTripPlanService>();
 
+        // M2-MS06: Historical Route Segment Reuse
+        //
+        // The real M3 verified-stop reader is not yet available.
+        // Fail closed until M2/M3 approve trusted evidence integration.
+        services.AddSingleton<
+            ITrustedHistoricalEvidenceReader,
+            UnavailableTrustedHistoricalEvidenceReader>();
+
+        services.AddScoped<GetHistoricalRouteSegmentsService>();
+
         return services;
+
     }
 }
