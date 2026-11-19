@@ -1,12 +1,15 @@
 
 using System;
 using System.Collections.Generic;
-using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+
+using Wayhunter.Api.Contracts;
+
 using Wayhunter.Application.Modules.TripSafety.Dtos;
 using Wayhunter.Application.Modules.TripSafety.Services;
 
@@ -27,7 +30,8 @@ public sealed class TripSharingConsentController
         TripSharingConsentService service)
     {
         _service = service
-            ?? throw new ArgumentNullException(nameof(service));
+            ?? throw new ArgumentNullException(
+                nameof(service));
     }
 
     // PUT /api/mobile/trips/{tripPlanId}/
@@ -38,10 +42,8 @@ public sealed class TripSharingConsentController
     //     "isGranted": true
     // }
     //
-    // false = revoke sharing.
-    //
-    // The caller's User ID is taken exclusively
-    // from trusted authenticated claims.
+    // The authenticated user's own consent only.
+    // Never trust a UserId supplied by the client.
 
     [HttpPut("{sessionId:guid}/gps-consent")]
     public async Task<ActionResult<GpsConsentDto>> SetMine(
@@ -50,24 +52,29 @@ public sealed class TripSharingConsentController
         [FromBody] SetMyTripGpsConsentRequest request,
         CancellationToken cancellationToken)
     {
-        // 1. Require authentication.
-        if (User.Identity?.IsAuthenticated != true)
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // STEP 1: Resolve trusted M1 identity.
+        //
+        // This rejects:
+        // - Anonymous principal
+        // - Missing identity claims
+        // - Duplicate identity claims
+        // - Conflicting NameIdentifier/sub claims
+        // - Invalid GUID identity
+        // - Empty GUID identity
+        //
+        // Do not use FindFirstValue fallback here.
+
+        if (!TrustedIdentityAccessContract.TryResolveUserId(
+                User,
+                out var authenticatedUserId))
         {
             return Unauthorized();
         }
 
-        // 2. Obtain trusted User ID.
-        var userId =
-            User.FindFirstValue(
-                ClaimTypes.NameIdentifier)
-            ?? User.FindFirstValue("sub");
+        // STEP 2: Validate request.
 
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            return Unauthorized();
-        }
-
-        // 3. Validate request body.
         if (request is null)
         {
             return BadRequest(new
@@ -78,19 +85,33 @@ public sealed class TripSharingConsentController
 
         try
         {
-            // 4. Change only the caller's own consent.
-            var result =
-                await _service.SetMyConsentAsync(
-                    tripPlanId,
-                    sessionId,
-                    userId,
-                    request.IsGranted,
-                    cancellationToken);
+            // STEP 3: Update only this user's consent.
+            //
+            // Existing service and repository remain
+            // responsible for:
+            // - Valid trip and session
+            // - Active accepted membership
+            // - Session-state restrictions
+            // - Explicit GPS consent
+            // - Revocation rules
+            //
+            // A valid identity alone does not grant
+            // permission to change GPS consent.
+
+            var result = await _service.SetMyConsentAsync(
+                tripPlanId,
+                sessionId,
+                authenticatedUserId,
+                request.IsGranted,
+                cancellationToken);
 
             return Ok(result);
         }
         catch (UnauthorizedAccessException)
         {
+            // Authenticated but not authorized
+            // for the requested trip/session.
+
             return StatusCode(
                 StatusCodes.Status403Forbidden,
                 new
@@ -101,20 +122,23 @@ public sealed class TripSharingConsentController
         }
         catch (KeyNotFoundException)
         {
+            // Do not expose details of
+            // non-existent resources.
+
             return NotFound();
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException exception)
         {
             return BadRequest(new
             {
-                message = ex.Message
+                message = exception.Message
             });
         }
-        catch (InvalidOperationException ex)
+        catch (InvalidOperationException exception)
         {
             return Conflict(new
             {
-                message = ex.Message
+                message = exception.Message
             });
         }
     }
