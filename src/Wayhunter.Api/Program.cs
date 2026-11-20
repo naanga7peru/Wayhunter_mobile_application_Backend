@@ -304,6 +304,7 @@ if (builder.Environment.IsDevelopment())
 
 
 
+builder.Services.AddTripMemoryServices();
 builder.Services.AddTripSafetyBatch2Services(builder.Configuration);
 
 var app = builder.Build();

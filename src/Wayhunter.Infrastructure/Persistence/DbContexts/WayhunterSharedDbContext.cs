@@ -114,6 +114,11 @@ public sealed class WayhunterSharedDbContext : DbContext
     public DbSet<TripSafeCheckInOutboxRow> TripSafeCheckInOutbox
         => Set<TripSafeCheckInOutboxRow>();
 
+    // Proposed mappings only. No Trip Memories SQL store is registered.
+    public DbSet<TripMemoryRow> TripMemories => Set<TripMemoryRow>();
+
+    public DbSet<TripMemoryMediaRow> TripMemoryMedia => Set<TripMemoryMediaRow>();
+
     public DbSet<TripGpsConsent> TripGpsConsents
         => Set<TripGpsConsent>();
 
@@ -301,6 +306,9 @@ public sealed class WayhunterSharedDbContext : DbContext
 
         modelBuilder.ApplyConfiguration(
             new TripSafeCheckInOutboxConfiguration());
+
+        modelBuilder.ApplyConfiguration(new TripMemoryConfiguration());
+        modelBuilder.ApplyConfiguration(new TripMemoryMediaConfiguration());
 
         modelBuilder.ApplyConfiguration(
             new TripGpsConsentConfiguration());
