@@ -19,7 +19,7 @@ using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
+builder.Services.AddControllers(options => options.Filters.AddService<TripFinishReminderFilter>());
 
 if (builder.Environment.IsDevelopment())
 {
@@ -196,6 +196,12 @@ builder.Services.TryAddSingleton<
 // M3 - Configured SQL Persistence
 // ==========================================
 
+builder.Services.AddSingleton<InMemoryTripInvitationCreateStore>();
+builder.Services.AddSingleton<ITripInvitationCreateStore>(sp => sp.GetRequiredService<InMemoryTripInvitationCreateStore>());
+builder.Services.TryAddScoped<ITripInviteBlockRelationshipReader, UnconfiguredTripInviteBlockRelationshipReader>();
+builder.Services.AddScoped<ITripInviteEligibilityAccess, UnavailableTripInviteEligibilityAccess>();
+builder.Services.AddScoped<TripInvitationCreateService>();
+
 builder.Services.AddConfiguredTripSafetyPersistence(
     builder.Configuration);
 
@@ -296,11 +302,9 @@ if (builder.Environment.IsDevelopment())
 // Application Pipeline
 // ==========================================
 
-builder.Services.AddSingleton<InMemoryTripInvitationCreateStore>();
-builder.Services.AddSingleton<ITripInvitationCreateStore>(sp => sp.GetRequiredService<InMemoryTripInvitationCreateStore>());
-builder.Services.TryAddScoped<ITripInviteBlockRelationshipReader, UnconfiguredTripInviteBlockRelationshipReader>();
-builder.Services.AddScoped<ITripInviteEligibilityAccess, UnavailableTripInviteEligibilityAccess>();
-builder.Services.AddScoped<TripInvitationCreateService>();
+
+
+builder.Services.AddTripSafetyBatch2Services(builder.Configuration);
 
 var app = builder.Build();
 
