@@ -8,6 +8,8 @@ using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Api.Hubs.TripSafety;
 using Wayhunter.Api.Services.IdentitySocial;
+using Wayhunter.Api.Services.HomeAdsAnalytics;
+using Wayhunter.Application.Modules.HomeAdsAnalytics.Interfaces;
 using Wayhunter.Api.Services.TripSafety;
 
 using Wayhunter.Application.Modules.TravelPlanning.Interfaces;
@@ -37,6 +39,17 @@ builder.Services.AddAdvertisementAdministratorPolicy(
 builder.Services.AddCoinsWalletAdministratorPolicy(
     builder.Configuration);
 
+// ==========================================
+// M7 - Advertisement Image Storage
+// ==========================================
+
+// Fail-closed by default.
+// Real provider activation requires separate approval.
+// No Cloudinary credentials or external writes here.
+
+builder.Services.AddScoped<
+    IAdvertisementImageStorage,
+    UnavailableAdvertisementImageStorage>();
 // ==========================================
 // M1 - Identity Authentication
 // ==========================================

@@ -11,7 +11,8 @@ namespace Wayhunter.Infrastructure.Persistence.Repositories.HomeAdsAnalytics;
 
 public sealed class AdvertisementRepository
     : IAdvertisementRepository,
-      IAdvertisementWriteRepository
+      IAdvertisementWriteRepository,
+      IAdvertisementImageUpdateRepository
 {
     private readonly WayhunterSharedDbContext _dbContext;
 
@@ -197,6 +198,65 @@ public sealed class AdvertisementRepository
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return ToDto(advertisement);
+    }
+
+    // ==========================================
+    // IMAGE-ONLY ATOMIC REPLACEMENT
+    // ==========================================
+
+    public async Task<AdvertisementDto?> UpdateImageUrlAsync(
+        Guid advertisementId,
+        string expectedImageUrl,
+        string trustedHttpsUrl,
+        CancellationToken cancellationToken = default)
+    {
+        if (advertisementId == Guid.Empty)
+            throw new ArgumentException(
+                "Invalid advertisement ID.",
+                nameof(advertisementId));
+
+        if (string.IsNullOrWhiteSpace(expectedImageUrl))
+            throw new ArgumentException(
+                "Expected image URL is required.",
+                nameof(expectedImageUrl));
+
+        if (!AdvertisementUrlValidator.IsValidImageUrl(
+                trustedHttpsUrl))
+        {
+            throw new ArgumentException(
+                "Invalid trusted HTTPS image URL.",
+                nameof(trustedHttpsUrl));
+        }
+
+        // Read before the conditional update.
+        // Never perform a second read after a successful image update.
+        var existing = await GetByIdAsync(
+            advertisementId,
+            cancellationToken);
+
+        if (existing is null)
+            return null;
+
+        var updatedRows = await _dbContext.Advertisements
+            .Where(ad =>
+                ad.Id == advertisementId &&
+                ad.ImageUrl == expectedImageUrl &&
+                ad.Status != AdvertisementStatus.Archived)
+            .ExecuteUpdateAsync(
+                updates => updates.SetProperty(
+                    ad => ad.ImageUrl,
+                    trustedHttpsUrl),
+                cancellationToken);
+
+        if (updatedRows != 1)
+            return null;
+
+        // ExecuteUpdateAsync confirmed one matching row.
+        // Return the pre-update snapshot with the committed image URL.
+        return existing with
+        {
+            ImageUrl = trustedHttpsUrl
+        };
     }
 
     // ==========================================
