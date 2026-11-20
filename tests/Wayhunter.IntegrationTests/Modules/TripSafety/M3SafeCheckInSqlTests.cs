@@ -81,13 +81,107 @@ public sealed class M3SafeCheckInSqlTests
 
         session.Finish(fixture.Clock.GetUtcNow());
         await db.SaveChangesAsync();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => store.RecordAsync(ownerCheckIn));
+        Assert.False((await store.RecordAsync(ownerCheckIn)).Created);
         var trip = await db.Trips.FindAsync(fixture.Trip.Id);
         trip!.Cancel();
         await db.SaveChangesAsync();
         var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => store.RecordAsync(ownerCheckIn));
         Assert.Contains("Cancelled", failure.Message);
         Assert.Equal(1, await db.TripSafeCheckInOutbox.CountAsync());
+    }
+
+    [M3SafeCheckInSqlFact]
+    public async Task FinishedSession_AuthorizedRetryReturnsOriginalRecordAndEvent()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var first = await fixture.EnqueueAsync();
+        await using var db = fixture.CreateDbContext();
+        var originalEventId = await db.TripSafeCheckInOutbox.Select(x => x.Id).SingleAsync();
+        await FinishAsync(db, fixture);
+
+        fixture.Clock.Advance(TimeSpan.FromMinutes(1));
+        var retry = await new EfTripSafeCheckInStore(fixture)
+            .RecordAsync(fixture.CheckIn(fixture.Member.UserId));
+
+        Assert.False(retry.Created);
+        Assert.Equal(first.CheckIn, retry.CheckIn);
+        Assert.Single(await db.TripSafeCheckIns.ToListAsync());
+        Assert.Equal(originalEventId, await db.TripSafeCheckInOutbox.Select(x => x.Id).SingleAsync());
+    }
+
+    [M3SafeCheckInSqlFact]
+    public async Task FinishedSession_RejectsFirstCheckInAndFormerMemberRetry()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.EnqueueAsync();
+        await using var db = fixture.CreateDbContext();
+        await FinishAsync(db, fixture);
+        var store = new EfTripSafeCheckInStore(fixture);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            store.RecordAsync(fixture.CheckIn(fixture.Owner.UserId)));
+        var member = await db.TripMembers.SingleAsync();
+        member.Remove(fixture.Clock.GetUtcNow());
+        await db.SaveChangesAsync();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            store.RecordAsync(fixture.CheckIn(fixture.Member.UserId)));
+        Assert.Single(await db.TripSafeCheckIns.ToListAsync());
+        Assert.Single(await db.TripSafeCheckInOutbox.ToListAsync());
+    }
+
+    [M3SafeCheckInSqlFact]
+    public async Task FinishedSession_RejectsRetryFromSuspendedAccountWithActiveMembership()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.EnqueueAsync();
+        await using var db = fixture.CreateDbContext();
+        await FinishAsync(db, fixture);
+
+        var account = await db.Users.SingleAsync(x => x.UserId == fixture.Member.UserId);
+        account.Suspend();
+        await db.SaveChangesAsync();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            new EfTripSafeCheckInStore(fixture).RecordAsync(fixture.CheckIn(account.UserId)));
+    }
+
+    [M3SafeCheckInSqlFact]
+    public async Task FinishedSession_RejectsRetryForCancelledTrip()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.EnqueueAsync();
+        await using var db = fixture.CreateDbContext();
+        await FinishAsync(db, fixture);
+        var trip = await db.Trips.SingleAsync(x => x.Id == fixture.Trip.Id);
+        trip.Cancel();
+        await db.SaveChangesAsync();
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new EfTripSafeCheckInStore(fixture).RecordAsync(fixture.CheckIn(fixture.Member.UserId)));
+        Assert.Contains("Cancelled", error.Message);
+        Assert.Single(await db.TripSafeCheckIns.ToListAsync());
+        Assert.Single(await db.TripSafeCheckInOutbox.ToListAsync());
+    }
+
+    [M3SafeCheckInSqlFact]
+    public async Task FinishedSession_RejectsRetryWhenCompanionEventCannotBeVerified()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.EnqueueAsync();
+        await using var db = fixture.CreateDbContext();
+        await FinishAsync(db, fixture);
+        Assert.Equal(1, await db.TripSafeCheckInOutbox.ExecuteDeleteAsync());
+
+        await Assert.ThrowsAsync<TripSafetyCheckInUnavailableException>(() =>
+            new EfTripSafeCheckInStore(fixture).RecordAsync(fixture.CheckIn(fixture.Member.UserId)));
+        Assert.Single(await db.TripSafeCheckIns.ToListAsync());
+        Assert.Empty(await db.TripSafeCheckInOutbox.ToListAsync());
+    }
+
+    private static async Task FinishAsync(WayhunterSharedDbContext db, Fixture fixture)
+    {
+        var session = await db.LiveTripSessions.SingleAsync(x => x.SessionId == fixture.Session.SessionId);
+        session.Finish(fixture.Clock.GetUtcNow());
+        await db.SaveChangesAsync();
     }
 
     [M3SafeCheckInSqlFact]

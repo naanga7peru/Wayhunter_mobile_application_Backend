@@ -69,6 +69,13 @@ public sealed class EfTripSafeCheckInStore(IDbContextFactory<WayhunterSharedDbCo
         await using var transaction = await db.Database.BeginTransactionAsync(
             IsolationLevel.Serializable, cancellationToken);
 
+        var accountId = await db.Users.AsNoTracking()
+            .Where(x => x.UserId == command.UserId && x.Status == UserAccountStatus.Active &&
+                x.VerifiedAtUtc != null && x.DeletionRequestedAtUtc == null)
+            .Select(x => x.UserId).SingleOrDefaultAsync(cancellationToken);
+        if (!string.Equals(accountId, command.UserId, StringComparison.Ordinal))
+            throw new UnauthorizedAccessException("An active verified account is required.");
+
         var trip = await db.Trips.AsNoTracking().Where(x => x.Id == command.TripPlanId)
             .Select(x => new { x.OwnerUserId, x.DraftStatus }).SingleOrDefaultAsync(cancellationToken)
             ?? throw new KeyNotFoundException("Trip plan was not found.");
@@ -86,20 +93,10 @@ public sealed class EfTripSafeCheckInStore(IDbContextFactory<WayhunterSharedDbCo
                 throw new UnauthorizedAccessException("Only the owner or an active member may check in.");
         }
 
-        var accountId = await db.Users.AsNoTracking()
-            .Where(x => x.UserId == command.UserId && x.Status == UserAccountStatus.Active &&
-                x.VerifiedAtUtc != null && x.DeletionRequestedAtUtc == null)
-            .Select(x => x.UserId).SingleOrDefaultAsync(cancellationToken);
-        if (!string.Equals(accountId, command.UserId, StringComparison.Ordinal))
-            throw new UnauthorizedAccessException("An active verified account is required.");
-
         if (trip.DraftStatus == TripDraftStatus.Cancelled)
             throw new InvalidOperationException("Cancelled trips cannot receive check-ins.");
         if (session is null)
             throw new KeyNotFoundException("Trip session was not found.");
-        // Preserve the current application contract pending a decision on replay after Finish.
-        if (session is not (LiveTripStatus.Active or LiveTripStatus.Paused))
-            throw new InvalidOperationException("Only open trip sessions can receive check-ins.");
 
         var existing = await db.TripSafeCheckIns.AsNoTracking()
             .SingleOrDefaultAsync(x => x.SessionId == command.SessionId && x.UserId == command.UserId, cancellationToken);
@@ -115,6 +112,9 @@ public sealed class EfTripSafeCheckInStore(IDbContextFactory<WayhunterSharedDbCo
                 new TripSafeCheckIn(existing.CheckInId, existing.TripPlanId, existing.SessionId,
                     existing.UserId, existing.CheckedInAtUtc), false);
         }
+
+        if (session is not (LiveTripStatus.Active or LiveTripStatus.Paused))
+            throw new InvalidOperationException("Only open trip sessions can receive check-ins.");
 
         db.TripSafeCheckIns.Add(new TripSafeCheckInRow
         {
