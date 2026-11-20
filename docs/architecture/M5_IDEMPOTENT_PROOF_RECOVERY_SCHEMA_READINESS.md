@@ -6,7 +6,7 @@ Branch: task/m5-idempotent-proof-recovery
 ## Verified isolated work
 - Operation binding, validation and recovery state guards created.
 - Proposed operation persistence model and EF configuration created.
-- Last verified full backend unit tests: 3032/3032 passed, 0 failed, 0 skipped.
+- After merging origin/develop at f9a5dd2: full backend build passed; unit tests 3057/3057 passed, 0 failed, 0 skipped; selected integration tests 191 total, 121 passed, 70 skipped, 0 failed (12 M5 SQL recovery tests excluded).
 - New SQL fencing input-guard tests: 5/5 passed.
 - Actual SQL fencing, concurrency and crash-recovery integration verification remains pending.
 - No shared migrations or production DI changes.
