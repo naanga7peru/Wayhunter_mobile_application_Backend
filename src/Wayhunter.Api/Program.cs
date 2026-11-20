@@ -26,6 +26,7 @@ if (builder.Environment.IsDevelopment())
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen();
 }
+
 // ==========================================
 // M7 - Centralized Administrator Authorization
 // ==========================================
@@ -49,6 +50,24 @@ if (enableSharedAuthentication)
         builder.Configuration);
 
     builder.Services.AddWayhunterSessionAuthentication(
+        builder.Configuration);
+
+    // ==========================================
+    // M4 - Trusted Hunter Identity Integration
+    // ==========================================
+
+    // Reuse M1's trusted authenticated account reader.
+    // No new authentication scheme or SQL migration.
+    builder.Services.AddHunterPlacesTrustedIdentity();
+
+    // ==========================================
+    // M4 - Hunter Places SQL Persistence
+    // ==========================================
+
+    // SQL persistence is disabled by default.
+    // Requires approved shared SQL schema before activation.
+    // Does not execute database migrations.
+    builder.Services.AddConfiguredHunterPlacesPersistence(
         builder.Configuration);
 
     // ==========================================
