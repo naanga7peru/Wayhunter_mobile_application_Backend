@@ -336,8 +336,7 @@ public sealed class M3InvitationCreateApiTests
 
         var results = await Task.WhenAll(attempts);
 
-        Assert.Single(
-            results.Where(x => x));
+        Assert.Single(results, x => x);
 
         var pending =
             await f.Store.GetPendingForRecipientAsync(

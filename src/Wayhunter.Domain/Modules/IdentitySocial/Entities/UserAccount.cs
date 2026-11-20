@@ -87,6 +87,19 @@ public sealed class UserAccount
         DisplayName = normalizedName;
     }
 
+    public void ChangePasswordHash(string passwordHash)
+    {
+        if (string.IsNullOrWhiteSpace(passwordHash) ||
+            passwordHash.Length > 1024)
+        {
+            throw new ArgumentException(
+                "A valid password hash is required.",
+                nameof(passwordHash));
+        }
+
+        PasswordHash = passwordHash;
+    }
+
 
     public void ActivateAfterVerifiedOtp(
         DateTimeOffset verifiedAtUtc)

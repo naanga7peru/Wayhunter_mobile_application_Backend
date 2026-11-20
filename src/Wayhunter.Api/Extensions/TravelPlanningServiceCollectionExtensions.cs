@@ -1,4 +1,5 @@
 
+using Wayhunter.Infrastructure.Integrations.Maps;
 using Wayhunter.Infrastructure.Integrations.Ai;
 using System;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,6 +19,17 @@ public static class TravelPlanningServiceCollectionExtensions
 
         // Server-side Maps configuration.
         services.AddTravelPlanningMapsConfiguration();
+
+        // M2-MS08: Google Nearby Places - server-side
+        services.AddHttpClient<
+            INearbyPlacesProvider,
+            GoogleNearbyPlacesProvider>();
+
+        services.AddScoped<NearbyPlaceSearchService>();
+
+        services.AddSingleton<InMemoryNearbyPlacesDailyQuota>(
+            _ => new InMemoryNearbyPlacesDailyQuota(TimeProvider.System));
+
 
         // Server-side AI provider configuration.
         services.AddTravelPlanningAiConfiguration();
