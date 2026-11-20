@@ -21,6 +21,12 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddSwaggerGen();
+}
+
 // ==========================================
 // M7 - Centralized Administrator Authorization
 // ==========================================
@@ -45,10 +51,6 @@ if (enableSharedAuthentication)
 
     builder.Services.AddWayhunterSessionAuthentication(
         builder.Configuration);
-
-    // ==========================================
-    // M6 - Authenticated Wallet SQL Read
-    // ==========================================
 
     builder.Services.AddCoinsWalletSqlReader(
         builder.Configuration);
@@ -76,11 +78,6 @@ if (enableSharedAuthentication)
             builder.Configuration);
     }
 
-    // ==========================================
-    // M7 - Advertisement SQL Runtime
-    // ==========================================
-
-    // M7 SQL persistence remains separately opt-in.
     var enableAdvertisementSqlPersistence =
         builder.Configuration.GetValue<bool>(
             "Advertisements:EnableSqlPersistence");
@@ -203,14 +200,8 @@ builder.Services.AddConfiguredTripSafetyPersistence(
     builder.Configuration);
 
 // ==========================================
-// M3 - Task 5: Notification Outbox Worker
+// M3 - Notification Outbox Worker
 // ==========================================
-
-// Default OFF.
-// Requires M3 SQL persistence, approved outbox
-// schema, and a trusted durable webhook receiver.
-//
-// This does not run migrations.
 
 builder.Services
     .AddConfiguredTripSafetyNotificationOutboxWorker(
@@ -276,6 +267,12 @@ builder.Services.AddSingleton<
 builder.Services.AddScoped<
     TripLocationFanoutService>();
 
+// NEW: shared cleanup service for successful
+// finish, membership removal and GPS consent revoke.
+
+builder.Services.AddSingleton<
+    TripLocationSubscriptionCleanup>();
+
 // ==========================================
 // Development CORS
 // ==========================================
@@ -299,6 +296,12 @@ if (builder.Environment.IsDevelopment())
 // Application Pipeline
 // ==========================================
 
+builder.Services.AddSingleton<InMemoryTripInvitationCreateStore>();
+builder.Services.AddSingleton<ITripInvitationCreateStore>(sp => sp.GetRequiredService<InMemoryTripInvitationCreateStore>());
+builder.Services.TryAddScoped<ITripInviteBlockRelationshipReader, UnconfiguredTripInviteBlockRelationshipReader>();
+builder.Services.AddScoped<ITripInviteEligibilityAccess, UnavailableTripInviteEligibilityAccess>();
+builder.Services.AddScoped<TripInvitationCreateService>();
+
 var app = builder.Build();
 
 app.UseMiddleware<
@@ -307,6 +310,9 @@ app.UseMiddleware<
 if (app.Environment.IsDevelopment())
 {
     app.UseCors("LocalDevelopment");
+
+    app.UseSwagger();
+    app.UseSwaggerUI();
 }
 
 app.UseAuthentication();

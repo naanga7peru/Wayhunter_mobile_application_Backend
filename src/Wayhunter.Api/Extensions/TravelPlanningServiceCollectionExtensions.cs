@@ -1,4 +1,5 @@
 
+using Wayhunter.Infrastructure.Integrations.Ai;
 using System;
 using Microsoft.Extensions.DependencyInjection;
 using Wayhunter.Application.Modules.TravelPlanning.Commands;
@@ -20,6 +21,22 @@ public static class TravelPlanningServiceCollectionExtensions
 
         // Server-side AI provider configuration.
         services.AddTravelPlanningAiConfiguration();
+
+        // M2-MS07: Gemini AI Trip Generation
+        // Keep Gemini API credentials on the backend.
+        //
+        // Default configuration is disabled.
+        // The real HTTP provider is only called when enabled.
+
+        services.AddHttpClient<
+            IAiTripGenerationProvider,
+            GeminiTripGenerationProvider>();
+
+        services.AddScoped<GenerateAiTripPlanService>();
+
+        services.AddSingleton<InMemoryAiTripDailyQuota>(
+            _ => new InMemoryAiTripDailyQuota(TimeProvider.System));
+
 
         // Weather provider and shared cache.
         services.AddTravelPlanningWeather();
@@ -50,6 +67,25 @@ public static class TravelPlanningServiceCollectionExtensions
             UnavailableSuggestedTripPlansReader>();
         services.AddScoped<GetSuggestedTripPlansService>();
 
+        // M2-MS05-T03: default is fail-closed until reuse consent policy
+        // and shared SQL schema are explicitly approved.
+        services.AddSingleton<
+            ICopySuggestedTripPlanStore,
+            UnavailableCopySuggestedTripPlanStore>();
+
+        services.AddScoped<CopySuggestedTripPlanService>();
+
+        // M2-MS06: Historical Route Segment Reuse
+        //
+        // The real M3 verified-stop reader is not yet available.
+        // Fail closed until M2/M3 approve trusted evidence integration.
+        services.AddSingleton<
+            ITrustedHistoricalEvidenceReader,
+            UnavailableTrustedHistoricalEvidenceReader>();
+
+        services.AddScoped<GetHistoricalRouteSegmentsService>();
+
         return services;
+
     }
 }

@@ -1,12 +1,16 @@
 
 using System;
 using System.Collections.Generic;
-using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+
+using Wayhunter.Api.Contracts;
+using Wayhunter.Api.Hubs.TripSafety;
+
 using Wayhunter.Application.Modules.TripSafety.Dtos;
 using Wayhunter.Application.Modules.TripSafety.Services;
 
@@ -22,26 +26,18 @@ public sealed class TripSharingConsentController
     : ControllerBase
 {
     private readonly TripSharingConsentService _service;
+    private readonly TripLocationSubscriptionCleanup? _cleanup;
 
     public TripSharingConsentController(
-        TripSharingConsentService service)
+        TripSharingConsentService service,
+        TripLocationSubscriptionCleanup? cleanup = null)
     {
         _service = service
-            ?? throw new ArgumentNullException(nameof(service));
-    }
+            ?? throw new ArgumentNullException(
+                nameof(service));
 
-    // PUT /api/mobile/trips/{tripPlanId}/
-    //     sessions/{sessionId}/gps-consent
-    //
-    // Request:
-    // {
-    //     "isGranted": true
-    // }
-    //
-    // false = revoke sharing.
-    //
-    // The caller's User ID is taken exclusively
-    // from trusted authenticated claims.
+        _cleanup = cleanup;
+    }
 
     [HttpPut("{sessionId:guid}/gps-consent")]
     public async Task<ActionResult<GpsConsentDto>> SetMine(
@@ -50,24 +46,16 @@ public sealed class TripSharingConsentController
         [FromBody] SetMyTripGpsConsentRequest request,
         CancellationToken cancellationToken)
     {
-        // 1. Require authentication.
-        if (User.Identity?.IsAuthenticated != true)
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Always validate M1 trusted identity first.
+        if (!TrustedIdentityAccessContract.TryResolveUserId(
+                User,
+                out var authenticatedUserId))
         {
             return Unauthorized();
         }
 
-        // 2. Obtain trusted User ID.
-        var userId =
-            User.FindFirstValue(
-                ClaimTypes.NameIdentifier)
-            ?? User.FindFirstValue("sub");
-
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            return Unauthorized();
-        }
-
-        // 3. Validate request body.
         if (request is null)
         {
             return BadRequest(new
@@ -78,14 +66,34 @@ public sealed class TripSharingConsentController
 
         try
         {
-            // 4. Change only the caller's own consent.
-            var result =
-                await _service.SetMyConsentAsync(
+            // Repository validates:
+            // - Active accepted membership
+            // - Correct session/trip
+            // - Session state
+            // - Per-person explicit GPS consent
+
+            var result = await _service.SetMyConsentAsync(
+                tripPlanId,
+                sessionId,
+                authenticatedUserId,
+                request.IsGranted,
+                cancellationToken);
+
+            // Successful consent revocation:
+            // immediately remove local subscriptions.
+            //
+            // Database authorization remains
+            // authoritative even during cleanup.
+
+            if (!request.IsGranted &&
+                _cleanup is not null)
+            {
+                await _cleanup.RevokeMemberFromSessionAsync(
                     tripPlanId,
                     sessionId,
-                    userId,
-                    request.IsGranted,
-                    cancellationToken);
+                    authenticatedUserId,
+                    CancellationToken.None);
+            }
 
             return Ok(result);
         }
@@ -103,18 +111,18 @@ public sealed class TripSharingConsentController
         {
             return NotFound();
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException exception)
         {
             return BadRequest(new
             {
-                message = ex.Message
+                message = exception.Message
             });
         }
-        catch (InvalidOperationException ex)
+        catch (InvalidOperationException exception)
         {
             return Conflict(new
             {
-                message = ex.Message
+                message = exception.Message
             });
         }
     }

@@ -1,3 +1,4 @@
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -14,10 +15,8 @@ public sealed class TripLocationSubscriberRegistry
 {
     private readonly object _sync = new();
 
-    private readonly Dictionary<
-        string, TripLocationSubscriber>
-        _connections =
-            new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TripLocationSubscriber>
+        _connections = new(StringComparer.Ordinal);
 
     public void Register(
         string connectionId,
@@ -26,24 +25,18 @@ public sealed class TripLocationSubscriberRegistry
         string userId)
     {
         if (string.IsNullOrWhiteSpace(connectionId))
-        {
             throw new ArgumentException(
                 "Connection ID is required.",
                 nameof(connectionId));
-        }
 
         if (tripPlanId == Guid.Empty ||
             sessionId == Guid.Empty)
-        {
             throw new ArgumentException(
                 "Valid trip and session IDs are required.");
-        }
 
         if (string.IsNullOrWhiteSpace(userId))
-        {
             throw new UnauthorizedAccessException(
                 "Authenticated user is required.");
-        }
 
         var subscriber = new TripLocationSubscriber(
             connectionId,
@@ -63,7 +56,8 @@ public sealed class TripLocationSubscriberRegistry
         lock (_sync)
         {
             return _connections.TryGetValue(
-                connectionId, out var subscriber)
+                connectionId,
+                out var subscriber)
                     ? subscriber
                     : null;
         }
@@ -83,8 +77,7 @@ public sealed class TripLocationSubscriberRegistry
         }
     }
 
-    public void Remove(
-        string connectionId)
+    public void Remove(string connectionId)
     {
         lock (_sync)
         {
@@ -92,8 +85,6 @@ public sealed class TripLocationSubscriberRegistry
         }
     }
 
-    // Remove an entry only if it is still the
-    // same subscription observed earlier.
     public void RemoveIfUnchanged(
         TripLocationSubscriber subscriber)
     {
@@ -107,6 +98,87 @@ public sealed class TripLocationSubscriberRegistry
                 _connections.Remove(
                     subscriber.ConnectionId);
             }
+        }
+    }
+
+    public IReadOnlyList<TripLocationSubscriber> RevokeSession(
+        Guid tripPlanId,
+        Guid sessionId)
+    {
+        if (tripPlanId == Guid.Empty ||
+            sessionId == Guid.Empty)
+            throw new ArgumentException(
+                "Valid trip and session IDs are required.");
+
+        return RemoveMatching(x =>
+            x.TripPlanId == tripPlanId &&
+            x.SessionId == sessionId);
+    }
+
+    public IReadOnlyList<TripLocationSubscriber> RevokeTripMember(
+        Guid tripPlanId,
+        string userId)
+    {
+        if (tripPlanId == Guid.Empty)
+            throw new ArgumentException(
+                "Valid trip ID is required.");
+
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new ArgumentException(
+                "User ID is required.");
+
+        var normalized = userId.Trim();
+
+        return RemoveMatching(x =>
+            x.TripPlanId == tripPlanId &&
+            string.Equals(
+                x.UserId,
+                normalized,
+                StringComparison.Ordinal));
+    }
+
+    public IReadOnlyList<TripLocationSubscriber>
+        RevokeMemberFromSession(
+            Guid tripPlanId,
+            Guid sessionId,
+            string userId)
+    {
+        if (tripPlanId == Guid.Empty ||
+            sessionId == Guid.Empty)
+            throw new ArgumentException(
+                "Valid trip and session IDs are required.");
+
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new ArgumentException(
+                "User ID is required.");
+
+        var normalized = userId.Trim();
+
+        return RemoveMatching(x =>
+            x.TripPlanId == tripPlanId &&
+            x.SessionId == sessionId &&
+            string.Equals(
+                x.UserId,
+                normalized,
+                StringComparison.Ordinal));
+    }
+
+    private IReadOnlyList<TripLocationSubscriber> RemoveMatching(
+        Func<TripLocationSubscriber, bool> predicate)
+    {
+        lock (_sync)
+        {
+            var removed = _connections.Values
+                .Where(predicate)
+                .ToArray();
+
+            foreach (var subscriber in removed)
+            {
+                _connections.Remove(
+                    subscriber.ConnectionId);
+            }
+
+            return removed;
         }
     }
 }
