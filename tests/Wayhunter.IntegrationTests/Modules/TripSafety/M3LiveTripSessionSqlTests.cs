@@ -547,6 +547,11 @@ public sealed class M3LiveTripSessionSqlTests
             }
 
             await using var verifyContext = CreateContext();
+            var guard = new EfTripFinishedReminderGuard(verifyContext);
+            Assert.False(await guard.CanDispatchAsync(seed.TripId, oldId));
+            Assert.True(await guard.CanDispatchAsync(seed.TripId, newId));
+            Assert.False(await guard.CanDispatchAsync(seed.TripId, Guid.NewGuid()));
+            Assert.False(await guard.CanDispatchAsync(Guid.NewGuid(), newId));
 
             var sessions =
                 await verifyContext.LiveTripSessions

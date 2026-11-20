@@ -15,6 +15,7 @@ public interface ITripStartReminderSender
 
     Task SendAsync(
         Guid tripPlanId,
+        Guid sessionId,
         string recipientUserId,
         CancellationToken cancellationToken = default);
 }

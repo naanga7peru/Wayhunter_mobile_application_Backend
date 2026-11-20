@@ -56,20 +56,7 @@ public sealed class RegistrationPreparationService
                 "Invalid email address.");
         }
 
-        // Provisional policy; final password policy
-        // requires product-owner confirmation.
-        if (string.IsNullOrEmpty(password) ||
-            password.Length < 8)
-        {
-            throw new ArgumentException(
-                "Password must contain at least 8 characters.");
-        }
-
-        if (password != confirmPassword)
-        {
-            throw new ArgumentException(
-                "Passwords do not match.");
-        }
+        var passwordHash = HashPassword(password, confirmPassword);
 
         if (createdAtUtc == default ||
             createdAtUtc.Offset != TimeSpan.Zero)
@@ -80,10 +67,6 @@ public sealed class RegistrationPreparationService
 
         // Standard ASP.NET Core Identity password hashing.
         // Never log or persist the plaintext password.
-        var passwordHash = _passwordHasher.HashPassword(
-            new object(),
-            password);
-
         var account = UserAccount.RegisterPending(
             displayName,
             trimmedEmail,
@@ -98,5 +81,23 @@ public sealed class RegistrationPreparationService
         return new PreparedRegistration(
             account,
             response);
+    }
+
+    public string HashPassword(
+        string password,
+        string confirmPassword)
+    {
+        // Provisional policy; final password policy
+        // requires product-owner confirmation.
+        if (string.IsNullOrEmpty(password) || password.Length < 8)
+        {
+            throw new ArgumentException(
+                "Password must contain at least 8 characters.");
+        }
+
+        if (!string.Equals(password, confirmPassword, StringComparison.Ordinal))
+            throw new ArgumentException("Passwords do not match.");
+
+        return _passwordHasher.HashPassword(new object(), password);
     }
 }
