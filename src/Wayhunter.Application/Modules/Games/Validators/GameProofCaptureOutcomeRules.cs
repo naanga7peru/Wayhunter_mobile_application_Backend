@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Wayhunter.Application.Modules.Games.Dtos;
 
 namespace Wayhunter.Application.Modules.Games.Validators;
@@ -19,6 +19,9 @@ public static class GameProofCaptureOutcomeRules
 
         if (!Enum.IsDefined(outcome.Status))
             throw new InvalidOperationException("Unsupported capture provider outcome.");
+
+        if (outcome.ProviderReceiptId is { Length: > 256 })
+            throw new InvalidOperationException("Provider receipt exceeds 256 characters.");
 
         if (outcome.Status == GameProofCaptureOperationOutcomeStatus.Consumed && string.IsNullOrWhiteSpace(outcome.ProviderReceiptId))
             throw new InvalidOperationException("Confirmed consumption requires a provider receipt.");
