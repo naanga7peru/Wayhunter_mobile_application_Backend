@@ -58,6 +58,23 @@ public sealed class IdentityAuthenticationFlowHttpTests
         public string Generate() => (++_next).ToString("D6");
     }
 
+    private sealed class TestPasswordResetEmailSender : IPasswordResetEmailSender
+    {
+        public string? LatestToken { get; private set; }
+
+        public Task<bool> SendAsync(
+            string email,
+            string displayName,
+            string resetToken,
+            int expiryMinutes,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            LatestToken = resetToken;
+            return Task.FromResult(true);
+        }
+    }
+
     private sealed class InMemorySessionRevocationStore(
         WayhunterSharedDbContext db) : IIdentitySessionRevocationStore
     {
@@ -223,14 +240,121 @@ public sealed class IdentityAuthenticationFlowHttpTests
         Assert.Equal(HttpStatusCode.BadRequest, verify.StatusCode);
     }
 
+    [Fact]
+    public async Task PasswordReset_ConsumesCredentialAndRevokesExistingSession()
+    {
+        var otpSender = new TestEmailSender();
+        var resetSender = new TestPasswordResetEmailSender();
+        await using var app = await CreateServerAsync(otpSender, resetSender: resetSender);
+        using var client = app.GetTestClient();
+        var email = $"reset-{Guid.NewGuid():N}@example.test";
+        await RegisterAndActivateAsync(client, otpSender, email);
+        var login = await client.PostAsJsonAsync(
+            "/" + IdentityApiContract.LoginRoute,
+            new IdentitySignInRequest(email, "A-strong-test-password"));
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        var session = await login.Content.ReadFromJsonAsync<IdentitySignInResult>();
+        Assert.NotNull(session);
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", session.AccessToken);
+        Assert.Equal(HttpStatusCode.OK,
+            (await client.GetAsync("/" + IdentityApiContract.MyProfileRoute)).StatusCode);
+
+        client.DefaultRequestHeaders.Authorization = null;
+        var forgot = await client.PostAsJsonAsync(
+            "/" + IdentityApiContract.ForgotPasswordRoute,
+            new IdentityForgotPasswordRequest(email));
+        Assert.Equal(HttpStatusCode.Accepted, forgot.StatusCode);
+        Assert.NotNull(resetSender.LatestToken);
+
+        await using (var scope = app.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<WayhunterSharedDbContext>();
+            var stored = await db.IdentityPasswordResetCredentials.SingleAsync();
+            Assert.NotEqual(resetSender.LatestToken, stored.TokenHash);
+            Assert.Equal(64, stored.TokenHash.Length);
+        }
+
+        var resetRequest = new IdentityResetPasswordRequest(
+            email, resetSender.LatestToken!, "A-new-strong-password", "A-new-strong-password");
+        var reset = await client.PostAsJsonAsync(
+            "/" + IdentityApiContract.ResetPasswordRoute, resetRequest);
+        Assert.Equal(HttpStatusCode.NoContent, reset.StatusCode);
+
+        var reused = await client.PostAsJsonAsync(
+            "/" + IdentityApiContract.ResetPasswordRoute, resetRequest);
+        Assert.Equal(HttpStatusCode.BadRequest, reused.StatusCode);
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", session.AccessToken);
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await client.GetAsync("/" + IdentityApiContract.MyProfileRoute)).StatusCode);
+        client.DefaultRequestHeaders.Authorization = null;
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await client.PostAsJsonAsync("/" + IdentityApiContract.LoginRoute,
+                new IdentitySignInRequest(email, "A-strong-test-password"))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK,
+            (await client.PostAsJsonAsync("/" + IdentityApiContract.LoginRoute,
+                new IdentitySignInRequest(email, "A-new-strong-password"))).StatusCode);
+    }
+
+    [Fact]
+    public async Task PasswordReset_ExpiredCredentialIsRejectedAndForgotIsGeneric()
+    {
+        var otpSender = new TestEmailSender();
+        var resetSender = new TestPasswordResetEmailSender();
+        var clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        await using var app = await CreateServerAsync(otpSender, clock, resetSender);
+        using var client = app.GetTestClient();
+        var email = $"expired-reset-{Guid.NewGuid():N}@example.test";
+        await RegisterAndActivateAsync(client, otpSender, email);
+
+        var unknown = await client.PostAsJsonAsync(
+            "/" + IdentityApiContract.ForgotPasswordRoute,
+            new IdentityForgotPasswordRequest($"missing-{Guid.NewGuid():N}@example.test"));
+        Assert.Equal(HttpStatusCode.Accepted, unknown.StatusCode);
+        var forgot = await client.PostAsJsonAsync(
+            "/" + IdentityApiContract.ForgotPasswordRoute,
+            new IdentityForgotPasswordRequest(email));
+        Assert.Equal(HttpStatusCode.Accepted, forgot.StatusCode);
+        Assert.Equal(
+            await unknown.Content.ReadAsStringAsync(),
+            await forgot.Content.ReadAsStringAsync());
+        var token = Assert.IsType<string>(resetSender.LatestToken);
+        clock.Advance(TimeSpan.FromMinutes(31));
+
+        var reset = await client.PostAsJsonAsync(
+            "/" + IdentityApiContract.ResetPasswordRoute,
+            new IdentityResetPasswordRequest(
+                email, token, "A-new-strong-password", "A-new-strong-password"));
+        Assert.Equal(HttpStatusCode.BadRequest, reset.StatusCode);
+    }
+
+    private static async Task RegisterAndActivateAsync(
+        HttpClient client,
+        TestEmailSender emailSender,
+        string email)
+    {
+        var register = await client.PostAsJsonAsync(
+            "/" + IdentityApiContract.RegisterRoute,
+            new IdentityRegisterRequest(
+                "Recovery User", email, "A-strong-test-password", "A-strong-test-password"));
+        Assert.Equal(HttpStatusCode.Created, register.StatusCode);
+        var verify = await client.PostAsJsonAsync(
+            "/" + IdentityApiContract.VerifyOtpRoute,
+            new IdentityOtpRequest(email, emailSender.LatestCode));
+        Assert.Equal(HttpStatusCode.NoContent, verify.StatusCode);
+    }
+
     private static async Task<WebApplication> CreateServerAsync(
         TestEmailSender emailSender,
-        ManualTimeProvider? clock = null)
+        ManualTimeProvider? clock = null,
+        TestPasswordResetEmailSender? resetSender = null)
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions { EnvironmentName = "Development" });
         builder.WebHost.UseTestServer();
         builder.Configuration["Identity:SessionLifetimeMinutes"] = "60";
+        builder.Configuration["Identity:PasswordResetLifetimeMinutes"] = "30";
         builder.Configuration["Authentication:Jwt:Issuer"] = "m1-flow-test";
         builder.Configuration["Authentication:Jwt:Audience"] = "mobile-test";
         builder.Configuration["Authentication:Jwt:SigningSecret"] = SigningSecret;
@@ -245,6 +369,9 @@ public sealed class IdentityAuthenticationFlowHttpTests
             .AddApplicationPart(typeof(IdentityAuthenticationController).Assembly);
         builder.Services.RemoveAll<IIdentityOtpEmailSender>();
         builder.Services.AddSingleton<IIdentityOtpEmailSender>(emailSender);
+        builder.Services.RemoveAll<IPasswordResetEmailSender>();
+        builder.Services.AddSingleton<IPasswordResetEmailSender>(
+            resetSender ?? new TestPasswordResetEmailSender());
         builder.Services.RemoveAll<IIdentityOtpCodeGenerator>();
         builder.Services.AddSingleton<IIdentityOtpCodeGenerator, TestOtpCodeGenerator>();
         builder.Services.RemoveAll<IIdentitySessionRevocationStore>();

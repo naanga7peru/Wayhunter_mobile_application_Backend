@@ -131,3 +131,35 @@ Registration currently enforces normalized email uniqueness using `Users` and
 the existing unique email index. Username uniqueness cannot be enforced from
 the current `IdentityRegisterRequest`, because `UserProfiles` has no username
 column or unique index. This is a schema blocker, not an in-memory-only check.
+
+## M1-MS04-T04 password recovery schema requirement
+
+The recovery implementation maps an additive `IdentityPasswordResetCredentials`
+table. The DB Coordinator must create it before enabling these routes against
+SQL Server. Required columns: `CredentialId` (`uniqueidentifier`, primary key),
+`UserId` (`nvarchar(256)`, foreign key to `Users.UserId`), `TokenHash`
+(`char(64)`, unique SHA-256 hex digest), `CreatedAtUtc`, `ExpiresAtUtc`, nullable
+`ConsumedAtUtc`, and nullable `RevokedAtUtc` (all timestamps
+`datetimeoffset`). Add `CK_IdentityPasswordResetCredentials_Expiry` requiring
+expiry after creation, unique index
+`UX_IdentityPasswordResetCredentials_TokenHash`, and index
+`IX_IdentityPasswordResetCredentials_User_Expiry`. Use no-action deletion for
+the user foreign key. Only the digest is persisted; reset credentials are
+single-use and are invalid after expiry/revocation.
+
+`InitialSharedSchema`, the model snapshot, and migration history remain
+unchanged. No shared migration was generated or applied by this task. Configure
+`Identity:PasswordResetLifetimeMinutes` (1 to 1440) and the existing Resend email
+settings through runtime configuration; do not commit secrets.
+
+## M1-MS04-T04 HTTP routes
+
+- `POST /api/mobile/identity/forgot-password` returns the same generic `202`
+  response for eligible and unknown accounts.
+- `POST /api/mobile/identity/reset-password` accepts email, reset token, new
+  password, and confirmation; succeeds with `204` and rejects invalid, expired,
+  consumed, or mismatched credentials with `400`.
+
+The route tests use the test email sender and EF InMemory. They do not prove the
+SQL table has been deployed or validate SQL Server transaction behavior.
+ 
