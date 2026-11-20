@@ -28,6 +28,9 @@ public static class IdentityApiContract
     public const string VerifyOtpRoute =
         MobileBaseRoute + "/verify-otp";
 
+    public const string ResendOtpRoute =
+        MobileBaseRoute + "/resend-otp";
+
     public const string MyProfileRoute =
         MobileBaseRoute + "/me";
 
@@ -56,6 +59,8 @@ public static class IdentityApiContract
             LoginRoute => IdentityEndpointAccess.Anonymous,
 
             VerifyOtpRoute => IdentityEndpointAccess.Anonymous,
+
+            ResendOtpRoute => IdentityEndpointAccess.Anonymous,
 
             MyProfileRoute =>
                 IdentityEndpointAccess.AuthenticatedUser,
