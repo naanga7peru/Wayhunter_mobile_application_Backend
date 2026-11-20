@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Security.Claims;
+using Wayhunter.Api.Contracts;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
@@ -13,6 +13,7 @@ namespace Wayhunter.Api.Controllers.Mobile.TravelPlanning;
 [ApiController]
 [Authorize]
 [Route("api/mobile/trip-plans/suggested")]
+[ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public sealed class SuggestedTripPlansController : ControllerBase
 {
     private readonly GetSuggestedTripPlansService _service;
@@ -22,18 +23,27 @@ public sealed class SuggestedTripPlansController : ControllerBase
         _service = service ?? throw new ArgumentNullException(nameof(service));
     }
 
+    [HttpGet("{tripPlanId:guid}")]
+    public async Task<ActionResult<SuggestedTripPlanDto>> GetById(
+        Guid tripPlanId, CancellationToken cancellationToken)
+    {
+        if (!TrustedIdentityAccessContract.TryResolveUserId(User, out var userId))
+            return Unauthorized();
+
+        if (tripPlanId == Guid.Empty)
+            return BadRequest(new { code = "INVALID_SOURCE_TRIP_ID" });
+
+        var result = await _service.GetByIdAsync(userId, tripPlanId, cancellationToken);
+        return result is null ? NotFound() : Ok(result);
+    }
+
     // GET /api/mobile/trip-plans/suggested?limit=20
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<SuggestedTripPlanDto>>> Get(
         [FromQuery] int limit = GetSuggestedTripPlansService.DefaultLimit,
         CancellationToken cancellationToken = default)
     {
-        var userId = User.Identity?.IsAuthenticated == true
-            ? User.FindFirstValue(ClaimTypes.NameIdentifier)
-                ?? User.FindFirstValue("sub")
-            : null;
-
-        if (string.IsNullOrWhiteSpace(userId))
+        if (!TrustedIdentityAccessContract.TryResolveUserId(User, out var userId))
         {
             return Unauthorized();
         }

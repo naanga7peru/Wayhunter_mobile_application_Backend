@@ -34,7 +34,7 @@ public static class TravelPlanningWeatherExtensions
 
         services.AddSingleton<WeatherHttpClientLifetime>();
 
-        services.AddSingleton<IWeatherProvider>(provider =>
+        services.AddSingleton<OpenWeatherMapProvider>(provider =>
         {
             var client = provider
                 .GetRequiredService<WeatherHttpClientLifetime>()
@@ -46,6 +46,13 @@ public static class TravelPlanningWeatherExtensions
 
             return new OpenWeatherMapProvider(client, options);
         });
+
+        services.AddSingleton<IWeatherProvider>(sp => sp.GetRequiredService<OpenWeatherMapProvider>());
+        services.AddSingleton<IWeatherForecastProvider>(sp => sp.GetRequiredService<OpenWeatherMapProvider>());
+        services.AddSingleton(sp => new WeatherForecastService(
+            sp.GetRequiredService<IWeatherForecastProvider>(),
+            sp.GetRequiredService<IOptions<WeatherProviderOptions>>().Value.GetCacheMaximumAge(),
+            TimeProvider.System));
 
         services.AddSingleton<WeatherCacheService>(provider =>
         {
@@ -73,6 +80,7 @@ internal sealed class WeatherHttpClientLifetime : IDisposable
     {
         var handler = new SocketsHttpHandler
         {
+            AllowAutoRedirect = false,
             PooledConnectionLifetime =
                 TimeSpan.FromMinutes(5)
         };

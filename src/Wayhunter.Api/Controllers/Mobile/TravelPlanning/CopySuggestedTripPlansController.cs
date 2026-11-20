@@ -1,5 +1,5 @@
 using System;
-using System.Security.Claims;
+using Wayhunter.Api.Contracts;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
@@ -27,10 +27,8 @@ public sealed class CopySuggestedTripPlansController : ControllerBase
         Guid sourceTripPlanId,
         CancellationToken cancellationToken)
     {
-        var userId = User.Identity?.IsAuthenticated == true
-            ? User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")
-            : null;
-        if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
+        if (!TrustedIdentityAccessContract.TryResolveUserId(User, out var userId))
+            return Unauthorized();
         if (sourceTripPlanId == Guid.Empty)
             return BadRequest(new { code = "INVALID_SOURCE_TRIP_ID" });
 
