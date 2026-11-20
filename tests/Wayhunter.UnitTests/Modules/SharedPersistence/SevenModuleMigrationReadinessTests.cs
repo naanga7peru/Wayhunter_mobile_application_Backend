@@ -103,12 +103,12 @@ public sealed class SevenModuleMigrationReadinessTests
     {
         using var db = CreateContext();
 
-        var nonNoAction = db.Model.GetEntityTypes()
+        var otherDeleteBehaviors = db.Model.GetEntityTypes()
             .SelectMany(entity => entity.GetForeignKeys())
-            .Where(foreignKey => foreignKey.DeleteBehavior != DeleteBehavior.NoAction)
+            .Where(foreignKey => foreignKey.DeleteBehavior is not (DeleteBehavior.NoAction or DeleteBehavior.ClientNoAction))
             .ToArray();
 
-        var ownedTripStops = Assert.Single(nonNoAction);
+        var ownedTripStops = Assert.Single(otherDeleteBehaviors);
 
         Assert.Equal(typeof(TripStop), ownedTripStops.DeclaringEntityType.ClrType);
         Assert.Equal(typeof(TripPlan), ownedTripStops.PrincipalEntityType.ClrType);
