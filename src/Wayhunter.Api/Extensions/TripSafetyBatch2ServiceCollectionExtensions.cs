@@ -27,12 +27,7 @@ public static class TripSafetyBatch2ServiceCollectionExtensions
 }
 public sealed class UnavailableTripFinishedReminderGuard : ITripFinishedReminderGuard
 {
-    public Task MarkFinishedAsync(Guid tripPlanId, Guid sessionId, CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        throw new InvalidOperationException("Durable trip finish reminder guard is unavailable.");
-    }
-    public Task<bool> HasFinishedAsync(Guid tripPlanId, CancellationToken cancellationToken = default)
+    public Task<bool> CanDispatchAsync(Guid tripPlanId, Guid sessionId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         throw new InvalidOperationException("Durable trip finish reminder guard is unavailable.");

@@ -36,22 +36,6 @@ public sealed class M3Batch2SafetyTests
         public override DateTimeOffset GetUtcNow() => Now;
     }
 
-    private sealed class FakeReminderSender
-        : ITripStartReminderSender
-    {
-        public int SendCount { get; private set; }
-
-        public Task SendAsync(
-            Guid tripPlanId,
-            string recipientUserId,
-            CancellationToken cancellationToken = default)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            SendCount++;
-            return Task.CompletedTask;
-        }
-    }
-
     private sealed class Fixture
     {
         public string Owner { get; } =
@@ -74,9 +58,6 @@ public sealed class M3Batch2SafetyTests
             new();
 
         public InMemoryTripSafetyCheckInStore Store { get; } =
-            new();
-
-        public InMemoryTripFinishedReminderGuard ReminderGuard { get; } =
             new();
 
         public TripSafeCheckInService CheckIns { get; private set; }
@@ -383,55 +364,6 @@ public sealed class M3Batch2SafetyTests
             f.Owner);
 
         Assert.True(result.Created);
-    }
-
-    [Fact]
-    public async Task Reminder_Is_Suppressed_After_Finish()
-    {
-        var f = await CreateAsync();
-
-        var sender = new FakeReminderSender();
-
-        var dispatch = new TripStartReminderDispatchService(
-            sender,
-            f.ReminderGuard);
-
-        await dispatch.DispatchAsync(
-            f.Trip.Id,
-            f.Owner);
-
-        Assert.Equal(1, sender.SendCount);
-
-        await f.SessionService.FinishAsync(
-            f.Session.SessionId);
-
-        await f.ReminderGuard.MarkFinishedAsync(
-            f.Trip.Id,
-            f.Session.SessionId);
-
-        await dispatch.DispatchAsync(
-            f.Trip.Id,
-            f.Owner);
-
-        Assert.Equal(1, sender.SendCount);
-    }
-
-    [Fact]
-    public async Task Reminder_Cancellation_Is_Idempotent()
-    {
-        var f = await CreateAsync();
-
-        await f.ReminderGuard.MarkFinishedAsync(
-            f.Trip.Id,
-            f.Session.SessionId);
-
-        await f.ReminderGuard.MarkFinishedAsync(
-            f.Trip.Id,
-            f.Session.SessionId);
-
-        Assert.True(
-            await f.ReminderGuard.HasFinishedAsync(
-                f.Trip.Id));
     }
 
     [Fact]

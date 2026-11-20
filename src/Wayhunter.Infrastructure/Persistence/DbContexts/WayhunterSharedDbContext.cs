@@ -103,6 +103,13 @@ public sealed class WayhunterSharedDbContext : DbContext
         TripMembershipRevocationOutbox
         => Set<TripMembershipRevocationOutboxRow>();
 
+    // Proposed M3 mappings only. Runtime activation and migration approval are separate.
+    public DbSet<TripSafeCheckInRow> TripSafeCheckIns
+        => Set<TripSafeCheckInRow>();
+
+    public DbSet<TripSafeCheckInOutboxRow> TripSafeCheckInOutbox
+        => Set<TripSafeCheckInOutboxRow>();
+
     public DbSet<TripGpsConsent> TripGpsConsents
         => Set<TripGpsConsent>();
 
@@ -281,6 +288,12 @@ public sealed class WayhunterSharedDbContext : DbContext
         // M3 - Membership Revocation Outbox
         modelBuilder.ApplyConfiguration(
             new TripMembershipRevocationOutboxConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new TripSafeCheckInConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new TripSafeCheckInOutboxConfiguration());
 
         modelBuilder.ApplyConfiguration(
             new TripGpsConsentConfiguration());

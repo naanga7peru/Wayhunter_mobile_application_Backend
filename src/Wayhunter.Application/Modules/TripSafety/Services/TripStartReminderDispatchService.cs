@@ -12,12 +12,14 @@ public sealed class TripStartReminderDispatchService
         _sender = sender ?? throw new ArgumentNullException(nameof(sender));
         _finishedGuard = finishedGuard ?? throw new ArgumentNullException(nameof(finishedGuard));
     }
-    public async Task DispatchAsync(Guid tripPlanId, string? recipientUserId, CancellationToken cancellationToken = default)
+    public async Task DispatchAsync(Guid tripPlanId, Guid sessionId, string? recipientUserId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (tripPlanId == Guid.Empty) throw new ArgumentException("Valid Trip Plan ID is required.", nameof(tripPlanId));
+        if (sessionId == Guid.Empty) throw new ArgumentException("Valid Session ID is required.", nameof(sessionId));
         if (string.IsNullOrWhiteSpace(recipientUserId)) throw new ArgumentException("Recipient User ID is required.", nameof(recipientUserId));
-        if (await _finishedGuard.HasFinishedAsync(tripPlanId, cancellationToken)) return;
-        await _sender.SendAsync(tripPlanId, recipientUserId.Trim(), cancellationToken);
+        if (!await _finishedGuard.CanDispatchAsync(tripPlanId, sessionId, cancellationToken)) return;
+        cancellationToken.ThrowIfCancellationRequested();
+        await _sender.SendAsync(tripPlanId, sessionId, recipientUserId.Trim(), cancellationToken);
     }
 }

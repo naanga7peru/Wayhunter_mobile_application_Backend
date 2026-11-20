@@ -4,6 +4,6 @@ using System.Threading.Tasks;
 namespace Wayhunter.Application.Modules.TripSafety.Interfaces;
 public interface ITripFinishedReminderGuard
 {
-    Task MarkFinishedAsync(Guid tripPlanId, Guid sessionId, CancellationToken cancellationToken = default);
-    Task<bool> HasFinishedAsync(Guid tripPlanId, CancellationToken cancellationToken = default);
+    // An affirmative result requires a persisted, open session for this exact trip.
+    Task<bool> CanDispatchAsync(Guid tripPlanId, Guid sessionId, CancellationToken cancellationToken = default);
 }

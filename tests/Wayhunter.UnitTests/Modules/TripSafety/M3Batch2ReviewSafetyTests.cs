@@ -19,7 +19,7 @@ public sealed class M3Batch2ReviewSafetyTests
     private sealed class Sender : ITripStartReminderSender
     {
         public int Count { get; private set; }
-        public Task SendAsync(Guid tripPlanId, string recipientUserId, CancellationToken cancellationToken = default) { Count++; return Task.CompletedTask; }
+        public Task SendAsync(Guid tripPlanId, Guid sessionId, string recipientUserId, CancellationToken cancellationToken = default) { Count++; return Task.CompletedTask; }
     }
     private sealed class UnavailableSqlConnection : DbConnectionInterceptor
     {
@@ -31,13 +31,11 @@ public sealed class M3Batch2ReviewSafetyTests
 
     private sealed class FailingGuard : ITripFinishedReminderGuard
     {
-        public Task MarkFinishedAsync(Guid tripPlanId, Guid sessionId, CancellationToken cancellationToken = default) => throw new InvalidOperationException("Persistence unavailable");
-        public Task<bool> HasFinishedAsync(Guid tripPlanId, CancellationToken cancellationToken = default) => throw new InvalidOperationException("Persistence unavailable");
+        public Task<bool> CanDispatchAsync(Guid tripPlanId, Guid sessionId, CancellationToken cancellationToken = default) => throw new InvalidOperationException("Persistence unavailable");
     }
     private sealed class FinishedGuard : ITripFinishedReminderGuard
     {
-        public Task MarkFinishedAsync(Guid tripPlanId, Guid sessionId, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<bool> HasFinishedAsync(Guid tripPlanId, CancellationToken cancellationToken = default) => Task.FromResult(true);
+        public Task<bool> CanDispatchAsync(Guid tripPlanId, Guid sessionId, CancellationToken cancellationToken = default) => Task.FromResult(false);
     }
     [Theory]
     [InlineData(false)]
@@ -69,7 +67,7 @@ public sealed class M3Batch2ReviewSafetyTests
     {
         var sender = new Sender();
         var service = new TripStartReminderDispatchService(sender, new FailingGuard());
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.DispatchAsync(Guid.NewGuid(), Guid.NewGuid().ToString("D")));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.DispatchAsync(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid().ToString("D")));
         Assert.Equal(0, sender.Count);
     }
     [Fact]
@@ -84,7 +82,7 @@ public sealed class M3Batch2ReviewSafetyTests
         var service = new TripStartReminderDispatchService(sender, new EfTripFinishedReminderGuard(context));
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.DispatchAsync(Guid.NewGuid(), Guid.NewGuid().ToString("D")));
+            service.DispatchAsync(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid().ToString("D")));
 
         Assert.Equal("Simulated database outage.", error.Message);
         Assert.Equal(0, sender.Count);
@@ -95,7 +93,7 @@ public sealed class M3Batch2ReviewSafetyTests
     {
         var sender = new Sender();
         var service = new TripStartReminderDispatchService(sender, new FinishedGuard());
-        await service.DispatchAsync(Guid.NewGuid(), Guid.NewGuid().ToString("D"));
+        await service.DispatchAsync(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid().ToString("D"));
         Assert.Equal(0, sender.Count);
     }
 }
