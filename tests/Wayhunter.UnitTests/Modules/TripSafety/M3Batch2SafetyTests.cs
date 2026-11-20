@@ -191,6 +191,21 @@ public sealed class M3Batch2SafetyTests
                 f.Outsider));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Outsider_Is_Denied_Before_Trip_Or_Session_State_Is_Disclosed(bool cancelled)
+    {
+        var fixture = await CreateAsync();
+        if (cancelled)
+            fixture.Trip.Cancel();
+        else
+            await fixture.SessionService.FinishAsync(fixture.Session.SessionId);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            fixture.CheckIns.MarkSafeAsync(fixture.Trip.Id, fixture.Session.SessionId, fixture.Outsider));
+    }
+
     [Fact]
     public async Task Missing_Trusted_Identity_Is_Denied()
     {
@@ -299,12 +314,16 @@ public sealed class M3Batch2SafetyTests
     {
         var f = await CreateAsync();
 
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var calls = Enumerable.Range(0, 12)
-            .Select(_ => f.CheckIns.MarkSafeAsync(
-                f.Trip.Id,
-                f.Session.SessionId,
-                f.Owner));
+            .Select(_ => Task.Run(async () =>
+            {
+                await start.Task;
+                return await f.CheckIns.MarkSafeAsync(f.Trip.Id, f.Session.SessionId, f.Owner);
+            }))
+            .ToArray();
 
+        start.SetResult();
         var results = await Task.WhenAll(calls);
 
         Assert.Single(results, x => x.Created);
@@ -463,7 +482,7 @@ public sealed class M3Batch2SafetyTests
     }
 
     [Fact]
-    public void InMemory_Mode_Registers_InMemory_Stores()
+    public void NonSql_Mode_Registers_Unavailable_CheckIn_Store_And_Reminder_Guard()
     {
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(
@@ -480,11 +499,13 @@ public sealed class M3Batch2SafetyTests
         Assert.Contains(
             services,
             x => x.ServiceType ==
-                    typeof(ITripSafetyCheckInStore));
+                    typeof(ITripSafetyCheckInStore) &&
+                 x.ImplementationType == typeof(UnavailableTripSafetyCheckInStore));
 
         Assert.Contains(
             services,
             x => x.ServiceType ==
-                    typeof(ITripFinishedReminderGuard));
+                    typeof(ITripFinishedReminderGuard) &&
+                 x.ImplementationType == typeof(UnavailableTripFinishedReminderGuard));
     }
 }

@@ -15,6 +15,12 @@ public sealed class TripStartReminderDispatchServiceTests
     private static readonly Guid TripPlanId =
         Guid.Parse("11111111-1111-4111-8111-111111111111");
 
+    private sealed class AllowedReminderGuard : ITripFinishedReminderGuard
+    {
+        public Task MarkFinishedAsync(Guid tripPlanId, Guid sessionId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<bool> HasFinishedAsync(Guid tripPlanId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+    }
+
     private sealed class FakeReminderSender
         : ITripStartReminderSender
     {
@@ -54,7 +60,7 @@ public sealed class TripStartReminderDispatchServiceTests
     public void Null_Sender_Should_Fail()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new TripStartReminderDispatchService(null!));
+            new TripStartReminderDispatchService(null!, new AllowedReminderGuard()));
     }
 
     [Fact]
@@ -62,8 +68,7 @@ public sealed class TripStartReminderDispatchServiceTests
     {
         var sender = new FakeReminderSender();
 
-        var service = new TripStartReminderDispatchService(
-            sender);
+        var service = new TripStartReminderDispatchService(sender, new AllowedReminderGuard());
 
         await service.DispatchAsync(
             TripPlanId,
@@ -79,8 +84,7 @@ public sealed class TripStartReminderDispatchServiceTests
     {
         var sender = new FakeReminderSender();
 
-        var service = new TripStartReminderDispatchService(
-            sender);
+        var service = new TripStartReminderDispatchService(sender, new AllowedReminderGuard());
 
         await service.DispatchAsync(
             TripPlanId,
@@ -95,8 +99,7 @@ public sealed class TripStartReminderDispatchServiceTests
     {
         var sender = new FakeReminderSender();
 
-        var service = new TripStartReminderDispatchService(
-            sender);
+        var service = new TripStartReminderDispatchService(sender, new AllowedReminderGuard());
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
             service.DispatchAsync(
@@ -115,8 +118,7 @@ public sealed class TripStartReminderDispatchServiceTests
     {
         var sender = new FakeReminderSender();
 
-        var service = new TripStartReminderDispatchService(
-            sender);
+        var service = new TripStartReminderDispatchService(sender, new AllowedReminderGuard());
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
             service.DispatchAsync(
@@ -135,7 +137,7 @@ public sealed class TripStartReminderDispatchServiceTests
         var sender = new FakeReminderSender();
 
         var reminderService =
-            new TripStartReminderDispatchService(sender);
+            new TripStartReminderDispatchService(sender, new AllowedReminderGuard());
 
         var before =
             await repository.GetOpenByTripPlanIdAsync(
@@ -173,7 +175,7 @@ public sealed class TripStartReminderDispatchServiceTests
         var sender = new FakeReminderSender();
 
         var reminderService =
-            new TripStartReminderDispatchService(sender);
+            new TripStartReminderDispatchService(sender, new AllowedReminderGuard());
 
         await reminderService.DispatchAsync(
             TripPlanId,
@@ -193,8 +195,7 @@ public sealed class TripStartReminderDispatchServiceTests
     {
         var sender = new FakeReminderSender();
 
-        var service = new TripStartReminderDispatchService(
-            sender);
+        var service = new TripStartReminderDispatchService(sender, new AllowedReminderGuard());
 
         using var cts = new CancellationTokenSource();
 
@@ -217,8 +218,7 @@ public sealed class TripStartReminderDispatchServiceTests
             ShouldFail = true
         };
 
-        var service = new TripStartReminderDispatchService(
-            sender);
+        var service = new TripStartReminderDispatchService(sender, new AllowedReminderGuard());
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.DispatchAsync(
@@ -233,8 +233,7 @@ public sealed class TripStartReminderDispatchServiceTests
     {
         var sender = new FakeReminderSender();
 
-        var service = new TripStartReminderDispatchService(
-            sender);
+        var service = new TripStartReminderDispatchService(sender, new AllowedReminderGuard());
 
         using var cts = new CancellationTokenSource();
 

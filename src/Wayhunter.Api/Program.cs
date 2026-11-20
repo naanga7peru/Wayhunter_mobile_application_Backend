@@ -19,7 +19,7 @@ using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers(options => options.Filters.AddService<TripFinishReminderFilter>());
+builder.Services.AddControllers();
 
 if (builder.Environment.IsDevelopment())
 {

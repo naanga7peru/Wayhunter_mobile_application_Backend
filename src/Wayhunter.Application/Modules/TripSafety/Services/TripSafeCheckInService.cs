@@ -71,29 +71,6 @@ public sealed class TripSafeCheckInService
                 "Trip plan was not found.");
         }
 
-        if (trip.DraftStatus == TripDraftStatus.Cancelled)
-        {
-            throw new InvalidOperationException(
-                "Cancelled trips cannot receive check-ins.");
-        }
-
-        var session = await _sessions.GetByIdAsync(
-            sessionId,
-            cancellationToken);
-
-        if (session is null ||
-            session.TripPlanId != tripPlanId)
-        {
-            throw new KeyNotFoundException(
-                "Trip session was not found.");
-        }
-
-        if (session.Status == LiveTripStatus.Finished)
-        {
-            throw new InvalidOperationException(
-                "Finished trips cannot receive new check-ins.");
-        }
-
         var isOwner = string.Equals(
             trip.OwnerUserId,
             userId,
@@ -117,6 +94,29 @@ public sealed class TripSafeCheckInService
                 throw new UnauthorizedAccessException(
                     "Only active trip members may mark themselves safe.");
             }
+        }
+
+        if (trip.DraftStatus == TripDraftStatus.Cancelled)
+        {
+            throw new InvalidOperationException(
+                "Cancelled trips cannot receive check-ins.");
+        }
+
+        var session = await _sessions.GetByIdAsync(
+            sessionId,
+            cancellationToken);
+
+        if (session is null ||
+            session.TripPlanId != tripPlanId)
+        {
+            throw new KeyNotFoundException(
+                "Trip session was not found.");
+        }
+
+        if (session.Status == LiveTripStatus.Finished)
+        {
+            throw new InvalidOperationException(
+                "Finished trips cannot receive new check-ins.");
         }
 
         var checkIn = new TripSafeCheckIn(

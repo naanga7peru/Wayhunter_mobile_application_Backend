@@ -1,8 +1,9 @@
 ﻿using System;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Wayhunter.Api.Controllers.Mobile.TripSafety;
-using Wayhunter.Api.Services.TripSafety;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
 using Wayhunter.Application.Modules.TripSafety.Services;
 using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
@@ -13,22 +14,27 @@ public static class TripSafetyBatch2ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
-        var useSql = configuration.GetValue<bool>("TripSafety:EnableSqlPersistence");
-        if (useSql)
-        {
-            services.AddScoped<ITripSafetyCheckInStore, UnavailableTripSafetyCheckInStore>();
+        services.RemoveAll<ITripSafetyCheckInStore>();
+        services.AddScoped<ITripSafetyCheckInStore, UnavailableTripSafetyCheckInStore>();
+        services.RemoveAll<ITripFinishedReminderGuard>();
+        if (configuration.GetValue<bool>("TripSafety:EnableSqlPersistence"))
             services.AddScoped<ITripFinishedReminderGuard, EfTripFinishedReminderGuard>();
-        }
         else
-        {
-            services.AddSingleton<InMemoryTripSafetyCheckInStore>();
-            services.AddSingleton<ITripSafetyCheckInStore>(sp => sp.GetRequiredService<InMemoryTripSafetyCheckInStore>());
-            services.AddSingleton<InMemoryTripFinishedReminderGuard>();
-            services.AddSingleton<ITripFinishedReminderGuard>(sp => sp.GetRequiredService<InMemoryTripFinishedReminderGuard>());
-        }
+            services.AddScoped<ITripFinishedReminderGuard, UnavailableTripFinishedReminderGuard>();
         services.AddScoped<TripSafeCheckInService>();
-        services.AddScoped<TripSafeSignalRNotifier>();
-        services.AddScoped<TripFinishReminderFilter>();
         return services;
+    }
+}
+public sealed class UnavailableTripFinishedReminderGuard : ITripFinishedReminderGuard
+{
+    public Task MarkFinishedAsync(Guid tripPlanId, Guid sessionId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        throw new InvalidOperationException("Durable trip finish reminder guard is unavailable.");
+    }
+    public Task<bool> HasFinishedAsync(Guid tripPlanId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        throw new InvalidOperationException("Durable trip finish reminder guard is unavailable.");
     }
 }
