@@ -56,7 +56,8 @@ public sealed class M5SqlGameProofSubmissionOperationStoreTests
             !string.Equals(
                 builder.DataSource,
                 AllowedServer,
-                StringComparison.OrdinalIgnoreCase))
+                StringComparison.OrdinalIgnoreCase) ||
+            !string.IsNullOrWhiteSpace(builder.AttachDBFilename))
         {
             throw new InvalidOperationException(
                 "Only the approved M5 LocalDB is allowed.");
@@ -141,31 +142,46 @@ public sealed class M5SqlGameProofSubmissionOperationStoreTests
 
         game.ApproveCreation(approvedAtUtc);
 
-        await using var db = CreateContext();
+        try
+        {
+            await using var db = CreateContext();
 
-        db.Users.AddRange(creator, player);
-        await db.SaveChangesAsync();
+            db.Users.AddRange(creator, player);
+            await db.SaveChangesAsync();
 
-        await new SqlGameRepository(db)
-            .AddAsync(game);
+            await new SqlGameRepository(db)
+                .AddAsync(game);
 
-        var startedAtUtc =
-            approvedAtUtc.AddMinutes(1);
+            var startedAtUtc =
+                approvedAtUtc.AddMinutes(1);
 
-        var attempt =
-            await new SqlGameAttemptRepository(db)
-                .StartOrResumeAsync(
-                    game.Id,
-                    player.UserId,
-                    startedAtUtc);
+            var attempt =
+                await new SqlGameAttemptRepository(db)
+                    .StartOrResumeAsync(
+                        game.Id,
+                        player.UserId,
+                        startedAtUtc);
 
-        return new TestSeed(
-            game.Id,
-            attempt.AttemptId,
-            creator.UserId,
-            player.UserId,
-            startedAtUtc,
-            attempt.DeadlineUtc);
+            return new TestSeed(
+                game.Id,
+                attempt.AttemptId,
+                creator.UserId,
+                player.UserId,
+                startedAtUtc,
+                attempt.DeadlineUtc);
+        }
+        catch (Exception seedError)
+        {
+            try
+            {
+                await CleanupAsync(new TestSeed(game.Id, Guid.Empty, creator.UserId, player.UserId, default, default));
+            }
+            catch (Exception cleanupError)
+            {
+                throw new AggregateException("M5 test seed and cleanup both failed.", seedError, cleanupError);
+            }
+            throw;
+        }
     }
 
     private static SubmitGameStageProofCommand Command(
