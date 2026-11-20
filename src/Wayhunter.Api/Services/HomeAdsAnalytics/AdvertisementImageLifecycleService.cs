@@ -43,36 +43,15 @@ public sealed class AdvertisementImageLifecycleService
 
         var stored = await _storage.UploadAsync(advertisementId, image, cancellationToken);
 
-        // Validate the trusted storage response before any DB write.
-        try
-        {
-            if (string.IsNullOrWhiteSpace(stored.AssetId))
-                throw new InvalidOperationException(
-                    "Storage returned an invalid asset identifier.");
+        // Fail closed: validation failure does not authorize deletion.
+        // Reconciliation requires future durable SQL operation records.
+        if (string.IsNullOrWhiteSpace(stored.AssetId))
+            throw new InvalidOperationException(
+                "Storage returned an invalid asset identifier.");
 
-            if (!AdvertisementUrlValidator.IsValidImageUrl(
-                    stored.HttpsUrl))
-            {
-                throw new InvalidOperationException(
-                    "Storage returned an invalid HTTPS URL.");
-            }
-        }
-        catch (Exception validationError)
-        {
-            try
-            {
-                await CleanupAsync(stored.AssetId);
-            }
-            catch (Exception cleanupError)
-            {
-                throw new AggregateException(
-                    "Storage validation failed and cleanup failed.",
-                    validationError,
-                    cleanupError);
-            }
-
-            throw;
-        }
+        if (!AdvertisementUrlValidator.IsValidImageUrl(stored.HttpsUrl))
+            throw new InvalidOperationException(
+                "Storage returned an invalid HTTPS URL.");
 
         // Important:
         // An exception from ExecuteUpdateAsync does not prove that
@@ -85,33 +64,13 @@ public sealed class AdvertisementImageLifecycleService
             stored.HttpsUrl,
             cancellationToken);
 
-        // A returned null confirms zero matching rows.
+        // A CAS conflict never authorizes Cloudinary deletion.
+        // Keep the uploaded asset pending future SQL reconciliation.
         if (updated is null)
         {
-            await CleanupAsync(stored.AssetId);
             return null;
         }
 
         return updated;
-    }
-    private async Task CleanupAsync(string assetId)
-    {
-        if (string.IsNullOrWhiteSpace(assetId))
-        {
-            throw new InvalidOperationException(
-                "Image cleanup could not identify the uploaded asset.");
-        }
-
-        // The provider must independently enforce M7 asset ownership.
-        // Never delete an arbitrary client-provided asset.
-        var deleted = await _storage.TryDeleteOwnedAssetAsync(
-            assetId,
-            CancellationToken.None);
-
-        if (!deleted)
-        {
-            throw new InvalidOperationException(
-                "Image update failed and uploaded asset cleanup was not confirmed.");
-        }
     }
 }

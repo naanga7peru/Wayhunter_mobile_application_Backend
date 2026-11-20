@@ -275,6 +275,6 @@ public sealed partial class AdvertisementAdminPositiveHttpTests
             persisted.ImageUrl);
 
         Assert.Equal(1, storage.UploadCount);
-        Assert.Equal(1, storage.DeleteCount);
+        Assert.Equal(0, storage.DeleteCount);
     }
 }

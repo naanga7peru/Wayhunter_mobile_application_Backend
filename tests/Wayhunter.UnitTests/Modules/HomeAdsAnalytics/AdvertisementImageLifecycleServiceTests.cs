@@ -30,7 +30,7 @@ public sealed class AdvertisementImageLifecycleServiceTests
     }
 
     [Fact]
-    public async Task ConcurrentUpdateConflict_CleansNewAsset()
+    public async Task ConcurrentUpdateConflict_PreservesAssetWithoutSqlDeletionAuthorization()
     {
         var storage = new FakeStorage();
         var repository = new FakeUpdateRepository();
@@ -44,9 +44,10 @@ public sealed class AdvertisementImageLifecycleServiceTests
             Image);
 
         Assert.Null(result);
+        Assert.Equal(1, storage.UploadCalls);
         Assert.Equal(1, repository.UpdateCalls);
-        Assert.Equal(1, storage.DeleteCalls);
-        Assert.Equal("m7/test-asset", storage.LastDeletedAssetId);
+        Assert.Equal(0, storage.DeleteCalls);
+        Assert.Null(storage.LastDeletedAssetId);
     }
 
     [Fact]
@@ -74,11 +75,11 @@ public sealed class AdvertisementImageLifecycleServiceTests
     }
 
     [Fact]
-    public async Task ConflictCleanupFailure_IsNotSilentlyIgnored()
+    public async Task ConcurrentConflict_NeverInvokesThrowingProviderCleanup()
     {
         var storage = new FakeStorage
         {
-            DeleteReturnsFalse = true
+            DeleteThrows = true
         };
 
         var repository = new FakeUpdateRepository();
@@ -86,19 +87,15 @@ public sealed class AdvertisementImageLifecycleServiceTests
         var service = new AdvertisementImageLifecycleService(
             storage, repository);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.ReplaceAsync(
-                Guid.NewGuid(),
-                "https://example.com/old.png",
-                Image));
+        var result = await service.ReplaceAsync(
+            Guid.NewGuid(),
+            "https://example.com/old.png",
+            Image);
 
-        Assert.Contains(
-            "cleanup was not confirmed",
-            exception.Message);
-
+        Assert.Null(result);
         Assert.Equal(1, repository.UpdateCalls);
-        Assert.Equal(1, storage.DeleteCalls);
-        Assert.Equal("m7/test-asset", storage.LastDeletedAssetId);
+        Assert.Equal(0, storage.DeleteCalls);
+        Assert.Null(storage.LastDeletedAssetId);
     }
     [Fact]
     public async Task DatabaseFailure_DoesNotAttemptUnsafeCleanup()
@@ -164,11 +161,12 @@ public sealed class AdvertisementImageLifecycleServiceTests
             repository.LastTrustedImageUrl);
     }
     [Fact]
-    public async Task InvalidStorageUrl_CleansAssetWithoutDatabaseUpdate()
+    public async Task InvalidStorageUrl_NeverTriggersUnverifiedDeletion()
     {
         var storage = new FakeStorage
         {
-            UploadedUrl = "http://example.com/insecure.png"
+            UploadedUrl = "http://example.com/insecure.png",
+            DeleteThrows = true
         };
 
         var repository = new FakeUpdateRepository();
@@ -182,16 +180,13 @@ public sealed class AdvertisementImageLifecycleServiceTests
                 "https://example.com/old.png",
                 Image));
 
-        Assert.Contains(
-            "invalid HTTPS URL",
-            exception.Message);
-
+        Assert.Contains("invalid HTTPS URL", exception.Message);
         Assert.Equal(0, repository.UpdateCalls);
-        Assert.Equal(1, storage.DeleteCalls);
-        Assert.Equal("m7/test-asset", storage.LastDeletedAssetId);
+        Assert.Equal(0, storage.DeleteCalls);
+        Assert.Null(storage.LastDeletedAssetId);
     }
     [Fact]
-    public async Task EmptyStorageAssetId_PreventsDatabaseUpdate()
+    public async Task EmptyStorageAssetId_PreventsUpdateAndDeletion()
     {
         var storage = new FakeStorage
         {
@@ -203,27 +198,18 @@ public sealed class AdvertisementImageLifecycleServiceTests
         var service = new AdvertisementImageLifecycleService(
             storage, repository);
 
-        var exception = await Assert.ThrowsAsync<AggregateException>(
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.ReplaceAsync(
                 Guid.NewGuid(),
                 "https://example.com/old.png",
                 Image));
 
-        Assert.Equal(2, exception.InnerExceptions.Count);
-
-        Assert.Contains(
-            "invalid asset identifier",
-            exception.InnerExceptions[0].Message);
-
-        Assert.Contains(
-            "could not identify",
-            exception.InnerExceptions[1].Message);
-
+        Assert.Contains("invalid asset identifier", exception.Message);
         Assert.Equal(0, repository.UpdateCalls);
         Assert.Equal(0, storage.DeleteCalls);
     }
     [Fact]
-    public async Task TwoConcurrentAdmins_OnlyWinnerAssetIsRetained()
+    public async Task TwoConcurrentAdmins_OneCasWinner_NoUnverifiedDeletion()
     {
         var advertisementId = Guid.NewGuid();
         const string oldUrl = "https://example.com/old.png";
@@ -250,19 +236,12 @@ public sealed class AdvertisementImageLifecycleServiceTests
         var secondService = new AdvertisementImageLifecycleService(
             secondStorage, repository);
 
-        var firstTask = firstService.ReplaceAsync(
-            advertisementId, oldUrl, Image);
-
-        var secondTask = secondService.ReplaceAsync(
-            advertisementId, oldUrl, Image);
-
         var results = await Task.WhenAll(
-            firstTask, secondTask);
+            firstService.ReplaceAsync(advertisementId, oldUrl, Image),
+            secondService.ReplaceAsync(advertisementId, oldUrl, Image));
 
-        // Exactly one conditional update wins.
         Assert.Single(results, result => result is not null);
         Assert.Single(results, result => result is null);
-
         Assert.Equal(2, repository.UpdateCalls);
 
         var firstWon = results[0] is not null;
@@ -271,25 +250,11 @@ public sealed class AdvertisementImageLifecycleServiceTests
             firstWon ? firstUrl : secondUrl,
             repository.CurrentImageUrl);
 
-        Assert.Equal(
-            firstWon ? 0 : 1,
-            firstStorage.DeleteCalls);
-
-        Assert.Equal(
-            firstWon ? 1 : 0,
-            secondStorage.DeleteCalls);
-
-        // Cleanup must target only the losing request.
-        Assert.Equal(
-            firstWon ? "m7/second-asset" : "m7/first-asset",
-            firstWon
-                ? secondStorage.LastDeletedAssetId
-                : firstStorage.LastDeletedAssetId);
-
-        Assert.Null(
-            firstWon
-                ? firstStorage.LastDeletedAssetId
-                : secondStorage.LastDeletedAssetId);
+        // Neither asset may be deleted without authoritative SQL approval.
+        Assert.Equal(0, firstStorage.DeleteCalls);
+        Assert.Equal(0, secondStorage.DeleteCalls);
+        Assert.Null(firstStorage.LastDeletedAssetId);
+        Assert.Null(secondStorage.LastDeletedAssetId);
     }
 
     private sealed class ConcurrentCasRepository
