@@ -1,5 +1,6 @@
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Net;
 using System.Net.Http;
@@ -10,7 +11,7 @@ using Wayhunter.Application.Modules.TravelPlanning.Interfaces;
 
 namespace Wayhunter.Infrastructure.Integrations.Weather;
 
-public sealed class OpenWeatherMapProvider : IWeatherProvider
+public sealed class OpenWeatherMapProvider : IWeatherProvider, IWeatherForecastProvider
 {
     private readonly HttpClient _httpClient;
     private readonly WeatherProviderOptions _options;
@@ -83,6 +84,7 @@ public sealed class OpenWeatherMapProvider : IWeatherProvider
                 };
             }
 
+            await response.Content.LoadIntoBufferAsync(128 * 1024, timeout.Token);
             await using var stream =
                 await response.Content.ReadAsStreamAsync(
                     timeout.Token);
@@ -164,9 +166,66 @@ public sealed class OpenWeatherMapProvider : IWeatherProvider
         {
             return Failure("Weather provider unavailable.");
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
             return Failure("Invalid weather JSON response.");
+        }
+    }
+
+    public async Task<IReadOnlyList<WeatherForecastPoint>?> GetForecastAsync(
+        double latitude, double longitude, CancellationToken cancellationToken = default)
+    {
+        ValidateCoordinates(latitude, longitude);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_options.Enabled || _options.Validate().Count > 0)
+            return null;
+
+        var coordinates = FormattableString.Invariant($"lat={latitude:R}&lon={longitude:R}");
+        var key = Uri.EscapeDataString(_options.ApiKey!);
+        var url = $"https://api.openweathermap.org/data/2.5/forecast?{coordinates}&units=metric&appid={key}";
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(_options.TimeoutSeconds));
+        try
+        {
+            using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead,
+                timeout.Token);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            await response.Content.LoadIntoBufferAsync(128 * 1024, timeout.Token);
+            await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: timeout.Token);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("list", out var list) || list.ValueKind != JsonValueKind.Array ||
+                list.GetArrayLength() is < 1 or > 40)
+                return null;
+
+            var forecast = new List<WeatherForecastPoint>(list.GetArrayLength());
+            foreach (var point in list.EnumerateArray())
+            {
+                if (!point.GetProperty("dt").TryGetInt64(out var timestamp) ||
+                    timestamp <= 0 || timestamp > DateTimeOffset.MaxValue.ToUnixTimeSeconds() ||
+                    !point.GetProperty("main").GetProperty("temp").TryGetDouble(out var temperature) ||
+                    !double.IsFinite(temperature))
+                    return null;
+
+                var condition = point.GetProperty("weather")[0].GetProperty("main").GetString();
+                if (string.IsNullOrWhiteSpace(condition) || condition.Length > 100)
+                    return null;
+
+                forecast.Add(new(DateTimeOffset.FromUnixTimeSeconds(timestamp), temperature, condition.Trim()));
+            }
+            return forecast;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or
+                                   InvalidOperationException or KeyNotFoundException or IndexOutOfRangeException)
+        {
+            return null;
         }
     }
 

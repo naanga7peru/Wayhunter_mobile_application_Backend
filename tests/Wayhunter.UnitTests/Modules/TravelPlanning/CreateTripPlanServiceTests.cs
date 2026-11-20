@@ -85,6 +85,43 @@ public sealed class CreateTripPlanServiceTests
         Assert.Empty(saved);
     }
 
+    [Fact]
+    public async Task CreateAsync_ReviewedStops_SavesOwnedDraftInOrder()
+    {
+        var repository = new FakeTripPlanRepository();
+        var service = new CreateTripPlanService(repository);
+        var request = ValidRequest() with
+        {
+            InitialStops = [new("Jaffna"), new("Point Pedro", null, 9.81, 80.23)]
+        };
+
+        var result = await service.CreateAsync(request, "user-001");
+
+        Assert.Collection(result.Stops,
+            first => Assert.Equal("Jaffna", first.Name),
+            second => Assert.Equal("Point Pedro", second.Name));
+        var saved = Assert.Single(await repository.GetByOwnerAsync("user-001"));
+        Assert.Equal(Wayhunter.Domain.Modules.TravelPlanning.Enums.TripDraftStatus.Draft, saved.DraftStatus);
+        Assert.Null(saved.SourceTripPlanId);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CreateAsync_InvalidOrDuplicateInitialStop_DoesNotPersist(bool duplicate)
+    {
+        var repository = new FakeTripPlanRepository();
+        var service = new CreateTripPlanService(repository);
+        var request = ValidRequest() with
+        {
+            InitialStops = [new("Jaffna"), duplicate ? new("jaffna") : new("Invalid GPS", Latitude: 91)]
+        };
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(request, "user-001"));
+
+        Assert.Empty(await repository.GetByOwnerAsync("user-001"));
+    }
+
     private sealed class FakeTripPlanRepository
         : ITripPlanRepository
     {

@@ -60,7 +60,25 @@ public sealed class CreateTripPlanService
             request.VehicleType,
             request.Headcount);
 
-        // Step 3: Save using repository.
+        if (request.InitialStops is { } initialStops)
+        {
+            if (initialStops.Count > 100)
+                throw new ArgumentException("A draft can be created with up to 100 stops.");
+
+            var seen = new System.Collections.Generic.HashSet<(string, string?, double?, double?)>();
+            foreach (var stop in initialStops)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (stop is null)
+                    throw new ArgumentException("Initial stops are required to be non-null.");
+
+                var added = tripPlan.AddStop(stop.Name, stop.PlaceId, stop.Latitude, stop.Longitude);
+                if (!seen.Add((added.Name.ToUpperInvariant(), added.PlaceId, added.Latitude, added.Longitude)))
+                    throw new ArgumentException("Initial stops must be distinct.");
+            }
+        }
+
+        // Save the draft and its ordered stops together.
         await _repository.AddAsync(
             tripPlan,
             cancellationToken);
