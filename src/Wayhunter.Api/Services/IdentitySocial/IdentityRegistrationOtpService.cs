@@ -1,6 +1,5 @@
 using System.Data;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
 using Wayhunter.Application.Modules.CoinsWallet.Commands;
 using Wayhunter.Application.Modules.IdentitySocial.Dtos;
 using Wayhunter.Application.Modules.IdentitySocial.Services;
@@ -118,52 +117,70 @@ public sealed class IdentityRegistrationOtpService
             return new IdentityFlowResult(202);
 
         var now = _clock.GetUtcNow();
-        await using var transaction = await BeginSerializableAsync(cancellationToken);
-        var account = await _db.Users.SingleOrDefaultAsync(
-            x => x.NormalizedEmail == normalized,
-            cancellationToken);
-        if (account is null || account.Status != UserAccountStatus.PendingVerification)
-        {
-            await CommitAsync(transaction, cancellationToken);
-            return new IdentityFlowResult(202);
-        }
-
-        var outstanding = await _db.IdentityOtpChallenges
-            .Where(x => x.UserId == account.UserId &&
-                        x.ConsumedAtUtc == null &&
-                        x.RevokedAtUtc == null)
-            .OrderByDescending(x => x.CreatedAtUtc)
-            .ToListAsync(cancellationToken);
-
-        var cooldown = OtpResendCooldownPolicy.Check(
-            now,
-            outstanding.FirstOrDefault()?.CreatedAtUtc,
-            ResendCooldown);
-        if (!cooldown.Allowed)
-        {
-            return new IdentityFlowResult(
-                429,
-                new { error = "otp_resend_cooldown" },
-                cooldown.RetryAfter);
-        }
-
-        foreach (var oldChallenge in outstanding)
-            oldChallenge.Revoke(now);
-
         var code = _codes.Generate();
-        var challenge = CreateChallenge(account.UserId, code, now);
-        _db.IdentityOtpChallenges.Add(challenge);
-        await _db.SaveChangesAsync(cancellationToken);
-        await CommitAsync(transaction, cancellationToken);
-
-        if (!await SendOtpAsync(account, code, cancellationToken))
+        var outcome = await ExecuteSerializableAsync(async () =>
         {
-            challenge.Revoke(_clock.GetUtcNow());
+            var account = await _db.Users.SingleOrDefaultAsync(
+                x => x.NormalizedEmail == normalized,
+                cancellationToken);
+            if (account is null || account.Status != UserAccountStatus.PendingVerification)
+                return new ResendTransactionResult(new IdentityFlowResult(202));
+
+            var verifierHash = _verifier.Hash(account.UserId, code);
+            var retriedChallenge = await _db.IdentityOtpChallenges
+                .SingleOrDefaultAsync(x =>
+                    x.UserId == account.UserId &&
+                    x.CreatedAtUtc == now &&
+                    x.OtpVerifierHash == verifierHash &&
+                    x.ConsumedAtUtc == null &&
+                    x.RevokedAtUtc == null,
+                    cancellationToken);
+            if (retriedChallenge is not null)
+            {
+                return new ResendTransactionResult(
+                    new IdentityFlowResult(202), account, retriedChallenge, code);
+            }
+
+            var outstanding = await _db.IdentityOtpChallenges
+                .Where(x => x.UserId == account.UserId &&
+                            x.ConsumedAtUtc == null &&
+                            x.RevokedAtUtc == null)
+                .OrderByDescending(x => x.CreatedAtUtc)
+                .ToListAsync(cancellationToken);
+
+            var cooldown = OtpResendCooldownPolicy.Check(
+                now,
+                outstanding.FirstOrDefault()?.CreatedAtUtc,
+                ResendCooldown);
+            if (!cooldown.Allowed)
+            {
+                return new ResendTransactionResult(new IdentityFlowResult(
+                    429,
+                    new { error = "otp_resend_cooldown" },
+                    cooldown.RetryAfter));
+            }
+
+            foreach (var oldChallenge in outstanding)
+                oldChallenge.Revoke(now);
+
+            var challenge = CreateChallenge(account.UserId, code, now);
+            _db.IdentityOtpChallenges.Add(challenge);
+            await _db.SaveChangesAsync(cancellationToken);
+            return new ResendTransactionResult(
+                new IdentityFlowResult(202), account, challenge, code);
+        }, cancellationToken);
+
+        if (outcome.Account is null || outcome.Challenge is null || outcome.Code is null)
+            return outcome.Result;
+
+        if (!await SendOtpAsync(outcome.Account, outcome.Code, cancellationToken))
+        {
+            outcome.Challenge.Revoke(_clock.GetUtcNow());
             await _db.SaveChangesAsync(cancellationToken);
             return new IdentityFlowResult(503, new { error = "otp_delivery_unavailable" });
         }
 
-        return new IdentityFlowResult(202);
+        return outcome.Result;
     }
 
     public async Task<IdentityFlowResult> VerifyAsync(
@@ -176,11 +193,7 @@ public sealed class IdentityRegistrationOtpService
             return InvalidOtp();
 
         var now = _clock.GetUtcNow();
-        var newlyActivated = false;
-        UserAccount? accountForReward = null;
-
-        await using (var transaction =
-            await BeginSerializableAsync(cancellationToken))
+        var outcome = await ExecuteSerializableAsync(async () =>
         {
             var account = await _db.Users.SingleOrDefaultAsync(
                 x => x.NormalizedEmail == normalized,
@@ -189,7 +202,7 @@ public sealed class IdentityRegistrationOtpService
                 account.Status is UserAccountStatus.Suspended or
                     UserAccountStatus.DeletionRequested)
             {
-                return InvalidOtp();
+                return new VerifyTransactionResult(InvalidOtp(), null);
             }
 
             var challenges = await _db.IdentityOtpChallenges
@@ -203,39 +216,39 @@ public sealed class IdentityRegistrationOtpService
                     x.ConsumedAtUtc is not null &&
                     _verifier.Verify(account.UserId, code, x.OtpVerifierHash));
                 if (consumed is null)
-                    return InvalidOtp();
-                accountForReward = account;
+                    return new VerifyTransactionResult(InvalidOtp(), null);
+                return new VerifyTransactionResult(
+                    new IdentityFlowResult(204,
+                        new { verified = true, newlyActivated = false }), account);
             }
             else
             {
                 var challenge = challenges.FirstOrDefault(x =>
                     x.ConsumedAtUtc is null && x.RevokedAtUtc is null);
                 if (challenge is null || !challenge.CanAttemptAt(now))
-                    return InvalidOtp();
+                    return new VerifyTransactionResult(InvalidOtp(), null);
 
                 if (!_verifier.Verify(
                         account.UserId, code, challenge.OtpVerifierHash))
                 {
                     challenge.RecordFailedAttempt(now);
                     await _db.SaveChangesAsync(cancellationToken);
-                    await CommitAsync(transaction, cancellationToken);
-                    return InvalidOtp();
+                    return new VerifyTransactionResult(InvalidOtp(), null);
                 }
 
                 challenge.ConsumeAfterExternalVerification(now);
                 account.ActivateAfterVerifiedOtp(now);
                 await _db.SaveChangesAsync(cancellationToken);
-                await CommitAsync(transaction, cancellationToken);
-                newlyActivated = true;
-                accountForReward = account;
+                return new VerifyTransactionResult(
+                    new IdentityFlowResult(204,
+                        new { verified = true, newlyActivated = true }), account);
             }
-        }
+        }, cancellationToken);
 
-        if (accountForReward is not null)
-            await TryDeliverWelcomeRewardAsync(accountForReward, cancellationToken);
+        if (outcome.AccountForReward is not null)
+            await TryDeliverWelcomeRewardAsync(outcome.AccountForReward, cancellationToken);
 
-        return new IdentityFlowResult(204,
-            new { verified = true, newlyActivated });
+        return outcome.Result;
     }
 
     private IdentityOtpChallenge CreateChallenge(
@@ -284,21 +297,38 @@ public sealed class IdentityRegistrationOtpService
         }
     }
 
-    private async Task<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction?>
-        BeginSerializableAsync(CancellationToken cancellationToken)
+    private async Task<T> ExecuteSerializableAsync<T>(
+        Func<Task<T>> operation,
+        CancellationToken cancellationToken)
     {
-        if (!_db.Database.IsRelational())
-            return null;
-        return await _db.Database.BeginTransactionAsync(
-            IsolationLevel.Serializable, cancellationToken);
+        var strategy = _db.Database.CreateExecutionStrategy();
+        var attempt = 0;
+        return await strategy.ExecuteAsync(async () =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (attempt++ > 0)
+                _db.ChangeTracker.Clear();
+
+            if (!_db.Database.IsRelational())
+                return await operation();
+
+            await using var transaction = await _db.Database.BeginTransactionAsync(
+                IsolationLevel.Serializable, cancellationToken);
+            var result = await operation();
+            await transaction.CommitAsync(cancellationToken);
+            return result;
+        });
     }
 
-    private static Task CommitAsync(
-        IDbContextTransaction? transaction,
-        CancellationToken cancellationToken) =>
-        transaction is null
-            ? Task.CompletedTask
-            : transaction.CommitAsync(cancellationToken);
+    private sealed record ResendTransactionResult(
+        IdentityFlowResult Result,
+        UserAccount? Account = null,
+        IdentityOtpChallenge? Challenge = null,
+        string? Code = null);
+
+    private sealed record VerifyTransactionResult(
+        IdentityFlowResult Result,
+        UserAccount? AccountForReward);
 
     private static string? NormalizeEmail(string? email)
     {
