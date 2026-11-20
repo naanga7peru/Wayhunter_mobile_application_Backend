@@ -64,6 +64,10 @@ public sealed class WayhunterSharedDbContext : DbContext
     public DbSet<IdentityOtpChallenge> IdentityOtpChallenges
         => Set<IdentityOtpChallenge>();
 
+    public DbSet<IdentityPasswordResetCredential>
+        IdentityPasswordResetCredentials
+        => Set<IdentityPasswordResetCredential>();
+
     public DbSet<IdentitySession> IdentitySessions
         => Set<IdentitySession>();
 
@@ -247,6 +251,9 @@ public sealed class WayhunterSharedDbContext : DbContext
 
         modelBuilder.ApplyConfiguration(
             new IdentityOtpChallengeConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new IdentityPasswordResetCredentialConfiguration());
 
         modelBuilder.ApplyConfiguration(
             new IdentitySessionConfiguration());

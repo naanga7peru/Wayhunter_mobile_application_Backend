@@ -29,6 +29,7 @@ public static class IdentityPersistenceServiceCollectionExtensions
         services.TryAddScoped<VerifiedSessionCreationService>();
         services.TryAddScoped<IdentityRegistrationOtpService>();
         services.TryAddScoped<IdentitySignInService>();
+        services.TryAddScoped<PasswordRecoveryService>();
         services.TryAddScoped<ILoginAccountReader, SqlLoginAccountReader>();
         services.TryAddSingleton<
             IIdentityOtpCodeGenerator,
@@ -36,6 +37,9 @@ public static class IdentityPersistenceServiceCollectionExtensions
         services.TryAddSingleton(_ => new IdentityOtpVerifier(
             configuration["Authentication:Jwt:SigningSecret"] ?? string.Empty));
         services.AddHttpClient<ResendIdentityOtpEmailSender>();
+        services.AddHttpClient<ResendPasswordResetEmailSender>();
+        services.TryAddScoped<IPasswordResetEmailSender>(sp =>
+            sp.GetRequiredService<ResendPasswordResetEmailSender>());
         services.TryAddScoped<IIdentityOtpEmailSender>(sp =>
             sp.GetRequiredService<ResendIdentityOtpEmailSender>());
 
