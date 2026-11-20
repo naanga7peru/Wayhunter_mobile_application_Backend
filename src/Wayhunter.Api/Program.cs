@@ -318,6 +318,7 @@ if (builder.Environment.IsDevelopment())
 
 
 builder.Services.AddTripMemoryServices();
+builder.Services.AddNotificationFoundation(builder.Configuration);
 builder.Services.AddTripSafetyBatch2Services(builder.Configuration);
 
 var app = builder.Build();

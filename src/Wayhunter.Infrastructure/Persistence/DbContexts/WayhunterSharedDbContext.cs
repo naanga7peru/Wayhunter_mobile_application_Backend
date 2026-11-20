@@ -119,6 +119,18 @@ public sealed class WayhunterSharedDbContext : DbContext
 
     public DbSet<TripMemoryMediaRow> TripMemoryMedia => Set<TripMemoryMediaRow>();
 
+    // Proposed MS08 mappings only.
+    public DbSet<NotificationEventRow> NotificationEvents => Set<NotificationEventRow>();
+    public DbSet<NotificationRecipientRow> NotificationRecipients => Set<NotificationRecipientRow>();
+    public DbSet<NotificationPreferenceRow> NotificationPreferences => Set<NotificationPreferenceRow>();
+    public DbSet<NotificationDeviceRow> NotificationDevices => Set<NotificationDeviceRow>();
+    public DbSet<NotificationTokenBindingRow> NotificationTokenBindings => Set<NotificationTokenBindingRow>();
+    public DbSet<NotificationJobRow> NotificationJobs => Set<NotificationJobRow>();
+    public DbSet<NotificationJobRecipientRow> NotificationJobRecipients => Set<NotificationJobRecipientRow>();
+    public DbSet<NotificationAudienceReceiptRow> NotificationAudienceReceipts => Set<NotificationAudienceReceiptRow>();
+    public DbSet<NotificationOperationRow> NotificationOperations => Set<NotificationOperationRow>();
+    public DbSet<NotificationDeliveryAuditRow> NotificationDeliveryAudit => Set<NotificationDeliveryAuditRow>();
+
     public DbSet<TripGpsConsent> TripGpsConsents
         => Set<TripGpsConsent>();
 
@@ -309,6 +321,18 @@ public sealed class WayhunterSharedDbContext : DbContext
 
         modelBuilder.ApplyConfiguration(new TripMemoryConfiguration());
         modelBuilder.ApplyConfiguration(new TripMemoryMediaConfiguration());
+
+        var notifications = new NotificationModelConfiguration();
+        modelBuilder.ApplyConfiguration<NotificationEventRow>(notifications);
+        modelBuilder.ApplyConfiguration<NotificationRecipientRow>(notifications);
+        modelBuilder.ApplyConfiguration<NotificationPreferenceRow>(notifications);
+        modelBuilder.ApplyConfiguration<NotificationDeviceRow>(notifications);
+        modelBuilder.ApplyConfiguration<NotificationTokenBindingRow>(notifications);
+        modelBuilder.ApplyConfiguration<NotificationJobRow>(notifications);
+        modelBuilder.ApplyConfiguration<NotificationJobRecipientRow>(notifications);
+        modelBuilder.ApplyConfiguration<NotificationAudienceReceiptRow>(notifications);
+        modelBuilder.ApplyConfiguration<NotificationOperationRow>(notifications);
+        modelBuilder.ApplyConfiguration<NotificationDeliveryAuditRow>(notifications);
 
         modelBuilder.ApplyConfiguration(
             new TripGpsConsentConfiguration());
