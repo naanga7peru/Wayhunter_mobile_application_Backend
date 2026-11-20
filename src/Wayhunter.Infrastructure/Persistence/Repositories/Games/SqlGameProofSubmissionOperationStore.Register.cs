@@ -86,7 +86,7 @@ public sealed partial class SqlGameProofSubmissionOperationStore
         {
             await transaction.CommitAsync(cancellationToken);
         }
-        catch (Exception commitError) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception commitError)
         {
             // A failed COMMIT acknowledgement does not prove rollback.
             var cleanupErrors = new System.Collections.Generic.List<Exception>();
@@ -97,10 +97,11 @@ public sealed partial class SqlGameProofSubmissionOperationStore
                 cleanupErrors.Insert(0, commitError);
                 throw new AggregateException("Registration commit outcome unknown; cleanup failed.", cleanupErrors);
             }
+            using var recoveryTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             GameProofSubmissionOperationSnapshot? recovered;
             try
             {
-                recovered = await GetAsync(binding.SubmissionOperationId, cancellationToken);
+                recovered = await GetAsync(binding.SubmissionOperationId, recoveryTimeout.Token);
                 if (recovered is not null)
                     GameProofSubmissionOperationRules.EnsureMatchingStoredOperation(recovered, binding);
             }

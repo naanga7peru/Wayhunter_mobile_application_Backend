@@ -6,7 +6,7 @@ Branch: task/m5-idempotent-proof-recovery
 ## Verified isolated work
 - Operation binding, validation and recovery state guards created.
 - Proposed operation persistence model and EF configuration created.
-- Latest full backend unit tests: 2921/2921 passed, 0 failed, 0 skipped.
+- Last verified full backend unit tests: 3032/3032 passed, 0 failed, 0 skipped.
 - New SQL fencing input-guard tests: 5/5 passed.
 - Actual SQL fencing, concurrency and crash-recovery integration verification remains pending.
 - No shared migrations or production DI changes.
@@ -25,6 +25,17 @@ Branch: task/m5-idempotent-proof-recovery
 - Capture Owner: trusted provider idempotency, single-use enforcement and outcome reconciliation.
 - M5 Owner: durable atomic claims, recovery transitions, ambiguous commit handling and concurrency tests.
 - Team Leader: final production wiring and activation approval.
+
+## M4-M5 integration findings (source review only)
+- Latest backend build succeeded without reported warnings or errors.
+- Twelve isolated M5 SQL recovery integration tests compiled; actual SQL execution remains pending DB Coordinator authorization.
+- Cross-game canonical-media replay test added; runtime enforcement has not been verified.
+- Existing GameProofEvidence.MediaId has no unique index; the new operation-table unique index does not guarantee cross-table global uniqueness.
+- Existing M4 capture SQL store provides conditional single-use consumption, but no confirmed SubmissionOperationId-bound durable outcome lookup.
+- No concrete IGameProofCaptureRecoveryProvider implementation was found in the reviewed source search.
+- Proposed M1 string UserId to M4 Guid HunterId mapping requires explicit approval and trusted authenticated caller verification.
+- M4 authorized capture handlers exist, but source searches found no API invocation or production DI registration.
+- DB Coordinator and M4 Capture Owner decisions remain blockers; no shared migration or production wiring is authorized.
 
 ## Safety boundary
 - Proposed EF configuration is not registered in WayhunterSharedDbContext.
