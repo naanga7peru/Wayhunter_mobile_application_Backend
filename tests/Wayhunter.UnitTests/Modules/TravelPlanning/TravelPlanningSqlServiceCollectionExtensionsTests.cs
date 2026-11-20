@@ -135,6 +135,27 @@ public sealed class TravelPlanningSqlServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void LegacyCopyFlag_DoesNotActivateUnapprovedCopy()
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:WayhunterSharedDb"] = TestConnectionString,
+                ["TravelPlanning:EnableSqlPersistence"] = "true",
+                ["TripSafety:EnableSqlPersistence"] = "true",
+                ["TravelPlanning:EnableMemberPlanCopy"] = "true"
+            }).Build();
+        var services = new ServiceCollection();
+        services.AddTravelPlanningModule();
+        services.AddConfiguredTravelPlanningPersistence(configuration);
+
+        var copy = Assert.Single(services.Where(s => s.ServiceType == typeof(ICopySuggestedTripPlanStore)));
+        Assert.Equal(typeof(UnavailableCopySuggestedTripPlanStore), copy.ImplementationType);
+        var reader = Assert.Single(services.Where(s => s.ServiceType == typeof(ISuggestedTripPlansReader)));
+        Assert.Equal(typeof(SqlSuggestedTripPlansReader), reader.ImplementationType);
+    }
+
+    [Fact]
     public void AddSqlPersistence_DoesNotConnectToDatabase()
     {
         var services = new ServiceCollection();

@@ -29,4 +29,7 @@ public sealed record RouteProviderResult(
     double? EstimatedDurationMinutes,
     string? ProviderName,
     string? FailureReason
-);
+)
+{
+    public string? EncodedPolyline { get; init; }
+}

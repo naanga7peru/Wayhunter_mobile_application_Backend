@@ -20,6 +20,28 @@ public static class TravelPlanningServiceCollectionExtensions
         // Server-side Maps configuration.
         services.AddTravelPlanningMapsConfiguration();
 
+        // Routes preview is isolated from M3 hazard routing.
+        services.AddHttpClient<GoogleRoutesProvider>()
+            .ConfigurePrimaryHttpMessageHandler(() => new System.Net.Http.HttpClientHandler
+            {
+                AllowAutoRedirect = false
+            });
+        services.AddScoped<PreviewTripRouteService>(sp =>
+            new PreviewTripRouteService(sp.GetRequiredService<GoogleRoutesProvider>()));
+        services.AddSingleton<InMemoryRoutePreviewDailyQuota>(
+            _ => new InMemoryRoutePreviewDailyQuota(TimeProvider.System));
+
+        services.AddKeyedSingleton("place-picker", (_, _) => new InMemoryTravelProviderQuota(TimeProvider.System));
+        services.AddKeyedSingleton("weather", (_, _) => new InMemoryTravelProviderQuota(TimeProvider.System));
+
+        services.AddHttpClient<GooglePlacePickerProvider>()
+            .ConfigurePrimaryHttpMessageHandler(() => new System.Net.Http.HttpClientHandler
+            {
+                AllowAutoRedirect = false
+            });
+        services.AddScoped<IPlacesProvider>(sp => sp.GetRequiredService<GooglePlacePickerProvider>());
+        services.AddScoped<IPlaceDetailsProvider>(sp => sp.GetRequiredService<GooglePlacePickerProvider>());
+
         // M2-MS08: Google Nearby Places - server-side
         services.AddHttpClient<
             INearbyPlacesProvider,
