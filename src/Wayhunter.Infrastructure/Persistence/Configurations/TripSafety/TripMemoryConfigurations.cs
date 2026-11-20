@@ -32,7 +32,9 @@ public sealed class TripMemoryConfiguration : IEntityTypeConfiguration<TripMemor
         builder.HasOne<TripStop>().WithMany()
             .HasForeignKey(x => new { x.TripStopId, x.TripPlanId })
             .HasPrincipalKey(x => new { x.Id, x.TripPlanId })
-            .OnDelete(DeleteBehavior.NoAction);
+            // Keep the optional link on tracked memories, including tombstones.
+            // SQL Server still receives NO ACTION.
+            .OnDelete(DeleteBehavior.ClientNoAction);
     }
 }
 

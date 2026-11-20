@@ -35,9 +35,11 @@ public sealed class M3Ms07TripMemoryMetadataTests
         Assert.Equal(new[] { "TripStopId", "TripPlanId" }, stop.Properties.Select(x => x.Name));
         Assert.Equal(new[] { "Id", "TripPlanId" }, stop.PrincipalKey.Properties.Select(x => x.Name));
         Assert.False(stop.IsRequired);
+        Assert.Equal(DeleteBehavior.ClientNoAction, stop.DeleteBehavior);
+        Assert.Equal(ReferentialAction.NoAction, Assert.Single(stop.GetMappedConstraints()).OnDeleteAction);
         Assert.Contains(memory.GetForeignKeys(), x => x.PrincipalEntityType.ClrType == typeof(UserAccount));
         Assert.Contains(memory.GetForeignKeys(), x => x.PrincipalEntityType.ClrType == typeof(TripPlan));
-        Assert.All(memory.GetForeignKeys().Concat(media.GetForeignKeys()),
+        Assert.All(memory.GetForeignKeys().Where(fk => fk != stop).Concat(media.GetForeignKeys()),
             fk => Assert.Equal(DeleteBehavior.NoAction, fk.DeleteBehavior));
         Assert.True(Assert.Single(media.GetForeignKeys()).IsUnique);
 
@@ -61,4 +63,33 @@ public sealed class M3Ms07TripMemoryMetadataTests
         var snapshotStop = snapshot.FindEntityType(typeof(TripStop).FullName!)!;
         Assert.Single(snapshotStop.GetKeys());
     }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TrackingStopDeletionPreservesActiveAndTombstoneLinks(bool tombstone)
+    {
+        using var db = new WayhunterSharedDbContext(new DbContextOptionsBuilder<WayhunterSharedDbContext>()
+            .UseSqlServer("Server=localhost;Database=MS07ModelOnly;Integrated Security=True").Options);
+        var owner = Guid.NewGuid().ToString("D");
+        var now = DateTimeOffset.UtcNow;
+        var day = DateOnly.FromDateTime(now.UtcDateTime);
+        var trip = new TripPlan(owner, "Trip", day, day.AddDays(1), 100m, "Car", 2);
+        var stop = trip.AddStop("Stop");
+        var memory = new TripMemoryRow
+        {
+            MemoryId = Guid.NewGuid(), TripPlanId = trip.Id, TripStopId = stop.Id,
+            OwnerUserId = owner, CreateOperationId = Guid.NewGuid(), CreatedAtUtc = now,
+            UpdatedAtUtc = now, DeletedAtUtc = tombstone ? now : null
+        };
+        db.Attach(trip);
+        db.Attach(memory);
+
+        db.Remove(stop);
+        db.ChangeTracker.CascadeChanges();
+
+        Assert.Equal(EntityState.Deleted, db.Entry(stop).State);
+        Assert.Equal(EntityState.Unchanged, db.Entry(memory).State);
+        Assert.Equal(stop.Id, memory.TripStopId);
+    }
+
 }
