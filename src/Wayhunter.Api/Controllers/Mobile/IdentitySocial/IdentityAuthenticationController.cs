@@ -14,6 +14,12 @@ public sealed record IdentityRegisterRequest(
 public sealed record IdentityOtpRequest(string Email, string Code);
 public sealed record IdentityOtpResendRequest(string Email);
 public sealed record IdentitySignInRequest(string Email, string Password);
+public sealed record IdentityForgotPasswordRequest(string Email);
+public sealed record IdentityResetPasswordRequest(
+    string Email,
+    string Token,
+    string NewPassword,
+    string ConfirmPassword);
 
 [ApiController]
 [AllowAnonymous]
@@ -22,13 +28,16 @@ public sealed class IdentityAuthenticationController : ControllerBase
 {
     private readonly IdentityRegistrationOtpService _registration;
     private readonly IdentitySignInService _signIn;
+    private readonly PasswordRecoveryService _passwordRecovery;
 
     public IdentityAuthenticationController(
         IdentityRegistrationOtpService registration,
-        IdentitySignInService signIn)
+        IdentitySignInService signIn,
+        PasswordRecoveryService passwordRecovery)
     {
         _registration = registration;
         _signIn = signIn;
+        _passwordRecovery = passwordRecovery;
     }
 
     [HttpPost("register")]
@@ -73,6 +82,32 @@ public sealed class IdentityAuthenticationController : ControllerBase
         {
             return StatusCode(503, new { error = "authentication_configuration_unavailable" });
         }
+    }
+
+    [HttpPost("forgot-password")]
+    public async Task<IActionResult> ForgotPassword(
+        IdentityForgotPasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _passwordRecovery.RequestResetAsync(
+            request.Email, cancellationToken);
+        return Accepted(new { message = "If the account is eligible, reset instructions will be sent." });
+    }
+
+    [HttpPost("reset-password")]
+    public async Task<IActionResult> ResetPassword(
+        IdentityResetPasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        var reset = await _passwordRecovery.ResetPasswordAsync(
+            request.Email,
+            request.Token,
+            request.NewPassword,
+            request.ConfirmPassword,
+            cancellationToken);
+        return reset
+            ? NoContent()
+            : BadRequest(new { error = "invalid_or_expired_reset_credential" });
     }
 
     private IActionResult ToActionResult(IdentityFlowResult result)

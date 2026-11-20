@@ -49,27 +49,30 @@ public sealed class PasswordRecoveryService
             return;
         }
 
-        var account = await _db.Users.SingleOrDefaultAsync(
-            x => x.NormalizedEmail == normalizedEmail,
-            cancellationToken);
-        if (account is null ||
-            account.Status != UserAccountStatus.Active ||
-            !account.VerifiedAtUtc.HasValue ||
-            account.DeletionRequestedAtUtc.HasValue)
-        {
-            return;
-        }
-
         var now = _clock.GetUtcNow();
         var token = CreateToken();
-        var credential = IdentityPasswordResetCredential.Create(
-            account.UserId,
-            HashToken(token),
-            now,
-            now.AddMinutes(lifetime.Value));
+        IdentityPasswordResetCredential credential;
+        string displayName;
 
         await using (var transaction = await BeginSerializableAsync(cancellationToken))
         {
+            var account = await _db.Users.SingleOrDefaultAsync(
+                x => x.NormalizedEmail == normalizedEmail,
+                cancellationToken);
+            if (account is null ||
+                account.Status != UserAccountStatus.Active ||
+                !account.VerifiedAtUtc.HasValue ||
+                account.DeletionRequestedAtUtc.HasValue)
+            {
+                return;
+            }
+
+            displayName = account.DisplayName;
+            credential = IdentityPasswordResetCredential.Create(
+                account.UserId,
+                HashToken(token),
+                now,
+                now.AddMinutes(lifetime.Value));
             var outstanding = await _db.IdentityPasswordResetCredentials
                 .Where(x => x.UserId == account.UserId &&
                             x.ConsumedAtUtc == null &&
@@ -86,8 +89,8 @@ public sealed class PasswordRecoveryService
         try
         {
             var delivered = await _emailSender.SendAsync(
-                account.NormalizedEmail,
-                account.DisplayName,
+                normalizedEmail,
+                displayName,
                 token,
                 lifetime.Value,
                 cancellationToken);
