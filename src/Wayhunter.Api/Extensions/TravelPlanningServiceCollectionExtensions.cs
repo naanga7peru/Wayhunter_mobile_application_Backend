@@ -21,7 +21,11 @@ public static class TravelPlanningServiceCollectionExtensions
         services.AddTravelPlanningMapsConfiguration();
 
         // Routes preview is isolated from M3 hazard routing.
-        services.AddHttpClient<GoogleRoutesProvider>();
+        services.AddHttpClient<GoogleRoutesProvider>()
+            .ConfigurePrimaryHttpMessageHandler(() => new System.Net.Http.HttpClientHandler
+            {
+                AllowAutoRedirect = false
+            });
         services.AddScoped<PreviewTripRouteService>(sp =>
             new PreviewTripRouteService(sp.GetRequiredService<GoogleRoutesProvider>()));
         services.AddSingleton<InMemoryRoutePreviewDailyQuota>(
