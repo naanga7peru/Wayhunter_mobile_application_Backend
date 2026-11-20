@@ -1,10 +1,11 @@
 
-using Wayhunter.Infrastructure.Integrations.Ai;
-using System;
 using Microsoft.Extensions.DependencyInjection;
+using System;
 using Wayhunter.Application.Modules.TravelPlanning.Commands;
 using Wayhunter.Application.Modules.TravelPlanning.Interfaces;
 using Wayhunter.Application.Modules.TravelPlanning.Queries;
+using Wayhunter.Infrastructure.Integrations.Ai;
+using Wayhunter.Infrastructure.Integrations.Maps;
 using Wayhunter.Infrastructure.Persistence.Repositories.TravelPlanning;
 
 namespace Wayhunter.Api.Extensions;
@@ -18,6 +19,18 @@ public static class TravelPlanningServiceCollectionExtensions
 
         // Server-side Maps configuration.
         services.AddTravelPlanningMapsConfiguration();
+
+        // M2-MS04: Routes preview, isolated from M3 Hazard routing.
+        services.AddHttpClient<GoogleRoutesProvider>();
+
+        services.AddScoped<PreviewTripRouteService>(sp =>
+            new PreviewTripRouteService(
+                sp.GetRequiredService<GoogleRoutesProvider>()));
+
+        services.AddSingleton<InMemoryRoutePreviewDailyQuota>(
+            _ => new InMemoryRoutePreviewDailyQuota(
+                TimeProvider.System));
+
 
         // Server-side AI provider configuration.
         services.AddTravelPlanningAiConfiguration();
