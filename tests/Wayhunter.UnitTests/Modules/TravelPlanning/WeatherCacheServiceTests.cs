@@ -132,8 +132,32 @@ public sealed class WeatherCacheServiceTests
         Assert.Equal(WeatherLookupStatus.Stale, result.Status);
         Assert.True(result.FromCache);
         Assert.NotNull(result.Observation);
+        Assert.Equal(Now.AddMinutes(-5), result.Observation.ObservedAtUtc);
+        Assert.Equal(Now, result.CachedAtUtc);
         Assert.NotNull(result.FailureReason);
         Assert.Equal(2, provider.CallCount);
+    }
+
+    [Fact]
+    public async Task ProviderFailure_ObservationExpiresAfter24Hours()
+    {
+        var clock = new FakeClock();
+        var provider = new FakeWeatherProvider();
+        var service = new WeatherCacheService(provider, MaximumAge, clock);
+        await service.GetAsync(9.66, 80.02);
+        provider.Response = Failure();
+
+        clock.Advance(TimeSpan.FromHours(24) - TimeSpan.FromMinutes(5));
+        var boundary = await service.GetAsync(9.66, 80.02);
+        Assert.Equal(WeatherLookupStatus.Stale, boundary.Status);
+        Assert.Equal(Now, boundary.CachedAtUtc);
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        var expired = await service.GetAsync(9.66, 80.02);
+        Assert.Equal(WeatherLookupStatus.Unavailable, expired.Status);
+        Assert.Null(expired.Observation);
+        Assert.Null(expired.CachedAtUtc);
+        Assert.False(expired.FromCache);
     }
 
     [Fact]

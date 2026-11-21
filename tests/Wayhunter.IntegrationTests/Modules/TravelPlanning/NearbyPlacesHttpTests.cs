@@ -156,8 +156,29 @@ public sealed class NearbyPlacesHttpTests
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
-    [Fact]
-    public async Task WeatherDisabled_ReturnsUnavailable()
+    [Theory]
+    [InlineData("/nearby?latitude=9.66&category=food", "INVALID_NEARBY_REQUEST")]
+    [InlineData("/nearby?longitude=80.02&category=food", "INVALID_NEARBY_REQUEST")]
+    [InlineData("/weather?latitude=9.66", "INVALID_COORDINATES")]
+    [InlineData("/weather/forecast?longitude=80.02", "INVALID_COORDINATES")]
+    [InlineData("/weather/forecast?latitude=9.66", "INVALID_COORDINATES")]
+    public async Task LocationQueries_MissingCoordinate_ReturnsCodeOnly(string path, string code)
+    {
+        var provider = new FakeProvider();
+        using var factory = CreateFactory(provider);
+        using var client = factory.CreateClient();
+        Authenticate(client);
+        using var response = await client.GetAsync("/api/mobile/trip-plans" + path);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await AssertCodeOnlyAsync(response, code);
+        Assert.Equal(0, provider.Calls);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("/forecast")]
+    public async Task WeatherDisabled_ReturnsUnavailable(string suffix)
     {
         using var baseFactory = CreateFactory(new FakeProvider());
         using var factory = baseFactory.WithWebHostBuilder(builder =>
@@ -166,10 +187,18 @@ public sealed class NearbyPlacesHttpTests
         using var client = factory.CreateClient();
         Authenticate(client);
         using var response = await client.GetAsync(
-            "/api/mobile/trip-plans/weather?latitude=9.66&longitude=80.02");
+            "/api/mobile/trip-plans/weather" + suffix + "?latitude=9.66&longitude=80.02");
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
-        Assert.Contains("WEATHER_UNAVAILABLE", await response.Content.ReadAsStringAsync());
+        await AssertCodeOnlyAsync(response, "WEATHER_UNAVAILABLE");
+    }
+
+    private static async Task AssertCodeOnlyAsync(HttpResponseMessage response, string code)
+    {
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var field = Assert.Single(document.RootElement.EnumerateObject());
+        Assert.Equal("code", field.Name);
+        Assert.Equal(code, field.Value.GetString());
     }
 
     [Fact]
