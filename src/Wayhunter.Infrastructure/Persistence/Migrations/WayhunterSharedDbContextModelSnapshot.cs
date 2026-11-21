@@ -307,6 +307,50 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                     b.ToTable("IdentityOtpChallenges", (string)null);
                 });
 
+            modelBuilder.Entity("Wayhunter.Domain.Modules.IdentitySocial.Entities.IdentityPasswordResetCredential", b =>
+                {
+                    b.Property<Guid>("CredentialId")
+                        .ValueGeneratedNever()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ConsumedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .IsRequired()
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .IsRequired()
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("RevokedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("char(64)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.HasKey("CredentialId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("UX_IdentityPasswordResetCredentials_TokenHash");
+
+                    b.HasIndex("UserId", "ExpiresAtUtc")
+                        .HasDatabaseName("IX_IdentityPasswordResetCredentials_User_Expiry");
+
+                    b.ToTable("IdentityPasswordResetCredentials", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_IdentityPasswordResetCredentials_Expiry", "[ExpiresAtUtc] > [CreatedAtUtc]");
+                        });
+                });
             modelBuilder.Entity("Wayhunter.Domain.Modules.IdentitySocial.Entities.IdentitySession", b =>
                 {
                     b.Property<string>("SessionId")
@@ -1850,6 +1894,15 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Wayhunter.Domain.Modules.IdentitySocial.Entities.IdentityPasswordResetCredential", b =>
+                {
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_IdentityPasswordResetCredentials_Users_UserId");
+                });
             modelBuilder.Entity("Wayhunter.Domain.Modules.IdentitySocial.Entities.IdentitySession", b =>
                 {
                     b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
