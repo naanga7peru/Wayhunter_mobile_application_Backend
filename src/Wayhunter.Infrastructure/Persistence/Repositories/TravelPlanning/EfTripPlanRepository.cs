@@ -227,81 +227,90 @@ public sealed class EfTripPlanRepository : ITripPlanRepository
 
         var offset = maxOrder + 1;
 
-        // Step 5: Begin atomic SQL transaction.
-        await using var transaction =
-            await _dbContext.Database.BeginTransactionAsync(
-                cancellationToken);
+        var strategy = _dbContext.Database.CreateExecutionStrategy();
 
-        // Step 6: Check and advance parent RowVersion.
-        // A zero-row result means stale version,
-        // wrong owner or no longer editable trip.
-        var draftStatus = (int)TripDraftStatus.Draft;
-
-        var updated = await _dbContext.Database
-            .ExecuteSqlInterpolatedAsync(
-                $@"UPDATE [Trips]
-                   SET [TripName] = [TripName]
-                   WHERE [Id] = {tripPlan.Id}
-                     AND [OwnerUserId] = {tripPlan.OwnerUserId}
-                     AND [RowVersion] = {expectedRowVersion}
-                     AND [DraftStatus] = {draftStatus}",
-                cancellationToken);
-
-        if (updated != 1)
+        await strategy.ExecuteAsync(async transactionCancellationToken =>
         {
-            throw new TripPlanConcurrencyException(
-                tripPlan.Id);
-        }
+            transactionCancellationToken.ThrowIfCancellationRequested();
 
-        // Step 7: Delete the requested stop.
-        var deleted = await _dbContext.Database
-            .ExecuteSqlInterpolatedAsync(
-                $@"DELETE FROM [TripStops]
-                   WHERE [Id] = {stopId}
-                     AND [TripPlanId] = {tripPlan.Id}",
-                cancellationToken);
-
-        if (deleted != 1)
-        {
-            throw new TripPlanConcurrencyException(
-                tripPlan.Id);
-        }
-
-        // Step 8: Reorder remaining stops.
-        // Existing unique index:
-        // (TripPlanId, OrderIndex)
-        //
-        // Use a two-phase shift to avoid
-        // temporary unique-index collisions.
-
-        if (removedOrder < maxOrder)
-        {
-            // Phase A:
-            // Move following stops outside their
-            // original index range.
-            await _dbContext.Database
-                .ExecuteSqlInterpolatedAsync(
-                    $@"UPDATE [TripStops]
-                       SET [OrderIndex] =
-                           [OrderIndex] + {offset}
-                       WHERE [TripPlanId] = {tripPlan.Id}
-                         AND [OrderIndex] > {removedOrder}",
+            // Step 5: Begin atomic SQL transaction.
+            await using var transaction =
+                await _dbContext.Database.BeginTransactionAsync(
                     cancellationToken);
 
-            // Phase B:
-            // Normalize to continuous indexes.
-            await _dbContext.Database
-                .ExecuteSqlInterpolatedAsync(
-                    $@"UPDATE [TripStops]
-                       SET [OrderIndex] =
-                           [OrderIndex] - {offset} - 1
-                       WHERE [TripPlanId] = {tripPlan.Id}
-                         AND [OrderIndex] >= {offset}",
-                    cancellationToken);
-        }
+            // Step 6: Check and advance parent RowVersion.
+            // A zero-row result means stale version,
+            // wrong owner or no longer editable trip.
+            var draftStatus = (int)TripDraftStatus.Draft;
 
-        // Step 9: Commit all changes together.
-        await transaction.CommitAsync(cancellationToken);
+            var updated = await _dbContext.Database
+                .ExecuteSqlInterpolatedAsync(
+                    $@"UPDATE [Trips]
+                       SET [TripName] = [TripName]
+                       WHERE [Id] = {tripPlan.Id}
+                         AND [OwnerUserId] = {tripPlan.OwnerUserId}
+                         AND [RowVersion] = {expectedRowVersion}
+                         AND [DraftStatus] = {draftStatus}",
+                    cancellationToken);
+
+            if (updated != 1)
+            {
+                throw new TripPlanConcurrencyException(
+                    tripPlan.Id);
+            }
+
+            // Step 7: Delete the requested stop.
+            var deleted = await _dbContext.Database
+                .ExecuteSqlInterpolatedAsync(
+                    $@"DELETE FROM [TripStops]
+                       WHERE [Id] = {stopId}
+                         AND [TripPlanId] = {tripPlan.Id}",
+                    cancellationToken);
+
+            if (deleted != 1)
+            {
+                throw new TripPlanConcurrencyException(
+                    tripPlan.Id);
+            }
+
+            // Step 8: Reorder remaining stops.
+            // Existing unique index:
+            // (TripPlanId, OrderIndex)
+            //
+            // Use a two-phase shift to avoid
+            // temporary unique-index collisions.
+
+            if (removedOrder < maxOrder)
+            {
+                // Phase A:
+                // Move following stops outside their
+                // original index range.
+                await _dbContext.Database
+                    .ExecuteSqlInterpolatedAsync(
+                        $@"UPDATE [TripStops]
+                           SET [OrderIndex] =
+                               [OrderIndex] + {offset}
+                           WHERE [TripPlanId] = {tripPlan.Id}
+                             AND [OrderIndex] > {removedOrder}",
+                        cancellationToken);
+
+                // Phase B:
+                // Normalize to continuous indexes.
+                await _dbContext.Database
+                    .ExecuteSqlInterpolatedAsync(
+                        $@"UPDATE [TripStops]
+                           SET [OrderIndex] =
+                               [OrderIndex] - {offset} - 1
+                           WHERE [TripPlanId] = {tripPlan.Id}
+                             AND [OrderIndex] >= {offset}",
+                        cancellationToken);
+            }
+
+            // Step 9: Commit all changes together.
+            // If a commit succeeded but its acknowledgement was lost, a
+            // retry with the original RowVersion must fail the parent guard.
+            await transaction.CommitAsync(cancellationToken);
+        }, cancellationToken);
 
         // Step 10:
         // Raw SQL bypassed EF tracked entities.
