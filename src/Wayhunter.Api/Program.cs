@@ -253,6 +253,10 @@ builder.Services.AddScoped<
 builder.Services.AddScoped<
     TripHazardService>();
 
+builder.Services.AddSingleton(new LiveTripAlertSettings());
+builder.Services.AddSingleton<LiveTripAlertState>();
+builder.Services.AddScoped<LiveTripSafetyAlerts>();
+
 // ==========================================
 // M3 - Optional SQL Hazard Expiry Worker
 // ==========================================

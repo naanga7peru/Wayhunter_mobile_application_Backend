@@ -52,7 +52,7 @@ public static class HazardRouteMatcher
         return false;
     }
 
-    private static bool IsValid(
+    internal static bool IsValid(
         double latitude,
         double longitude)
     {
@@ -62,6 +62,17 @@ public static class HazardRouteMatcher
                latitude <= 90 &&
                longitude >= -180 &&
                longitude <= 180;
+    }
+
+    internal static double DistanceBetweenMeters(
+        double latitude, double longitude, double otherLatitude, double otherLongitude)
+    {
+        var halfLatitude = DegreesToRadians(otherLatitude - latitude) / 2;
+        var halfLongitude = DegreesToRadians(LongitudeDelta(otherLongitude, longitude)) / 2;
+        var haversine = Math.Pow(Math.Sin(halfLatitude), 2) +
+            Math.Cos(DegreesToRadians(latitude)) * Math.Cos(DegreesToRadians(otherLatitude)) *
+            Math.Pow(Math.Sin(halfLongitude), 2);
+        return 2 * EarthRadiusMeters * Math.Asin(Math.Sqrt(Math.Clamp(haversine, 0, 1)));
     }
 
     private static double DistanceToSegmentMeters(
