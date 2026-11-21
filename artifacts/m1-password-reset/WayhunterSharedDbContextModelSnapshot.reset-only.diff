@@ -1,23 +1,23 @@
-diff --git a/src/Wayhunter.Infrastructure/Persistence/Migrations/WayhunterSharedDbContextModelSnapshot.cs b/src/Wayhunter.Infrastructure/Persistence/Migrations/WayhunterSharedDbContextModelSnapshot.cs
-index e9f526c..1e2a80d 100644
+﻿diff --git a/src/Wayhunter.Infrastructure/Persistence/Migrations/WayhunterSharedDbContextModelSnapshot.cs b/src/Wayhunter.Infrastructure/Persistence/Migrations/WayhunterSharedDbContextModelSnapshot.cs
+index e9f526c..20a5cbe 100644
 --- a/src/Wayhunter.Infrastructure/Persistence/Migrations/WayhunterSharedDbContextModelSnapshot.cs
 +++ b/src/Wayhunter.Infrastructure/Persistence/Migrations/WayhunterSharedDbContextModelSnapshot.cs
-@@ -309,0 +310,44 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
+@@ -307,6 +307,49 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
+                     b.ToTable("IdentityOtpChallenges", (string)null);
+                 });
+
 +            modelBuilder.Entity("Wayhunter.Domain.Modules.IdentitySocial.Entities.IdentityPasswordResetCredential", b =>
 +                {
 +                    b.Property<Guid>("CredentialId")
-+                        .ValueGeneratedNever()
 +                        .HasColumnType("uniqueidentifier");
 +
 +                    b.Property<DateTimeOffset?>("ConsumedAtUtc")
 +                        .HasColumnType("datetimeoffset");
 +
 +                    b.Property<DateTimeOffset>("CreatedAtUtc")
-+                        .IsRequired()
 +                        .HasColumnType("datetimeoffset");
 +
 +                    b.Property<DateTimeOffset>("ExpiresAtUtc")
-+                        .IsRequired()
 +                        .HasColumnType("datetimeoffset");
 +
 +                    b.Property<DateTimeOffset?>("RevokedAtUtc")
@@ -33,7 +33,8 @@ index e9f526c..1e2a80d 100644
 +                        .HasMaxLength(256)
 +                        .HasColumnType("nvarchar(256)");
 +
-+                    b.HasKey("CredentialId");
++                    b.HasKey("CredentialId")
++                        .HasName("PK_IdentityPasswordResetCredentials");
 +
 +                    b.HasIndex("TokenHash")
 +                        .IsUnique()
@@ -47,7 +48,14 @@ index e9f526c..1e2a80d 100644
 +                            t.HasCheckConstraint("CK_IdentityPasswordResetCredentials_Expiry", "[ExpiresAtUtc] > [CreatedAtUtc]");
 +                        });
 +                });
-@@ -1852,0 +1897,9 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
++
+             modelBuilder.Entity("Wayhunter.Domain.Modules.IdentitySocial.Entities.IdentitySession", b =>
+                 {
+                     b.Property<string>("SessionId")
+@@ -1850,6 +1893,16 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
+                         .IsRequired();
+                 });
+
 +            modelBuilder.Entity("Wayhunter.Domain.Modules.IdentitySocial.Entities.IdentityPasswordResetCredential", b =>
 +                {
 +                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
@@ -57,3 +65,7 @@ index e9f526c..1e2a80d 100644
 +                        .IsRequired()
 +                        .HasConstraintName("FK_IdentityPasswordResetCredentials_Users_UserId");
 +                });
++
+             modelBuilder.Entity("Wayhunter.Domain.Modules.IdentitySocial.Entities.IdentitySession", b =>
+                 {
+                     b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)

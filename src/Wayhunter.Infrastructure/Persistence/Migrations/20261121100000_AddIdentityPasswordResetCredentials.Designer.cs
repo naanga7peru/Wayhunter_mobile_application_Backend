@@ -312,18 +312,15 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("Wayhunter.Domain.Modules.IdentitySocial.Entities.IdentityPasswordResetCredential", b =>
                 {
                     b.Property<Guid>("CredentialId")
-                        .ValueGeneratedNever()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTimeOffset?>("ConsumedAtUtc")
                         .HasColumnType("datetimeoffset");
 
                     b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .IsRequired()
                         .HasColumnType("datetimeoffset");
 
                     b.Property<DateTimeOffset>("ExpiresAtUtc")
-                        .IsRequired()
                         .HasColumnType("datetimeoffset");
 
                     b.Property<DateTimeOffset?>("RevokedAtUtc")
@@ -339,7 +336,8 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
-                    b.HasKey("CredentialId");
+                    b.HasKey("CredentialId")
+                        .HasName("PK_IdentityPasswordResetCredentials");
 
                     b.HasIndex("TokenHash")
                         .IsUnique()
@@ -353,6 +351,7 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_IdentityPasswordResetCredentials_Expiry", "[ExpiresAtUtc] > [CreatedAtUtc]");
                         });
                 });
+
             modelBuilder.Entity("Wayhunter.Domain.Modules.IdentitySocial.Entities.IdentitySession", b =>
                 {
                     b.Property<string>("SessionId")
@@ -1905,6 +1904,7 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("FK_IdentityPasswordResetCredentials_Users_UserId");
                 });
+
             modelBuilder.Entity("Wayhunter.Domain.Modules.IdentitySocial.Entities.IdentitySession", b =>
                 {
                     b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
