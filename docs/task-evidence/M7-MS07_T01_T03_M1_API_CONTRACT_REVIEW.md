@@ -23,7 +23,7 @@ Keep these fields separate from the existing payload `BindingVersion` and `Bindi
 
 Candidate HMAC input uses a dedicated M7 receipt-caller domain separator and unambiguous length-prefixed canonical M1 issuer namespace and stable immutable account identity. Use exact canonical identity bytes supplied by the approved M1 adapter and no arbitrary case folding or session ID. Include the binding format version in the domain framing. Prefer a per-purpose managed secret. Resolve the saved version for existing receipts, use the current approved version for new receipts, and compare digests in constant time in the approved trusted component. No unkeyed or unsalted account hash is treated as anonymous. This remains pseudonymous linkable data.
 
-Keep historical verification keys only for an approved receipt verification lifetime and rotate new writes without changing the accepted records. Approve key custody, access boundary, recovery and compromise handling, version lookup, retirement, and storage and retention as one decision. Initially unbounded receipts make key retirement a blocking decision. Missing or retired verification material must fail closed through the generic path, preserving the key for deduplication. Never reaccept an occupied key solely because its account binding cannot be verified. Deletion or migration to tombstones still requires privacy and coordinator approval. The earlier privacy inventory covers the pre-review columns. These two proposed additions require supplemental classification, access and storage-cost review before adoption.
+Keep historical verification keys only for an approved receipt verification lifetime and rotate new writes without changing the accepted records. Approve key custody, access boundary, recovery and compromise handling, version lookup, retirement, and storage and retention as one decision. M1 declined unbounded receipts. A bounded verification and retirement lifecycle is blocked on the approved admission design. Missing or retired verification material must fail closed through the generic path, preserving the key for deduplication. Never reaccept an occupied key solely because its account binding cannot be verified. Deletion or migration to tombstones still requires privacy and coordinator approval. The earlier privacy inventory covers the pre-review columns. These two proposed additions require supplemental classification, access and storage-cost review before adoption.
 
 ## Recommended HTTP and retry state matrix
 
@@ -70,3 +70,20 @@ All checks below are **NOT EXECUTED**. The existing harness provides prior synth
 - **M1, privacy/data owners and Team Leader:** Approve pseudonymous caller digest handling, secret custody and lifetime, linkage and disclosure, retention/erasure and deletion effects. Existing privacy and retention assessment remains pending formal governance.
 - **Campaign owner, M1 and M7:** Approve caller-bound trusted delivery proof and immutable attribution to the actual Campaign shown. Sponsored intake stays disabled.
 - **DB Coordinator and M7:** Review the two receipt fields, controlled-writer and verification boundary, key version recovery, capacity, isolation and migration ownership. Approve a disposable SQL environment before tests. Final SQL approval remains pending.
+
+## Acknowledgement and privacy dependency
+
+Kaviyan acknowledged the M1 contract review as relayed in the task authorization. Joint sign-off and final SQL approval remain pending. Shayanthan separately declined unbounded receipt retention. See the [privacy assessment](M7-MS07_T01_T03_PRIVACY_RETENTION_ASSESSMENT.md) for the binding classification, bounded admission analysis and retention gates. The recommended API matrix above remains subject to joint sign-off.
+
+### Additional review-only scenarios
+
+| Required scenario | Expected evidence | Status |
+| --- | --- | --- |
+| Deactivate an account or revoke its access after acceptance | Fresh and replay paths deny access without revealing key or receipt. Re-activation cannot extend original admission. | NOT EXECUTED |
+| Reuse accepted key with a fresh different delivery proof | Owned retained key conflicts. A deleted receipt cannot make an old key admissible under any approved issuer/version. | NOT EXECUTED |
+| Retry at receipt-expiry and admission boundaries | Delays, version rollover, restored sessions and unknown commit never reopen accepted keys. After replay coverage ends, return only the approved generic disposition. | NOT EXECUTED |
+| Archive facts or authorize erasure | Retained replay identity persists within approved lifetime. Reports label missing coverage. Govern any approved retained exception and downstream copies. | NOT EXECUTED |
+| Withdraw consent | Future processing dependent on it stops. Delayed delivery and previously accepted records follow explicit approved handling. | NOT EXECUTED |
+| Race cleanup against acceptance and ambiguous commit | Independent DbContexts prove key settlement, FK and deadline safety under locking. No double fact or quota. | NOT EXECUTED |
+
+No test here ran against SQL or a production API.

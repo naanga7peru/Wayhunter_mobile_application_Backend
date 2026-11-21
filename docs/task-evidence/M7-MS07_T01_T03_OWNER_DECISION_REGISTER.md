@@ -11,8 +11,8 @@
 | Cardinality and authoritative attribution | Decide actual ad relation and what proves the Campaign shown. Prefer a stable server-issued delivery reference where a current link is ambiguous. Specify format, caller binding, validity and whether eligibility is rechecked. | Campaign owner and M7, M1 for proof authentication | PENDING |
 | Historical Campaign principal | Nullable only for approved unattributed flows. Retain approved unique principal for receipt FK, restrict hard delete, and preserve snapshot through archive or unlink. | Campaign owner, M7 and DB Coordinator | PENDING |
 | Fact retention and coverage | Candidate 365 days online, with explicit archive or incomplete coverage semantics and scoped historical audit. | Privacy/data owners, M7 and DB Coordinator | PENDING |
-| Receipt and tombstones | Unbounded initial receipts and no separate tombstones until trustworthy future admission can prevent reuse after expiry. Review retained attribution and principal lifetimes. | Privacy/data owners, M7 and DB Coordinator | PENDING |
-| Quota retention and cleanup | Candidate 48-hour grace after window end. Recheck under the same key lock. No deletion authority until separately approved. | Privacy/data owners and DB Coordinator | PENDING |
+| Receipt and tombstones | Unbounded retention declined by Shayanthan. Evaluate immutable server-issued admission and finite markers only with proven non-reissuance and expiry safety. | M1, M7, Campaign owner, DB Coordinator and formal Privacy/Data Governance | BLOCKED FOR DESIGN DECISION |
+| Quota retention and cleanup | M1 conditionally accepts 48 hours after window end. Recheck cutoff under the same key lock. No deletion authority until separately approved. | M1, privacy/data owners and DB Coordinator | PENDING final approval |
 | Final physical schema | Sign off exact principal binding, types, keys, CHECKs, indexes, composite null handling, and the retained Campaign FK gate. | DB Coordinator and M7 | PENDING |
 | Controlled writer and isolation | Approve static EXECUTE-only routines, indexed protected seeks, guarded increment, ordered locks, bounded retry and primary commit verification. Approve report scope and consistent snapshot. | DB Coordinator and M7, M1 for authorization | PENDING |
 | Shared migration ownership and deployment | Assign owner, order schema and routine rollout, review rollback and restore strategy, and require verification before any intake activation. | DB Coordinator and M7 | PENDING |
@@ -31,3 +31,7 @@ No implementation, migrations, data mutation or SQL execution is authorized by t
 | Sponsored proof | Caller-bound, server-issued proof of actual delivery. Keep sponsored intake disabled until the proof and attribution relationship are approved. | Campaign owner, M1 and M7 | PENDING |
 
 Shayanthan confirmed the authentication requirements. This review leaves production HTTP semantics, privacy governance and final SQL approval pending. [Full M1 review](M7-MS07_T01_T03_M1_API_CONTRACT_REVIEW.md)
+
+## Review decision provenance
+
+Kaviyan acknowledged Shayanthan's M1 API review, with joint sign-off and final SQL approval pending. Shayanthan's separate privacy review declined unbounded receipt retention. The [privacy assessment](M7-MS07_T01_T03_PRIVACY_RETENTION_ASSESSMENT.md) records the decision, outstanding processing basis and consent rules, and the bounded admission blocker. This is not formal governance or implementation approval.
