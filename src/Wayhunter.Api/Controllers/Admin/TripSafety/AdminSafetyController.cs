@@ -18,7 +18,8 @@ public sealed class AdminSafetyController(AdminSafetyMonitoringService monitorin
         if (!TrustedIdentityAccessContract.TryResolveUserId(User, out var actor))
             return Unauthorized();
 
-        var result = await monitoring.ReadAsync(actor, new(tripPlanId, sessionId), ct);
+        var result = await monitoring.ReadAsync(actor, new(tripPlanId, sessionId), ct,
+            () => AdminSafetyServiceCollectionExtensions.IsTrustedAdminAsync(HttpContext, User));
         return result.Outcome switch
         {
             AdminSafetyOutcome.Success => Ok(result.Summary),

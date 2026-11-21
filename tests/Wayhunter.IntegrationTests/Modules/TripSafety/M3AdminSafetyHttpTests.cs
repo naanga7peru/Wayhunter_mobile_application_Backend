@@ -124,13 +124,98 @@ public sealed class M3AdminSafetyHttpTests
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData("role", HttpStatusCode.Forbidden)]
+    [InlineData("removed-grant", HttpStatusCode.Forbidden)]
+    [InlineData("changed-grant", HttpStatusCode.Forbidden)]
+    [InlineData("membership", HttpStatusCode.ServiceUnavailable)]
+    [InlineData("consent", HttpStatusCode.ServiceUnavailable)]
+    [InlineData("finished", HttpStatusCode.ServiceUnavailable)]
+    [InlineData("cancelled", HttpStatusCode.ServiceUnavailable)]
+    public async Task ChangesWhileAuditIsPendingWithholdThePreparedSummary(string change, HttpStatusCode expected)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Data.OnAudit = async () =>
+        {
+            switch (change)
+            {
+                case "role": fixture.Data.RoleStatus = AdministratorRoleAssignmentStatus.Revoked; break;
+                case "removed-grant": fixture.Data.GrantRemoved = true; break;
+                case "changed-grant": fixture.Data.Sections = AdminSafetySections.Hazards; break;
+                case "membership":
+                    var member = await fixture.Members.GetMemberAsync(fixture.Trip.Id, fixture.Participant);
+                    await fixture.Members.RemoveMemberAndQueueNotificationAsync(fixture.Trip.Id, member!.Id, DateTimeOffset.UtcNow);
+                    break;
+                case "consent":
+                    await fixture.Consent.SetMyConsentAsync(fixture.Trip.Id, fixture.Session.SessionId,
+                        fixture.Participant, false, DateTimeOffset.UtcNow);
+                    break;
+                case "finished": fixture.Session.Finish(DateTimeOffset.UtcNow); break;
+                case "cancelled": fixture.Trip.Cancel(); break;
+            }
+        };
+        using var client = fixture.Client("admin");
+        using var response = await client.GetAsync(fixture.Route);
+        Assert.Equal(expected, response.StatusCode);
+        Assert.DoesNotContain("activeParticipantCount", await response.Content.ReadAsStringAsync());
+        Assert.Equal(AdminSafetyOutcome.Success, fixture.Data.Audit[0].Outcome);
+        Assert.Equal(expected == HttpStatusCode.Forbidden ? AdminSafetyOutcome.Denied : AdminSafetyOutcome.Unavailable,
+            fixture.Data.Audit[1].Outcome);
+        Assert.Equal(2, fixture.Data.Audit.Count);
+    }
+
+    [Theory]
+    [InlineData("stale")]
+    [InlineData("future")]
+    [InlineData("invalid")]
+    [InlineData("oversized")]
+    public async Task InvalidProjectionIsUnavailableAndAudited(string change)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Data.TransformProjection = projection => change switch
+        {
+            "stale" => projection with { ObservedAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1) },
+            "future" => projection with { ObservedAtUtc = DateTimeOffset.UtcNow.AddMinutes(1) },
+            "invalid" => projection with { Hazards = [null!] },
+            _ => projection with { Participants = Enumerable.Repeat(fixture.Participant, 257).ToArray() }
+        };
+        using var client = fixture.Client("admin");
+        using var response = await client.GetAsync(fixture.Route);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal(AdminSafetyOutcome.Unavailable, Assert.Single(fixture.Data.Audit).Outcome);
+    }
+
+    [Fact]
+    public async Task SessionChangeDuringProjectionAndAuditFailuresSuppressResponse()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Data.OnProjection = () =>
+        {
+            fixture.Session.Finish(DateTimeOffset.UtcNow);
+            return Task.CompletedTask;
+        };
+        using var client = fixture.Client("admin");
+        using var response = await client.GetAsync(fixture.Route);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal(AdminSafetyOutcome.Unavailable, Assert.Single(fixture.Data.Audit).Outcome);
+
+        fixture.Data.AuditUnavailable = true;
+        using var failedAudit = await client.GetAsync(fixture.Route);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, failedAudit.StatusCode);
+        Assert.DoesNotContain("sessionStatus", await failedAudit.Content.ReadAsStringAsync());
+        Assert.Single(fixture.Data.Audit);
+    }
+
     private sealed class Fixture(WebApplication app, UserAccount admin, UserAccount normal,
         IdentitySession adminSession, IdentitySession normalSession, DataSource data, string participant,
-        Guid otherSession, InMemoryTripSharingConsentRepository consent) : IAsyncDisposable
+        Guid otherSession, InMemoryTripSharingConsentRepository consent, TripPlan trip, LiveTripSession session, InMemoryTripMembershipRevocationRepository members) : IAsyncDisposable
     {
         public DataSource Data { get; } = data;
         public InMemoryTripSharingConsentRepository Consent { get; } = consent;
         public string Participant { get; } = participant;
+        public TripPlan Trip { get; } = trip;
+        public LiveTripSession Session { get; } = session;
+        public InMemoryTripMembershipRevocationRepository Members { get; } = members;
         public Guid OtherSession { get; } = otherSession;
         public string AdminId => admin.UserId;
         public string Route => Uri(Data.Target);
@@ -188,7 +273,7 @@ public sealed class M3AdminSafetyHttpTests
                 await consent.SetMyConsentAsync(trip.Id, session.SessionId, user, true, now.AddMinutes(-8));
             }
 
-            var data = new DataSource(target, new(target,
+            var data = new DataSource(target, new(target, now,
                 [owner, participant, peer, outsider, peer],
                 [new(HazardStatus.Verified, now.AddHours(-2), now.AddHours(1)),
                  new(HazardStatus.Resolved, now.AddHours(-2), now.AddHours(1)),
@@ -226,7 +311,7 @@ public sealed class M3AdminSafetyHttpTests
             app.UseAuthorization();
             app.MapControllers();
             await app.StartAsync();
-            return new(app, admin, normal, adminSession, normalSession, data, participant, other.SessionId, consent);
+            return new(app, admin, normal, adminSession, normalSession, data, participant, other.SessionId, consent, trip, session, members);
         }
 
         private static UserAccount CreateAccount(string name, DateTimeOffset now)
@@ -251,6 +336,11 @@ public sealed class M3AdminSafetyHttpTests
             AdminSafetySections.Separation | AdminSafetySections.SafeCheckIn;
         public AdminSafetySections LastReadSections { get; private set; }
         public bool WrongProjection { get; set; }
+        public bool GrantRemoved { get; set; }
+        public bool AuditUnavailable { get; set; }
+        public Func<Task>? OnProjection { get; set; }
+        public Func<Task>? OnAudit { get; set; }
+        public Func<AdminSafetyProjection, AdminSafetyProjection>? TransformProjection { get; set; }
         public List<AdminSafetyAuditRecord> Audit { get; } = [];
 
         public Task<UserAccount?> FindAccountAsync(string userId, CancellationToken cancellationToken = default) =>
@@ -267,20 +357,33 @@ public sealed class M3AdminSafetyHttpTests
         }
 
         public Task<AdminSafetyGrant?> ReadGrantAsync(string actor, AdminSafetyTarget requested, CancellationToken ct) =>
-            Task.FromResult<AdminSafetyGrant?>(actor == admin.UserId && requested.TripPlanId == Target.TripPlanId
+            Task.FromResult<AdminSafetyGrant?>(!GrantRemoved && actor == admin.UserId && requested.TripPlanId == Target.TripPlanId
                 ? new(requested, actor, Sections) : null);
 
-        public Task<AdminSafetyProjection?> ReadAsync(AdminSafetyGrant grant, CancellationToken ct)
+        public async Task<AdminSafetyProjection?> ReadAsync(AdminSafetyGrant grant, CancellationToken ct)
         {
             LastReadSections = grant.Sections;
-            return Task.FromResult<AdminSafetyProjection?>(WrongProjection
-                ? projection with { Target = new(Guid.NewGuid(), Guid.NewGuid()) } : projection);
+            if (OnProjection is { } callback)
+            {
+                OnProjection = null;
+                await callback();
+            }
+            var fresh = projection with { ObservedAtUtc = DateTimeOffset.UtcNow };
+            if (WrongProjection)
+                return fresh with { Target = new(Guid.NewGuid(), Guid.NewGuid()) };
+            return TransformProjection?.Invoke(fresh) ?? fresh;
         }
 
-        public Task RecordAsync(AdminSafetyAuditRecord record, CancellationToken ct)
+        public async Task RecordAsync(AdminSafetyAuditRecord record, CancellationToken ct)
         {
+            if (AuditUnavailable)
+                throw new InvalidOperationException("Audit unavailable.");
             Audit.Add(record);
-            return Task.CompletedTask;
+            if (OnAudit is { } callback)
+            {
+                OnAudit = null;
+                await callback();
+            }
         }
     }
 }
