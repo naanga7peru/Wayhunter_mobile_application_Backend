@@ -1,9 +1,13 @@
 
 using System;
+using System.Data.Common;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Storage;
 using Wayhunter.Application.Modules.TravelPlanning.Exceptions;
 using Wayhunter.Domain.Modules.TravelPlanning.Entities;
 using Wayhunter.Infrastructure.Persistence.DbContexts;
@@ -53,6 +57,52 @@ public sealed class EfTripPlanRepositoryTests
         Assert.NotNull(property);
 
         property.SetValue(trip, rowVersion.ToArray());
+    }
+
+    [Fact]
+    public async Task RemoveStop_RetriesTransactionOpeningInsideSqlExecutionStrategy()
+    {
+        var interceptor = new StopBeforeSqlConnectionOpens();
+        var options = new DbContextOptionsBuilder<WayhunterSharedDbContext>()
+            .UseSqlServer(
+                "Server=localhost;Database=NeverOpened;Integrated Security=true",
+                sql => sql.EnableRetryOnFailure())
+            .AddInterceptors(interceptor)
+            .Options;
+        await using var db = new WayhunterSharedDbContext(options);
+        var repository = new EfTripPlanRepository(db);
+        var trip = CreateTrip();
+        trip.AddStop("Jaffna Fort");
+        var version = CreateRowVersion();
+        SetRowVersion(trip, version);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            repository.RemoveStopWithConcurrencyAsync(trip, trip.Stops[0].Id, version));
+
+        Assert.Same(interceptor.StopException, error);
+        Assert.Equal(2, interceptor.OpenAttempts);
+    }
+
+    private sealed class StopBeforeSqlConnectionOpens : DbConnectionInterceptor
+    {
+        public InvalidOperationException StopException { get; } =
+            new("Stop the test before opening a real SQL connection.");
+
+        public int OpenAttempts { get; private set; }
+
+        public override ValueTask<InterceptionResult> ConnectionOpeningAsync(
+            DbConnection connection,
+            ConnectionEventData eventData,
+            InterceptionResult result,
+            CancellationToken cancellationToken = default)
+        {
+            Assert.IsType<SqlServerRetryingExecutionStrategy>(ExecutionStrategy.Current);
+            OpenAttempts++;
+            if (OpenAttempts == 1)
+                throw new TimeoutException("Simulated transient connection failure.");
+
+            throw StopException;
+        }
     }
 
     [Fact]
