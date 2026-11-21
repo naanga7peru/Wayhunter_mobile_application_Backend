@@ -8,6 +8,8 @@ using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Api.Hubs.TripSafety;
 using Wayhunter.Api.Services.IdentitySocial;
+using Wayhunter.Api.Services.HomeAdsAnalytics;
+using Wayhunter.Application.Modules.HomeAdsAnalytics.Interfaces;
 using Wayhunter.Api.Services.TripSafety;
 
 using Wayhunter.Application.Modules.TravelPlanning.Interfaces;
@@ -37,6 +39,17 @@ builder.Services.AddAdvertisementAdministratorPolicy(
 builder.Services.AddCoinsWalletAdministratorPolicy(
     builder.Configuration);
 
+// ==========================================
+// M7 - Advertisement Image Storage
+// ==========================================
+
+// Fail-closed by default.
+// Real provider activation requires separate approval.
+// No Cloudinary credentials or external writes here.
+
+builder.Services.AddScoped<
+    IAdvertisementImageStorage,
+    UnavailableAdvertisementImageStorage>();
 // ==========================================
 // M1 - Identity Authentication
 // ==========================================
@@ -240,6 +253,10 @@ builder.Services.AddScoped<
 builder.Services.AddScoped<
     TripHazardService>();
 
+builder.Services.AddSingleton(new LiveTripAlertSettings());
+builder.Services.AddSingleton<LiveTripAlertState>();
+builder.Services.AddScoped<LiveTripSafetyAlerts>();
+
 // ==========================================
 // M3 - Optional SQL Hazard Expiry Worker
 // ==========================================
@@ -304,6 +321,9 @@ if (builder.Environment.IsDevelopment())
 
 
 
+builder.Services.AddTripMemoryServices();
+builder.Services.AddNotificationFoundation(builder.Configuration);
+builder.Services.AddAdminSafetyMonitoring();
 builder.Services.AddTripSafetyBatch2Services(builder.Configuration);
 
 var app = builder.Build();

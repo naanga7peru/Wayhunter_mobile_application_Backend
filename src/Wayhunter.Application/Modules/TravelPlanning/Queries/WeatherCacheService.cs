@@ -1,6 +1,5 @@
 
 using System;
-using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using Wayhunter.Application.Modules.TravelPlanning.Interfaces;
@@ -25,18 +24,11 @@ public sealed record WeatherLookupResult(
 
 public sealed class WeatherCacheService
 {
-    private sealed record CachedWeather(
-        WeatherObservation Observation,
-        DateTimeOffset CachedAtUtc
-    );
-
     private readonly IWeatherProvider _provider;
     private readonly TimeProvider _clock;
     private readonly TimeSpan _maximumAge;
 
-    private readonly ConcurrentDictionary<
-        (double Latitude, double Longitude),
-        CachedWeather> _cache = new();
+    private readonly BoundedWeatherCache<WeatherObservation> _cache = new(256);
 
     public WeatherCacheService(
         IWeatherProvider provider,
@@ -68,16 +60,15 @@ public sealed class WeatherCacheService
         var key = (latitude, longitude);
         var now = _clock.GetUtcNow();
 
-        var hasCached = _cache.TryGetValue(
-            key, out var cached);
+        var cached = _cache.Read(key);
 
         // Return valid cached weather without another API call.
-        if (hasCached && cached is not null)
+        if (cached is { } entry)
         {
             var freshness =
                 WeatherFreshnessEvaluator.Evaluate(
-                    cached.Observation,
-                    cached.CachedAtUtc,
+                    entry.Value,
+                    entry.CachedAtUtc,
                     now,
                     _maximumAge);
 
@@ -85,8 +76,8 @@ public sealed class WeatherCacheService
             {
                 return new WeatherLookupResult(
                     WeatherLookupStatus.Fresh,
-                    cached.Observation,
-                    cached.CachedAtUtc,
+                    entry.Value,
+                    entry.CachedAtUtc,
                     null,
                     true);
             }
@@ -100,7 +91,8 @@ public sealed class WeatherCacheService
 
         ProviderResultValidator.Validate(response);
 
-        if (response.IsSuccess)
+        if (response.IsSuccess &&
+            _clock.GetUtcNow() - response.Observation!.ObservedAtUtc <= TimeSpan.FromHours(24))
         {
             now = _clock.GetUtcNow();
 
@@ -113,9 +105,7 @@ public sealed class WeatherCacheService
                     now,
                     _maximumAge);
 
-            _cache[key] = new CachedWeather(
-                observation,
-                now);
+            _cache.Write(key, observation, now);
 
             return new WeatherLookupResult(
                 freshness.IsStale
@@ -128,13 +118,14 @@ public sealed class WeatherCacheService
         }
 
         // Provider failed, but previous weather exists.
-        // Never label old weather as fresh.
-        if (hasCached && cached is not null)
+        // Never label old weather as fresh or return observations older than a day.
+        now = _clock.GetUtcNow();
+        if (_cache.Read(key) is { } fallback && now - fallback.Value.ObservedAtUtc <= TimeSpan.FromHours(24))
         {
             return new WeatherLookupResult(
                 WeatherLookupStatus.Stale,
-                cached.Observation,
-                cached.CachedAtUtc,
+                fallback.Value,
+                fallback.CachedAtUtc,
                 response.FailureReason,
                 true);
         }
@@ -148,7 +139,7 @@ public sealed class WeatherCacheService
             false);
     }
 
-    private static void ValidateCoordinates(
+    internal static void ValidateCoordinates(
         double latitude,
         double longitude)
     {
