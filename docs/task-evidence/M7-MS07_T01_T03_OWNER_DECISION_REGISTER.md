@@ -42,7 +42,17 @@ Kaviyan acknowledged Shayanthan's M1 API review, with joint sign-off and final S
 | --- | --- | --- |
 | HMAC canonical M1 identity, framing, dedicated key and version lifecycle | M1, M7, DB Coordinator and privacy/data owners | PENDING |
 | Server-minted key, signed deadlines, globally non-reused allocation and restore/compromise fences | M1, M7 and DB Coordinator, Campaign owner for delivery contract | BLOCKED FOR DESIGN DECISION |
-| Candidate 15-minute admission, 24-hour replay and generic 403/no-disclosure or expiry behavior | M1 and M7, with governance and coordinator review of timing and enforcement | PENDING |
+| Candidate 10-minute admission, 24-hour replay and generic 403/no-disclosure or expiry behavior | M1 and M7, with governance and coordinator review of timing and enforcement | PENDING |
 | FK-compatible finite receipt lifecycle, archive/holds, key retirement and cleanup bounds | Privacy/Data Governance, M1, M7 and DB Coordinator, Team Leader coordinates | BLOCKED FOR DESIGN DECISION |
 
 See the [Latest M1 API review](M7-MS07_T01_T03_M1_API_CONTRACT_REVIEW.md) for candidate timelines, tradeoffs and tests, all NOT EXECUTED.
+
+## Latest M1 deadline and storage candidates
+
+| Decision | Required approval | Status |
+| --- | --- | --- |
+| 10-minute first acceptance and 24-hour replay from trusted UTC issuance | M1/M7 and DB Coordinator for time and transaction proof | PENDING |
+| 365-day fact and 366-day receipt lifecycle with dependent fact released before receipt | Privacy/Data Governance, M1, M7 and DB Coordinator | PENDING, retention design blocked |
+| Option A one-way clearing or option B retention of caller HMAC | M1, Privacy/Data Governance and DB Coordinator | PENDING |
+
+[Deadline and FK lifecycle review](M7-MS07_T01_T03_BOUNDED_REPLAY_FK_REVIEW.md) records all boundary tests and the non-reissuance blocker. Campaign proof remains pending.

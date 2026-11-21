@@ -184,3 +184,7 @@ Shayanthan's separate M1 privacy review declined unbounded retry receipts, left 
 ## Latest bounded replay dependency
 
 [Latest M1 API review](M7-MS07_T01_T03_M1_API_CONTRACT_REVIEW.md) records separate first-admission, replay and finite storage windows. Keep the fact-to-receipt composite FK and verify no live dependency before authorized receipt deletion. The revised candidate depends on proven non-reissuance under restore and rotation. The 365-day fact duration remains pending and 48-hour quota cleanup remains conditionally acceptable. Bounded receipt retention is BLOCKED FOR DESIGN DECISION. Approval of both the issuer contract and the physical storage lifecycle is required.
+
+## Latest receipt lifecycle gate
+
+[Deadline and FK lifecycle review](M7-MS07_T01_T03_BOUNDED_REPLAY_FK_REVIEW.md) keeps the required composite NO ACTION FK. The 365-day fact and 366-day receipt candidates are PENDING. Review post-replay clearing as an explicit nullable-pair and controlled maintenance alternative. The proposed NOT NULL and immutable receipt policy remains the baseline until approved. Bounded retention remains BLOCKED FOR DESIGN DECISION.

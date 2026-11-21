@@ -44,3 +44,9 @@ This documentation does not approve SQL execution, cleanup, production ingestion
 - [ ] Approve purpose-specific HMAC and verification-key retirement, signed admission identity, privacy classification and generic foreign-caller behavior.
 - [ ] Approve separate first-admission and replay deadlines and a finite FK-compatible receipt lifecycle covering archival, holds and restore. Prove eventual deletion cannot revive a key with new proof. This stays BLOCKED FOR DESIGN DECISION.
 - [ ] Review the [Latest M1 API review](M7-MS07_T01_T03_M1_API_CONTRACT_REVIEW.md) candidate durations, evidence requirements, consent withdrawal and erasure tests before formal sign-off. No SQL tests have been executed.
+
+## Latest deadline and FK approvals
+
+- [ ] Review 365-day facts and 366-day receipts as pending candidates and approve the separate 10-minute first-acceptance and 24-hour disclosure boundaries.
+- [ ] Decide whether post-replay digest clearing, key retirement and archived-copy handling satisfy minimization and erasure obligations. Approve any controlled mutation exception before use.
+- [ ] Confirm the non-reissuance and FK/cleanup evidence in the [Deadline and FK lifecycle review](M7-MS07_T01_T03_BOUNDED_REPLAY_FK_REVIEW.md). All SQL and API cases remain NOT EXECUTED.

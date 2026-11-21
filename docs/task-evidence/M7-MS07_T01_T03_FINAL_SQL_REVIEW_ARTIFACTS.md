@@ -228,3 +228,7 @@ Shayanthan's separate M1 privacy review declined unbounded retry receipts, left 
 ## Latest caller ownership and admission gates
 
 [Latest M1 API review](M7-MS07_T01_T03_M1_API_CONTRACT_REVIEW.md) defines proposed receipt-only CallerBindingAlgorithmVersion, CallerBindingKeyId and CallerBindingDigest. Earlier DDL is preserved as the pre-M1 candidate. Before final sign-off reconcile the receipt CHECKs, writer inputs and historic-key verification. Admission and replay deadlines are separate. Check the signed tuple and ownership before payload comparison, and enforce guarded deadlines and FK-safe finite storage. Neither unbounded storage nor caller-generated expiry by itself is acceptable. The issuer, finite retention and final SQL review remain blocked or pending. No migration or SQL execution is authorized.
+
+## Deadline and field-clearing dependency
+
+The [Deadline and FK lifecycle review](M7-MS07_T01_T03_BOUNDED_REPLAY_FK_REVIEW.md) specifies the latest candidate UTC checks and cleanup fences. The earlier SQL remains review-only. Integrate verified issuance, bounded settlement and the approved caller-binding lifecycle before signing any physical SQL. Option A requires review of its nullable-pair CHECK and controlled maintenance exception. No deletion is authorized.
