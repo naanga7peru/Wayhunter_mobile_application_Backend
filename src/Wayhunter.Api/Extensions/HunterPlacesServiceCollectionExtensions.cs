@@ -57,6 +57,9 @@ public static class HunterPlacesServiceCollectionExtensions
         services.TryAddScoped<
             HunterStartAuthorizedCaptureSessionHandler>();
 
+        services.TryAddScoped<
+            HunterConsumeAuthorizedCaptureSessionHandler>();
+
         return services;
     }
 }

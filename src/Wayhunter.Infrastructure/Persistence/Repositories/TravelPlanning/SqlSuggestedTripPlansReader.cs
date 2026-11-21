@@ -38,10 +38,28 @@ public sealed class SqlSuggestedTripPlansReader : ISuggestedTripPlansReader
             throw new ArgumentOutOfRangeException(nameof(maxResults));
         }
 
+        return await EligiblePlans(authenticatedUserId)
+            .OrderByDescending(plan => plan.CompletedAtUtc)
+            .ThenBy(plan => plan.TripPlanId)
+            .Take(maxResults)
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<SuggestedTripPlanDto?> GetEligibleByIdAsync(
+        string authenticatedUserId, Guid tripPlanId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentException.ThrowIfNullOrWhiteSpace(authenticatedUserId);
+        return EligiblePlans(authenticatedUserId)
+            .SingleOrDefaultAsync(plan => plan.TripPlanId == tripPlanId, cancellationToken);
+    }
+
+    private IQueryable<SuggestedTripPlanDto> EligiblePlans(string authenticatedUserId)
+    {
         // The access test runs in the database for EVERY request.
         // A removed member, invitation alone, or another user's plan
         // cannot qualify. M3 is the authority for completion evidence.
-        var query = _db.Trips
+        return _db.Trips
             .AsNoTracking()
             .Where(trip => trip.OwnerUserId != authenticatedUserId &&
                            trip.DraftStatus != TripDraftStatus.Cancelled)
@@ -76,11 +94,6 @@ public sealed class SqlSuggestedTripPlansReader : ISuggestedTripPlansReader
                         session.FinishedAtUtc.Value >= session.StartedAtUtc)
                     .OrderByDescending(session => session.FinishedAtUtc)
                     .Select(session => session.FinishedAtUtc!.Value)
-                    .FirstOrDefault()))
-            .OrderByDescending(plan => plan.CompletedAtUtc)
-            .ThenBy(plan => plan.TripPlanId)
-            .Take(maxResults);
-
-        return await query.ToListAsync(cancellationToken);
+                    .FirstOrDefault()));
     }
 }

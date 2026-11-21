@@ -9,6 +9,12 @@ namespace Wayhunter.Application.Modules.TravelPlanning.Interfaces;
 // Do not use ITripPlanRepository.GetByOwnerAsync to discover others' plans.
 public interface ISuggestedTripPlansReader
 {
+    Task<SuggestedTripPlanDto?> GetEligibleByIdAsync(
+        string authenticatedUserId,
+        System.Guid tripPlanId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<SuggestedTripPlanDto?>(null);
+
     Task<IReadOnlyList<SuggestedTripPlanDto>> GetEligibleAsync(
         string authenticatedUserId,
         int maxResults,

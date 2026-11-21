@@ -20,6 +20,23 @@ public sealed class GetSuggestedTripPlansService
         _reader = reader ?? throw new ArgumentNullException(nameof(reader));
     }
 
+    public async Task<SuggestedTripPlanDto?> GetByIdAsync(
+        string authenticatedUserId, Guid tripPlanId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentException.ThrowIfNullOrWhiteSpace(authenticatedUserId);
+        if (tripPlanId == Guid.Empty)
+            throw new ArgumentException("Valid trip plan ID is required.", nameof(tripPlanId));
+
+        var plan = await _reader.GetEligibleByIdAsync(authenticatedUserId, tripPlanId, cancellationToken);
+        return plan is not null && plan.TripPlanId == tripPlanId && IsValid(plan) ? plan : null;
+    }
+
+    private static bool IsValid(SuggestedTripPlanDto plan) =>
+        plan.TripPlanId != Guid.Empty &&
+        plan.CompletedAtUtc != default &&
+        plan.EndDate >= plan.StartDate;
+
     public async Task<IReadOnlyList<SuggestedTripPlanDto>> GetAsync(
         string authenticatedUserId,
         int limit = DefaultLimit,
@@ -51,9 +68,7 @@ public sealed class GetSuggestedTripPlansService
         // Defense in depth for malformed source data. An empty result is
         // safer than generating suggestions from unfinished sessions.
         return results
-            .Where(plan => plan.TripPlanId != Guid.Empty &&
-                           plan.CompletedAtUtc != default &&
-                           plan.EndDate >= plan.StartDate)
+            .Where(IsValid)
             .Take(limit)
             .ToArray();
     }

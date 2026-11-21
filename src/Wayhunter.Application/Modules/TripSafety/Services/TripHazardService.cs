@@ -236,6 +236,24 @@ public sealed class TripHazardService
             return Array.Empty<HazardWarningDto>();
         }
 
+        return await MatchWarningsAsync(route.RouteGeometry, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<HazardWarningDto>> GetWarningsForLiveTripAsync(
+        Guid tripPlanId, string authenticatedUserId, IAuthoritativeTripHazardRouteReader routes,
+        CancellationToken cancellationToken)
+    {
+        await RequireTripAccessAsync(tripPlanId, authenticatedUserId, cancellationToken);
+        var geometry = await routes.ReadAsync(tripPlanId, cancellationToken);
+        return geometry is { Count: >= 2 } && geometry.All(point =>
+            point is not null && HazardRouteMatcher.IsValid(point.Latitude, point.Longitude))
+            ? await MatchWarningsAsync(geometry, cancellationToken)
+            : Array.Empty<HazardWarningDto>();
+    }
+
+    private async Task<IReadOnlyList<HazardWarningDto>> MatchWarningsAsync(
+        IReadOnlyList<RouteWaypoint> geometry, CancellationToken cancellationToken)
+    {
         var now = _clock.GetUtcNow().ToUniversalTime();
 
         var candidates = await _hazards.GetActiveAtAsync(
@@ -248,7 +266,7 @@ public sealed class TripHazardService
                 hazard.Longitude.HasValue &&
                 hazard.IsWarningActive(now) &&
                 HazardRouteMatcher.IsWithinOneKilometer(
-                    route.RouteGeometry,
+                    geometry,
                     hazard.Latitude.Value,
                     hazard.Longitude.Value))
             .OrderByDescending(x => x.ReportedAtUtc)

@@ -4,10 +4,13 @@ using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Wayhunter.Api.Hubs.TripSafety;
 using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Application.Modules.CoinsWallet.Dtos;
 using Wayhunter.Application.Modules.CoinsWallet.Interfaces;
@@ -17,7 +20,10 @@ using Wayhunter.Application.Modules.TripSafety.Dtos;
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
 using Wayhunter.Domain.Modules.CoinsWallet.ValueObjects;
 using Wayhunter.Domain.Modules.IdentitySocial.Entities;
+using Wayhunter.Domain.Modules.TravelPlanning.Entities;
 using Wayhunter.Domain.Modules.TripSafety.Entities;
+using Wayhunter.Domain.Modules.TripSafety.Enums;
+using Wayhunter.Infrastructure.Persistence.DbContexts;
 using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
 using Xunit;
 
@@ -301,6 +307,101 @@ public sealed class ValidJwtCrossModuleHttpTests
         Assert.Equal(
             HttpStatusCode.NotFound,
             otherResponse.StatusCode);
+    }
+
+    private sealed class FinishSaveInterceptor : SaveChangesInterceptor
+    {
+        public bool FailSave { get; set; }
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (FailSave)
+                throw new DbUpdateException("Simulated Finish persistence failure.");
+
+            return base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task M3_Finish_CleansUpOnlyAfterPersistence_AndIsRepeatable()
+    {
+        var interceptor = new FinishSaveInterceptor();
+        var options = new DbContextOptionsBuilder<WayhunterSharedDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .AddInterceptors(interceptor)
+            .Options;
+
+        using var authFactory = new AuthenticatedFactory();
+        using var factory = authFactory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<ILiveTripSessionRepository>();
+                services.AddScoped<ILiveTripSessionRepository>(provider =>
+                    new EfLiveTripSessionRepository(
+                        provider.GetRequiredKeyedService<WayhunterSharedDbContext>("finish-test")));
+                services.AddKeyedScoped<WayhunterSharedDbContext>("finish-test",
+                    (_, _) => new WayhunterSharedDbContext(options));
+            }));
+
+        using var owner = factory.CreateClient();
+        using var other = factory.CreateClient();
+        var tokenService = factory.Services.GetRequiredService<SignedSessionTokenService>();
+        var now = DateTimeOffset.UtcNow;
+        owner.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+            tokenService.Issue(authFactory.Owner, authFactory.OwnerSession, now));
+        other.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+            tokenService.Issue(authFactory.Other, authFactory.OtherSession, now));
+
+        var startDate = DateOnly.FromDateTime(now.UtcDateTime);
+        var trip = new TripPlan(authFactory.Owner.UserId, "Finish integration trip",
+            startDate, startDate.AddDays(1), 5000m, "Car", 2);
+        var members = factory.Services.GetRequiredService<InMemoryTripMembershipRevocationRepository>();
+        await members.AddTripAsync(trip);
+
+        await using var seed = new WayhunterSharedDbContext(options);
+        var session = LiveTripSession.Start(Guid.NewGuid(), trip.Id, now.AddMinutes(-10));
+        await new EfLiveTripSessionRepository(seed).AddAsync(session);
+
+        var registry = factory.Services.GetRequiredService<TripLocationSubscriberRegistry>();
+        registry.Register("target", trip.Id, session.SessionId, authFactory.Owner.UserId);
+        registry.Register("other-session", trip.Id, Guid.NewGuid(), authFactory.Owner.UserId);
+        var route = $"/api/mobile/trips/{trip.Id}/sessions/{session.SessionId}/finish";
+
+        using var denied = await other.PostAsync(route, null);
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        Assert.NotNull(registry.Find("target"));
+
+        interceptor.FailSave = true;
+        using var failed = await owner.PostAsync(route, null);
+        Assert.Equal(HttpStatusCode.InternalServerError, failed.StatusCode);
+        Assert.NotNull(registry.Find("target"));
+
+        await using var read = new WayhunterSharedDbContext(options);
+        Assert.Equal(LiveTripStatus.Active,
+            await read.LiveTripSessions.Where(x => x.SessionId == session.SessionId)
+                .Select(x => x.Status).SingleAsync());
+
+        interceptor.FailSave = false;
+        using var finished = await owner.PostAsync(route, null);
+        Assert.Equal(HttpStatusCode.OK, finished.StatusCode);
+        var first = await finished.Content.ReadFromJsonAsync<TripSessionDto>();
+        Assert.NotNull(first);
+        Assert.Equal(LiveTripStatus.Finished, first.Status);
+        Assert.NotNull(first.FinishedAtUtc);
+        var saved = await read.LiveTripSessions.AsNoTracking().SingleAsync(x => x.SessionId == session.SessionId);
+        Assert.Equal(LiveTripStatus.Finished, saved.Status);
+        Assert.Equal(first.FinishedAtUtc, saved.FinishedAtUtc);
+        Assert.Null(registry.Find("target"));
+        Assert.NotNull(registry.Find("other-session"));
+
+        // Repeating Finish should return the saved result without attempting another write.
+        interceptor.FailSave = true;
+        using var repeated = await owner.PostAsync(route, null);
+        Assert.Equal(HttpStatusCode.OK, repeated.StatusCode);
+        Assert.Equal(first, await repeated.Content.ReadFromJsonAsync<TripSessionDto>());
+        Assert.NotNull(registry.Find("other-session"));
     }
 
     [Fact]

@@ -27,7 +27,7 @@ using Xunit;
 
 namespace Wayhunter.IntegrationTests.Modules.HomeAdsAnalytics;
 
-public sealed class AdvertisementAdminPositiveHttpTests
+public sealed partial class AdvertisementAdminPositiveHttpTests
 {
     private const string TestSchemeName = "M7AdminHttpTest";
     private const string Route = "/api/admin/advertisements";
@@ -91,11 +91,16 @@ public sealed class AdvertisementAdminPositiveHttpTests
     // Fake Advertisement Repository - No SQL
     // ==========================================
 
-    private sealed class FakeRepository :
+    private sealed partial class FakeRepository :
         IAdvertisementRepository,
         IAdvertisementWriteRepository
     {
         private readonly Dictionary<Guid, AdvertisementDto> _items = [];
+
+        private int _getByIdCallCount;
+
+        public int GetByIdCallCount =>
+            Volatile.Read(ref _getByIdCallCount);
 
         public Task<IReadOnlyList<AdvertisementDto>> GetAllAsync(
             CancellationToken cancellationToken = default)
@@ -110,6 +115,7 @@ public sealed class AdvertisementAdminPositiveHttpTests
             Guid id,
             CancellationToken cancellationToken = default)
         {
+            Interlocked.Increment(ref _getByIdCallCount);
             _items.TryGetValue(id, out var item);
             return Task.FromResult(item);
         }
@@ -213,7 +219,7 @@ public sealed class AdvertisementAdminPositiveHttpTests
     // Test Server Setup
     // ==========================================
 
-    private static async Task<WebApplication> CreateServerAsync()
+    private static async Task<WebApplication> CreateServerAsync(bool enableImageUpload = false, bool useKestrel = false, bool enableLifecycle = false)
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -221,7 +227,20 @@ public sealed class AdvertisementAdminPositiveHttpTests
                 EnvironmentName = "Development"
             });
 
-        builder.WebHost.UseTestServer();
+        if (useKestrel)
+        {
+            // Test-only HTTP listener on the local loopback interface.
+            // Port zero requests an available ephemeral port.
+            builder.WebHost.UseKestrel();
+            builder.WebHost.UseUrls("http://127.0.0.1:0");
+        }
+        else
+        {
+            builder.WebHost.UseTestServer();
+        }
+
+        builder.Configuration["Advertisements:ImageUpload:Enabled"] = enableImageUpload.ToString();
+        builder.Configuration["Advertisements:ImageUpload:LifecycleEnabled"] = enableLifecycle.ToString();
 
         builder.Configuration[
             "Identity:AdministratorRole"] = "Admin";
@@ -249,6 +268,21 @@ public sealed class AdvertisementAdminPositiveHttpTests
 
         builder.Services.AddScoped<IAdvertisementWriteRepository>(
             sp => sp.GetRequiredService<FakeRepository>());
+
+        if (enableLifecycle)
+        {
+            // Test-only fakes. Never contact SQL or Cloudinary.
+            builder.Services.AddSingleton<FakeImageStorage>();
+
+            builder.Services.AddScoped<IAdvertisementImageStorage>(
+                sp => sp.GetRequiredService<FakeImageStorage>());
+
+            builder.Services.AddScoped<IAdvertisementImageUpdateRepository>(
+                sp => sp.GetRequiredService<FakeRepository>());
+
+            builder.Services.AddScoped<
+                Wayhunter.Api.Services.HomeAdsAnalytics.AdvertisementImageLifecycleService>();
+        }
 
         builder.Services.AddSingleton(TimeProvider.System);
 
@@ -672,4 +706,516 @@ public sealed class AdvertisementAdminPositiveHttpTests
             response.StatusCode);
     }
 
+
+    // ==========================================
+    // M7 Secure Image Upload - Guard Tests
+    // ==========================================
+
+    [Fact]
+    public async Task Traveler_AdvertisementImageUpload_Returns403()
+    {
+        await using var server = await CreateServerAsync();
+        using var client = server.GetTestClient();
+
+        client.DefaultRequestHeaders.Add(
+            "X-Test-User", "traveler");
+
+        using var form = new MultipartFormDataContent();
+
+        using var response = await client.PostAsync(
+            $"{Route}/{Guid.NewGuid()}/image",
+            form);
+
+        Assert.Equal(
+            HttpStatusCode.Forbidden,
+            response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Admin_AdvertisementImageUpload_Disabled_Returns503()
+    {
+        await using var server = await CreateServerAsync();
+        using var client = server.GetTestClient();
+
+        client.DefaultRequestHeaders.Add(
+            "X-Test-User", "admin");
+
+        using var form = new MultipartFormDataContent();
+
+        using var file = new ByteArrayContent(
+            new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
+
+        file.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue(
+                "image/png");
+
+        form.Add(file, "file", "test.png");
+
+        using var response = await client.PostAsync(
+            $"{Route}/{Guid.NewGuid()}/image",
+            form);
+
+        var responseBody = await response.Content.ReadAsStringAsync();
+
+        Assert.True(
+            response.StatusCode == HttpStatusCode.ServiceUnavailable,
+            $"Expected 503, got {(int)response.StatusCode}. Body: {responseBody}");
+    }
+
+    [Fact]
+    public async Task Admin_ImageUpload_MissingAdvertisement_Returns404()
+    {
+        await using var server = await CreateServerAsync(
+            enableImageUpload: true);
+
+        using var client = server.GetTestClient();
+        client.DefaultRequestHeaders.Add("X-Test-User", "admin");
+
+        using var form = new MultipartFormDataContent();
+        using var file = new ByteArrayContent(
+            new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
+
+        file.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue(
+                "image/png");
+
+        form.Add(file, "file", "test.png");
+
+        using var response = await client.PostAsync(
+            $"{Route}/{Guid.NewGuid()}/image",
+            form);
+
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Admin_ImageUpload_ExistingAdvertisement_RemainsDisabled()
+    {
+        await using var server = await CreateServerAsync(
+            enableImageUpload: true);
+
+        var repository = server.Services
+            .GetRequiredService<FakeRepository>();
+
+        var advertisement = await repository.CreateAsync(
+            ValidCreate());
+
+        using var client = server.GetTestClient();
+        client.DefaultRequestHeaders.Add("X-Test-User", "admin");
+
+        using var form = new MultipartFormDataContent();
+        using var bitmap = new SkiaSharp.SKBitmap(16, 16);
+        bitmap.Erase(SkiaSharp.SKColors.Blue);
+
+        using var image = SkiaSharp.SKImage.FromBitmap(bitmap);
+        using var encoded = image.Encode(
+            SkiaSharp.SKEncodedImageFormat.Png, 100);
+
+        Assert.NotNull(encoded);
+        using var file = new ByteArrayContent(
+            encoded!.ToArray());
+
+        file.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue(
+                "image/png");
+
+        form.Add(file, "file", "test.png");
+
+        using var response = await client.PostAsync(
+            $"{Route}/{advertisement.Id}/image",
+            form);
+
+        Assert.Equal(
+            HttpStatusCode.ServiceUnavailable,
+            response.StatusCode);
+
+        var unchanged = await repository.GetByIdAsync(
+            advertisement.Id);
+
+        Assert.NotNull(unchanged);
+        Assert.Equal(
+            advertisement.ImageUrl,
+            unchanged!.ImageUrl);
+    }
+
+    [Fact]
+    public async Task Admin_ImageUpload_FeatureOff_DoesNotAccessRepository()
+    {
+        await using var server = await CreateServerAsync(
+            enableImageUpload: false);
+
+        var repository = server.Services
+            .GetRequiredService<FakeRepository>();
+
+        var readsBefore = repository.GetByIdCallCount;
+
+        using var client = server.GetTestClient();
+
+        client.DefaultRequestHeaders.Add(
+            "X-Test-User", "admin");
+
+        using var form = new MultipartFormDataContent();
+
+        using var file = new ByteArrayContent(
+            new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
+
+        file.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue(
+                "image/png");
+
+        form.Add(file, "file", "test.png");
+
+        using var response = await client.PostAsync(
+            $"{Route}/{Guid.NewGuid()}/image",
+            form);
+
+        Assert.Equal(
+            HttpStatusCode.ServiceUnavailable,
+            response.StatusCode);
+
+        Assert.Equal(
+            readsBefore,
+            repository.GetByIdCallCount);
+    }
+
+    // ==========================================
+    // M7 Image Upload - HTTP Security Rejections
+    // ==========================================
+
+    [Fact]
+    public async Task Admin_ImageUpload_InvalidPng_Returns400()
+    {
+        await using var server = await CreateServerAsync(
+            enableImageUpload: true);
+
+        var repository = server.Services
+            .GetRequiredService<FakeRepository>();
+
+        var advertisement = await repository.CreateAsync(
+            ValidCreate());
+
+        using var client = server.GetTestClient();
+        client.DefaultRequestHeaders.Add("X-Test-User", "admin");
+
+        using var form = new MultipartFormDataContent();
+
+        using var file = new ByteArrayContent(
+            new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
+
+        file.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue(
+                "image/png");
+
+        form.Add(file, "file", "fake.png");
+
+        using var response = await client.PostAsync(
+            $"{Route}/{advertisement.Id}/image", form);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var unchanged = await repository.GetByIdAsync(
+            advertisement.Id);
+
+        Assert.Equal(advertisement.ImageUrl, unchanged!.ImageUrl);
+    }
+
+    [Fact]
+    public async Task Admin_ImageUpload_TwoFiles_Returns400()
+    {
+        await using var server = await CreateServerAsync(
+            enableImageUpload: true);
+
+        var repository = server.Services
+            .GetRequiredService<FakeRepository>();
+
+        var advertisement = await repository.CreateAsync(
+            ValidCreate());
+
+        using var client = server.GetTestClient();
+        client.DefaultRequestHeaders.Add("X-Test-User", "admin");
+
+        using var form = new MultipartFormDataContent();
+
+        using var first = new ByteArrayContent(new byte[] { 1, 2 });
+        using var second = new ByteArrayContent(new byte[] { 3, 4 });
+
+        first.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+
+        second.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+
+        form.Add(first, "file", "first.png");
+        form.Add(second, "file", "second.png");
+
+        using var response = await client.PostAsync(
+            $"{Route}/{advertisement.Id}/image", form);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var unchanged = await repository.GetByIdAsync(
+            advertisement.Id);
+
+        Assert.Equal(advertisement.ImageUrl, unchanged!.ImageUrl);
+    }
+
+    [Fact]
+    public async Task Admin_ImageUpload_ExtraField_Returns400()
+    {
+        await using var server = await CreateServerAsync(
+            enableImageUpload: true);
+
+        var repository = server.Services
+            .GetRequiredService<FakeRepository>();
+
+        var advertisement = await repository.CreateAsync(
+            ValidCreate());
+
+        using var bitmap = new SkiaSharp.SKBitmap(16, 16);
+        bitmap.Erase(SkiaSharp.SKColors.Blue);
+
+        using var image = SkiaSharp.SKImage.FromBitmap(bitmap);
+        using var encoded = image.Encode(
+            SkiaSharp.SKEncodedImageFormat.Png, 100);
+
+        Assert.NotNull(encoded);
+
+        using var client = server.GetTestClient();
+        client.DefaultRequestHeaders.Add("X-Test-User", "admin");
+
+        using var form = new MultipartFormDataContent();
+
+        using var file = new ByteArrayContent(
+            encoded!.ToArray());
+
+        file.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue(
+                "image/png");
+
+        form.Add(file, "file", "valid.png");
+        form.Add(new StringContent("unexpected"), "extra");
+
+        using var response = await client.PostAsync(
+            $"{Route}/{advertisement.Id}/image", form);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var unchanged = await repository.GetByIdAsync(
+            advertisement.Id);
+
+        Assert.Equal(advertisement.ImageUrl, unchanged!.ImageUrl);
+    }
+
+    [Fact]
+    public async Task Admin_ImageUpload_OversizedFile_IsRejected()
+    {
+        await using var server = await CreateServerAsync(
+            enableImageUpload: true);
+
+        var repository = server.Services
+            .GetRequiredService<FakeRepository>();
+
+        var advertisement = await repository.CreateAsync(
+            ValidCreate());
+
+        using var client = server.GetTestClient();
+
+        client.DefaultRequestHeaders.Add(
+            "X-Test-User", "admin");
+
+        using var form = new MultipartFormDataContent();
+
+        // Exactly one byte beyond the 5 MB file limit.
+        using var file = new ByteArrayContent(
+            new byte[5 * 1024 * 1024 + 1]);
+
+        file.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue(
+                "image/png");
+
+        form.Add(file, "file", "oversized.png");
+
+        using var response = await client.PostAsync(
+            $"{Route}/{advertisement.Id}/image",
+            form);
+
+        Assert.True(
+            response.StatusCode == HttpStatusCode.BadRequest ||
+            response.StatusCode == HttpStatusCode.RequestEntityTooLarge,
+            $"Unexpected HTTP status: {(int)response.StatusCode}");
+
+        var unchanged = await repository.GetByIdAsync(
+            advertisement.Id);
+
+        Assert.NotNull(unchanged);
+        Assert.Equal(
+            advertisement.ImageUrl,
+            unchanged!.ImageUrl);
+    }
+
+    [Fact]
+    public async Task Admin_ImageUpload_MalformedBoundary_Returns400()
+    {
+        await using var server = await CreateServerAsync(
+            enableImageUpload: true);
+
+        var repository = server.Services
+            .GetRequiredService<FakeRepository>();
+
+        var advertisement = await repository.CreateAsync(
+            ValidCreate());
+
+        using var client = server.GetTestClient();
+
+        client.DefaultRequestHeaders.Add(
+            "X-Test-User", "admin");
+
+        using var content = new ByteArrayContent(
+            System.Text.Encoding.UTF8.GetBytes(
+                "--incorrect-boundary\r\n" +
+                "Content-Disposition: form-data; name=\"file\"; " +
+                "filename=\"image.png\"\r\n" +
+                "Content-Type: image/png\r\n\r\n" +
+                "invalid-data\r\n" +
+                "--incorrect-boundary--\r\n"));
+
+        content.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue(
+                "multipart/form-data");
+
+        content.Headers.ContentType.Parameters.Add(
+            new System.Net.Http.Headers.NameValueHeaderValue(
+                "boundary", "expected-boundary"));
+
+        using var response = await client.PostAsync(
+            $"{Route}/{advertisement.Id}/image",
+            content);
+
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            response.StatusCode);
+
+        var unchanged = await repository.GetByIdAsync(
+            advertisement.Id);
+
+        Assert.NotNull(unchanged);
+        Assert.Equal(
+            advertisement.ImageUrl,
+            unchanged!.ImageUrl);
+    }
+
+    [Fact]
+    public async Task Admin_ImageUpload_KestrelOversizedRequest_IsRejected()
+    {
+        await using var server = await CreateServerAsync(
+            enableImageUpload: true,
+            useKestrel: true);
+
+        var repository = server.Services
+            .GetRequiredService<FakeRepository>();
+
+        var advertisement = await repository.CreateAsync(
+            ValidCreate());
+
+        var address = server.Urls.Single();
+
+        using var client = new HttpClient
+        {
+            BaseAddress = new Uri(address),
+            Timeout = TimeSpan.FromSeconds(30)
+        };
+
+        client.DefaultRequestHeaders.Add(
+            "X-Test-User", "admin");
+
+        // First confirm the test-only Admin request
+        // reaches the intended controller.
+        using var bitmap = new SkiaSharp.SKBitmap(16, 16);
+        bitmap.Erase(SkiaSharp.SKColors.Blue);
+
+        using var image = SkiaSharp.SKImage.FromBitmap(bitmap);
+        using var encoded = image.Encode(
+            SkiaSharp.SKEncodedImageFormat.Png, 100);
+
+        Assert.NotNull(encoded);
+
+        using (var validForm = new MultipartFormDataContent())
+        {
+            using var validFile = new ByteArrayContent(
+                encoded!.ToArray());
+
+            validFile.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue(
+                    "image/png");
+
+            validForm.Add(validFile, "file", "valid.png");
+
+            using var validResponse = await client.PostAsync(
+                $"{Route}/{advertisement.Id}/image",
+                validForm);
+
+            Assert.Equal(
+                HttpStatusCode.ServiceUnavailable,
+                validResponse.StatusCode);
+        }
+
+        // Exceeds the endpoint's total HTTP request limit,
+        // not merely its 5 MB file validation limit.
+        using var oversizedForm = new MultipartFormDataContent();
+
+        using var oversizedFile = new ByteArrayContent(
+            new byte[5 * 1024 * 1024 + 131072]);
+
+        oversizedFile.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue(
+                "image/png");
+
+        oversizedForm.Add(
+            oversizedFile, "file", "oversized.png");
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"{Route}/{advertisement.Id}/image")
+        {
+            Content = oversizedForm
+        };
+
+        request.Headers.ExpectContinue = true;
+
+        using var response = await client.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead);
+
+        var responseBody = await response.Content.ReadAsStringAsync();
+
+        Console.WriteLine(
+            $"Kestrel oversized status: {(int)response.StatusCode}");
+
+        Console.WriteLine(
+            $"Kestrel oversized response: {responseBody}");
+
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            response.StatusCode);
+
+        Assert.Contains(
+            "Request body too large",
+            responseBody,
+            StringComparison.OrdinalIgnoreCase);
+
+        Assert.Contains(
+            "5308416",
+            responseBody,
+            StringComparison.Ordinal);
+
+        var unchanged = await repository.GetByIdAsync(
+            advertisement.Id);
+
+        Assert.NotNull(unchanged);
+        Assert.Equal(
+            advertisement.ImageUrl,
+            unchanged!.ImageUrl);
+    }
 }

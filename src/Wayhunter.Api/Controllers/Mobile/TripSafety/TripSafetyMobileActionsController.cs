@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 using Wayhunter.Api.Contracts;
+using Wayhunter.Api.Hubs.TripSafety;
 using Wayhunter.Api.Services.TripSafety;
 
 using Wayhunter.Application.Modules.TripSafety.Dtos;
@@ -39,6 +40,7 @@ public sealed class TripSafetyMobileActionsController
     private readonly TripMembershipRevocationService _members;
     private readonly ILiveTripSessionRepository _sessionRepository;
     private readonly TripSafetyTripAccessService _access;
+    private readonly TripLocationSubscriptionCleanup? _cleanup;
 
     public TripSafetyMobileActionsController(
         LiveTripSessionService sessions,
@@ -46,7 +48,8 @@ public sealed class TripSafetyMobileActionsController
         TripInvitationDecisionService invitations,
         TripMembershipRevocationService members,
         ILiveTripSessionRepository sessionRepository,
-        TripSafetyTripAccessService access)
+        TripSafetyTripAccessService access,
+        TripLocationSubscriptionCleanup? cleanup = null)
     {
         _sessions = sessions ??
             throw new ArgumentNullException(nameof(sessions));
@@ -61,22 +64,24 @@ public sealed class TripSafetyMobileActionsController
             throw new ArgumentNullException(nameof(members));
 
         _sessionRepository = sessionRepository ??
-            throw new ArgumentNullException(nameof(sessionRepository));
+            throw new ArgumentNullException(
+                nameof(sessionRepository));
 
         _access = access ??
             throw new ArgumentNullException(nameof(access));
+
+        _cleanup = cleanup;
     }
 
     private bool TryUserId(out string userId)
     {
-        // Reject missing, duplicate, conflicting, or
-        // malformed authenticated identity claims.
         return TrustedIdentityAccessContract.TryResolveUserId(
             User,
             out userId);
     }
 
-    private static bool IsExpectedError(Exception exception)
+    private static bool IsExpectedError(
+        Exception exception)
     {
         return exception is ArgumentException
             or KeyNotFoundException
@@ -84,7 +89,8 @@ public sealed class TripSafetyMobileActionsController
             or InvalidOperationException;
     }
 
-    private static IActionResult ErrorResponse(Exception exception)
+    private static IActionResult ErrorResponse(
+        Exception exception)
     {
         return exception switch
         {
@@ -111,12 +117,12 @@ public sealed class TripSafetyMobileActionsController
         };
     }
 
-    // =====================================================
+    // ==============================================
     // LIVE TRIP SESSION
-    // =====================================================
+    // ==============================================
 
     // POST /api/mobile/trips/{tripPlanId}/sessions
-    // Only the trip owner may start the trip.
+    // Only the trip owner may start a trip.
 
     [HttpPost("api/mobile/trips/{tripPlanId:guid}/sessions")]
     public async Task<IActionResult> Start(
@@ -166,11 +172,12 @@ public sealed class TripSafetyMobileActionsController
                 userId,
                 cancellationToken);
 
-            // A session from another trip must never
-            // be modified using this route.
-            var existing = await _sessionRepository.GetByIdAsync(
-                sessionId,
-                cancellationToken);
+            // Session must belong to the requested trip.
+
+            var existing =
+                await _sessionRepository.GetByIdAsync(
+                    sessionId,
+                    cancellationToken);
 
             if (existing is null ||
                 existing.TripPlanId != tripPlanId)
@@ -191,7 +198,9 @@ public sealed class TripSafetyMobileActionsController
         }
     }
 
-    // POST /api/mobile/trips/{tripPlanId}/sessions/{sessionId}/pause
+    // ==============================================
+    // PAUSE TRIP
+    // ==============================================
 
     [HttpPost(
         "api/mobile/trips/{tripPlanId:guid}/sessions/{sessionId:guid}/pause")]
@@ -207,7 +216,9 @@ public sealed class TripSafetyMobileActionsController
             cancellationToken);
     }
 
-    // POST /api/mobile/trips/{tripPlanId}/sessions/{sessionId}/resume
+    // ==============================================
+    // RESUME TRIP
+    // ==============================================
 
     [HttpPost(
         "api/mobile/trips/{tripPlanId:guid}/sessions/{sessionId:guid}/resume")]
@@ -223,26 +234,45 @@ public sealed class TripSafetyMobileActionsController
             cancellationToken);
     }
 
-    // POST /api/mobile/trips/{tripPlanId}/sessions/{sessionId}/finish
+    // ==============================================
+    // FINISH TRIP
+    // ==============================================
 
     [HttpPost(
         "api/mobile/trips/{tripPlanId:guid}/sessions/{sessionId:guid}/finish")]
-    public Task<IActionResult> Finish(
+    public async Task<IActionResult> Finish(
         Guid tripPlanId,
         Guid sessionId,
         CancellationToken cancellationToken)
     {
-        return ChangeSessionAsync(
+        // Existing owner + trip/session checks
+        // are preserved in ChangeSessionAsync.
+
+        var response = await ChangeSessionAsync(
             tripPlanId,
             sessionId,
             _sessions.FinishAsync,
             cancellationToken);
+
+        // Only perform cleanup after successful
+        // session finish. Failed/unauthorized
+        // requests cannot remove subscriptions.
+
+        if (response is OkObjectResult &&
+            _cleanup is not null)
+        {
+            await _cleanup.RevokeSessionAsync(
+                tripPlanId,
+                sessionId,
+                CancellationToken.None);
+        }
+
+        return response;
     }
 
-    // GET /api/mobile/trips/{tripPlanId}/sessions/{sessionId}/recover
-    //
-    // Only the owner or an active accepted member
-    // may recover an Active or Paused session.
+    // ==============================================
+    // RECOVER LIVE TRIP SESSION
+    // ==============================================
 
     [HttpGet(
         "api/mobile/trips/{tripPlanId:guid}/sessions/{sessionId:guid}/recover")]
@@ -269,9 +299,10 @@ public sealed class TripSafetyMobileActionsController
                     StatusCodes.Status403Forbidden);
             }
 
-            var session = await _sessionRepository.GetByIdAsync(
-                sessionId,
-                cancellationToken);
+            var session =
+                await _sessionRepository.GetByIdAsync(
+                    sessionId,
+                    cancellationToken);
 
             if (session is null ||
                 session.TripPlanId != tripPlanId)
@@ -298,9 +329,9 @@ public sealed class TripSafetyMobileActionsController
         }
     }
 
-    // =====================================================
-    // TRIP INVITATION DECISIONS
-    // =====================================================
+    // ==============================================
+    // INVITATION DECISIONS
+    // ==============================================
 
     private async Task<IActionResult> ChangeInvitationAsync(
         Guid invitationId,
@@ -361,7 +392,10 @@ public sealed class TripSafetyMobileActionsController
         }
     }
 
-    // Recipient only.
+    // ==============================================
+    // ACCEPT INVITATION
+    // ==============================================
+
     [HttpPost(
         "api/mobile/trip-invitations/{invitationId:guid}/accept")]
     public Task<IActionResult> AcceptInvitation(
@@ -374,7 +408,10 @@ public sealed class TripSafetyMobileActionsController
             cancellationToken);
     }
 
-    // Recipient only.
+    // ==============================================
+    // REJECT INVITATION
+    // ==============================================
+
     [HttpPost(
         "api/mobile/trip-invitations/{invitationId:guid}/reject")]
     public Task<IActionResult> RejectInvitation(
@@ -387,7 +424,10 @@ public sealed class TripSafetyMobileActionsController
             cancellationToken);
     }
 
-    // Sender only.
+    // ==============================================
+    // CANCEL INVITATION
+    // ==============================================
+
     [HttpPost(
         "api/mobile/trip-invitations/{invitationId:guid}/cancel")]
     public Task<IActionResult> CancelInvitation(
@@ -400,14 +440,9 @@ public sealed class TripSafetyMobileActionsController
             cancellationToken);
     }
 
-    // =====================================================
-    // TRIP MEMBERSHIP REVOCATION
-    // =====================================================
-
-    // DELETE /api/mobile/trips/{tripPlanId}/members/{memberUserId}
-    //
-    // Only the trip owner can remove a member.
-    // Repeated removal returns Removed=false.
+    // ==============================================
+    // REMOVE TRIP MEMBER
+    // ==============================================
 
     [HttpDelete(
         "api/mobile/trips/{tripPlanId:guid}/members/{memberUserId:guid}")]
@@ -441,7 +476,20 @@ public sealed class TripSafetyMobileActionsController
                 targetId.ToString("D"),
                 cancellationToken);
 
-            return Ok(new TripMemberRemovalApiResponse(removed));
+            // A successful membership revocation
+            // removes this user's local live GPS
+            // subscriptions for the trip.
+
+            if (removed && _cleanup is not null)
+            {
+                await _cleanup.RevokeTripMemberAsync(
+                    tripPlanId,
+                    targetId.ToString("D"),
+                    CancellationToken.None);
+            }
+
+            return Ok(
+                new TripMemberRemovalApiResponse(removed));
         }
         catch (Exception exception)
             when (IsExpectedError(exception))

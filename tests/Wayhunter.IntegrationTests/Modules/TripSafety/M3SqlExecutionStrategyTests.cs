@@ -3,7 +3,6 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 using Wayhunter.Domain.Modules.IdentitySocial.Entities;
@@ -31,30 +30,9 @@ public sealed class M3SqlExecutionStrategyTests
     private static readonly DateTimeOffset RemovedAt =
         JoinedAt.AddHours(1);
 
-    private static string GetConnectionString()
-    {
-        var value = Environment.GetEnvironmentVariable(
-            "WAYHUNTER_M3_TEST_SQL_CONNECTION");
-
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            throw new InvalidOperationException(
-                "Dedicated M3 SQL connection is missing.");
-        }
-
-        var builder = new SqlConnectionStringBuilder(value);
-
-        if (!string.Equals(
-            builder.InitialCatalog,
-            AllowedDatabaseName,
-            StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(
-                "Only the dedicated M3 integration test database is allowed.");
-        }
-
-        return value;
-    }
+    private static string GetConnectionString() =>
+        M3LocalDbProfile.Validate(Environment.GetEnvironmentVariable("WAYHUNTER_M3_TEST_SQL_CONNECTION"),
+            AllowedDatabaseName).ConnectionString;
 
     private static WayhunterSharedDbContext CreateContext()
     {

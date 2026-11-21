@@ -8,6 +8,8 @@ using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Api.Hubs.TripSafety;
 using Wayhunter.Api.Services.IdentitySocial;
+using Wayhunter.Api.Services.HomeAdsAnalytics;
+using Wayhunter.Application.Modules.HomeAdsAnalytics.Interfaces;
 using Wayhunter.Api.Services.TripSafety;
 
 using Wayhunter.Application.Modules.TravelPlanning.Interfaces;
@@ -38,6 +40,17 @@ builder.Services.AddCoinsWalletAdministratorPolicy(
     builder.Configuration);
 
 // ==========================================
+// M7 - Advertisement Image Storage
+// ==========================================
+
+// Fail-closed by default.
+// Real provider activation requires separate approval.
+// No Cloudinary credentials or external writes here.
+
+builder.Services.AddScoped<
+    IAdvertisementImageStorage,
+    UnavailableAdvertisementImageStorage>();
+// ==========================================
 // M1 - Identity Authentication
 // ==========================================
 
@@ -59,20 +72,6 @@ if (enableSharedAuthentication)
     // Reuse M1's trusted authenticated account reader.
     // No new authentication scheme or SQL migration.
     builder.Services.AddHunterPlacesTrustedIdentity();
-
-    // ==========================================
-    // M4 - Hunter Places SQL Persistence
-    // ==========================================
-
-    // SQL persistence is disabled by default.
-    // Requires approved shared SQL schema before activation.
-    // Does not execute database migrations.
-    builder.Services.AddConfiguredHunterPlacesPersistence(
-        builder.Configuration);
-
-    // ==========================================
-    // M6 - Authenticated Wallet SQL Read
-    // ==========================================
 
     builder.Services.AddCoinsWalletSqlReader(
         builder.Configuration);
@@ -100,11 +99,6 @@ if (enableSharedAuthentication)
             builder.Configuration);
     }
 
-    // ==========================================
-    // M7 - Advertisement SQL Runtime
-    // ==========================================
-
-    // M7 SQL persistence remains separately opt-in.
     var enableAdvertisementSqlPersistence =
         builder.Configuration.GetValue<bool>(
             "Advertisements:EnableSqlPersistence");
@@ -128,6 +122,16 @@ else
 
     builder.Services.AddAuthorization();
 }
+
+// ==========================================
+// M4 - Hunter Places SQL Persistence
+// ==========================================
+
+// SQL persistence is disabled by default.
+// Requires approved shared SQL schema before activation.
+// Does not execute database migrations.
+builder.Services.AddConfiguredHunterPlacesPersistence(
+    builder.Configuration);
 
 // ==========================================
 // M2 - Travel Planning
@@ -223,18 +227,18 @@ builder.Services.TryAddSingleton<
 // M3 - Configured SQL Persistence
 // ==========================================
 
+builder.Services.AddSingleton<InMemoryTripInvitationCreateStore>();
+builder.Services.AddSingleton<ITripInvitationCreateStore>(sp => sp.GetRequiredService<InMemoryTripInvitationCreateStore>());
+builder.Services.TryAddScoped<ITripInviteBlockRelationshipReader, UnconfiguredTripInviteBlockRelationshipReader>();
+builder.Services.AddScoped<ITripInviteEligibilityAccess, UnavailableTripInviteEligibilityAccess>();
+builder.Services.AddScoped<TripInvitationCreateService>();
+
 builder.Services.AddConfiguredTripSafetyPersistence(
     builder.Configuration);
 
 // ==========================================
-// M3 - Task 5: Notification Outbox Worker
+// M3 - Notification Outbox Worker
 // ==========================================
-
-// Default OFF.
-// Requires M3 SQL persistence, approved outbox
-// schema, and a trusted durable webhook receiver.
-//
-// This does not run migrations.
 
 builder.Services
     .AddConfiguredTripSafetyNotificationOutboxWorker(
@@ -266,6 +270,10 @@ builder.Services.AddScoped<
 
 builder.Services.AddScoped<
     TripHazardService>();
+
+builder.Services.AddSingleton(new LiveTripAlertSettings());
+builder.Services.AddSingleton<LiveTripAlertState>();
+builder.Services.AddScoped<LiveTripSafetyAlerts>();
 
 // ==========================================
 // M3 - Optional SQL Hazard Expiry Worker
@@ -300,6 +308,12 @@ builder.Services.AddSingleton<
 builder.Services.AddScoped<
     TripLocationFanoutService>();
 
+// NEW: shared cleanup service for successful
+// finish, membership removal and GPS consent revoke.
+
+builder.Services.AddSingleton<
+    TripLocationSubscriptionCleanup>();
+
 // ==========================================
 // Development CORS
 // ==========================================
@@ -322,6 +336,13 @@ if (builder.Environment.IsDevelopment())
 // ==========================================
 // Application Pipeline
 // ==========================================
+
+
+
+builder.Services.AddTripMemoryServices();
+builder.Services.AddNotificationFoundation(builder.Configuration);
+builder.Services.AddAdminSafetyMonitoring();
+builder.Services.AddTripSafetyBatch2Services(builder.Configuration);
 
 var app = builder.Build();
 

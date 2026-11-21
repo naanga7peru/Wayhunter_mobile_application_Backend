@@ -5,7 +5,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
@@ -34,32 +33,9 @@ public sealed class M3MembershipRevocationSqlRollbackTests
     private static readonly DateTimeOffset RemovedAt =
         JoinedAt.AddHours(1);
 
-    private static string GetConnectionString()
-    {
-        var connectionString =
-            Environment.GetEnvironmentVariable(
-                "WAYHUNTER_M3_TEST_SQL_CONNECTION");
-
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException(
-                "M3 SQL test connection is missing.");
-        }
-
-        var builder =
-            new SqlConnectionStringBuilder(connectionString);
-
-        if (!string.Equals(
-            builder.InitialCatalog,
-            AllowedDatabaseName,
-            StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(
-                "Only the dedicated M3 test database is permitted.");
-        }
-
-        return connectionString;
-    }
+    private static string GetConnectionString() =>
+        M3LocalDbProfile.Validate(Environment.GetEnvironmentVariable("WAYHUNTER_M3_TEST_SQL_CONNECTION"),
+            AllowedDatabaseName).ConnectionString;
 
     private static WayhunterSharedDbContext CreateContext(
         DbTransactionInterceptor? interceptor = null)

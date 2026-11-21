@@ -175,5 +175,21 @@ public sealed class HunterPlacesSqlRegistrationTests
             services,
             descriptor => descriptor.ServiceType ==
                 typeof(SqlHunterCaptureSessionStore));
+
+        using var provider = services.BuildServiceProvider();
+        using var firstScope = provider.CreateScope();
+        using var secondScope = provider.CreateScope();
+
+        var firstStore = firstScope.ServiceProvider
+            .GetRequiredService<IHunterCaptureSessionStore>();
+        var secondStore = secondScope.ServiceProvider
+            .GetRequiredService<IHunterCaptureSessionStore>();
+
+        Assert.IsType<SqlHunterCaptureSessionStore>(firstStore);
+        Assert.Same(firstStore, firstScope.ServiceProvider
+            .GetRequiredService<IHunterCaptureSessionRevocationStore>());
+        Assert.Same(secondStore, secondScope.ServiceProvider
+            .GetRequiredService<IHunterCaptureSessionRevocationStore>());
+        Assert.NotSame(firstStore, secondStore);
     }
 }

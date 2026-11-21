@@ -29,7 +29,7 @@ public static class HazardRouteMatcher
             var start = routeGeometry[index - 1];
             var end = routeGeometry[index];
 
-            if (!IsValid(start.Latitude, start.Longitude) ||
+            if (start is null || end is null || !IsValid(start.Latitude, start.Longitude) ||
                 !IsValid(end.Latitude, end.Longitude))
             {
                 continue;
@@ -52,7 +52,7 @@ public static class HazardRouteMatcher
         return false;
     }
 
-    private static bool IsValid(
+    internal static bool IsValid(
         double latitude,
         double longitude)
     {
@@ -62,6 +62,17 @@ public static class HazardRouteMatcher
                latitude <= 90 &&
                longitude >= -180 &&
                longitude <= 180;
+    }
+
+    internal static double DistanceBetweenMeters(
+        double latitude, double longitude, double otherLatitude, double otherLongitude)
+    {
+        var halfLatitude = DegreesToRadians(otherLatitude - latitude) / 2;
+        var halfLongitude = DegreesToRadians(LongitudeDelta(otherLongitude, longitude)) / 2;
+        var haversine = Math.Pow(Math.Sin(halfLatitude), 2) +
+            Math.Cos(DegreesToRadians(latitude)) * Math.Cos(DegreesToRadians(otherLatitude)) *
+            Math.Pow(Math.Sin(halfLongitude), 2);
+        return 2 * EarthRadiusMeters * Math.Asin(Math.Sqrt(Math.Clamp(haversine, 0, 1)));
     }
 
     private static double DistanceToSegmentMeters(
@@ -77,9 +88,12 @@ public static class HazardRouteMatcher
         var longitudeScale =
             EarthRadiusMeters * Math.Cos(latitudeRad);
 
+        // Unwrap each segment as a unit. Wrapping its endpoints independently can
+        // turn a short antimeridian crossing into a line through Greenwich.
+        var delta = LongitudeDelta(endLongitude, startLongitude);
+        var midpointOffset = LongitudeDelta(startLongitude + delta / 2, pointLongitude);
         var startX =
-            DegreesToRadians(
-                LongitudeDelta(startLongitude, pointLongitude))
+            DegreesToRadians(midpointOffset - delta / 2)
             * longitudeScale;
 
         var startY =
@@ -87,8 +101,7 @@ public static class HazardRouteMatcher
             * EarthRadiusMeters;
 
         var endX =
-            DegreesToRadians(
-                LongitudeDelta(endLongitude, pointLongitude))
+            DegreesToRadians(midpointOffset + delta / 2)
             * longitudeScale;
 
         var endY =

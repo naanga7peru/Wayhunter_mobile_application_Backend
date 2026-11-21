@@ -52,7 +52,7 @@ public sealed class AdvertisementAdminRouteExposureTests
     }
 
     [Fact]
-    public async Task AdvertisementImageUpload_RemainsUnavailable()
+    public async Task AdvertisementImageUpload_RequiresAuthentication()
     {
         var definition =
             AdvertisementAdminEndpointContract.GetDefinition(
@@ -76,9 +76,9 @@ public sealed class AdvertisementAdminRouteExposureTests
 
         using var response = await client.SendAsync(request);
 
-        // Image upload is not implemented yet.
+        // Upload route exists, but anonymous access is denied.
         Assert.Equal(
-            HttpStatusCode.NotFound,
+            HttpStatusCode.Unauthorized,
             response.StatusCode);
     }
 }
