@@ -1,4 +1,4 @@
-BEGIN TRANSACTION;
+﻿BEGIN TRANSACTION;
 CREATE TABLE [IdentityPasswordResetCredentials] (
     [CredentialId] uniqueidentifier NOT NULL,
     [ConsumedAtUtc] datetimeoffset NULL,

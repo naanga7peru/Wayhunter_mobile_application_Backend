@@ -2,7 +2,34 @@
 
 **Status:** Local candidate for Kaviyan's review; execution approval remains pending. No migration SQL or database update was executed.
 
-## Git and EF baseline
+## 2026-11-21 post-merge verification
+
+This section supersedes earlier verification metrics where they differ. Earlier results below are retained as historical evidence.
+
+- PR branch: `codex/m1-password-reset-migration`.
+- Verified local HEAD: `0388bf2`.
+- Included `origin/develop` baseline: `e3b0e93`.
+- SDK: `10.0.404` (installed Windows x64 SDK).
+- EF CLI: `10.0.15` (repository tool manifest).
+- Full Release backend build: passed, 0 errors, 2 xUnit2031 warnings.
+- M1 focused unit tests: 471 passed, 0 failed, 0 skipped.
+- M3 focused unit tests: 649 passed, 0 failed, 0 skipped.
+- Complete unit suite: 3,256 passed, 0 failed, 0 skipped.
+- Filtered non-SQL integration tests: 190 passed, 0 failed, 0 skipped. This is not the full SQL integration suite.
+- Actual EF CLI migration SQL generated from `20261117093023_InitialSharedSchema` to `20261121100000_AddIdentityPasswordResetCredentials`.
+- Original EF-generated SQL SHA256: `61F447E1B23378A9184141A1542928B0152C26242A3F4DA09DC13460F28308FB`.
+- Repository SQL artifact SHA256: `80F66CBAD060AE7CB6BCD202590490DCF6DD0A1A8D2D557B47A5ABF89C82D699`.
+- Repository artifact differs from the raw EF output only by removal of one extra blank EOF line.
+- Generated SQL contains only the password-reset table, its constraints, two indexes, and the EF migration history insert.
+- Migration Up/Down and committed snapshot changes are reset-only.
+- `has-pending-model-changes` returned exit code 1 on both the M1 branch and isolated `origin/develop` baseline `e3b0e93`.
+- Therefore shared-model drift predates this M1 verification. Whether the M1 branch introduces additional drift has not been independently established.
+- The detailed drift inventory below was generated at an earlier baseline and must not be represented as a complete current-baseline inventory.
+- No SQL migration was executed during this verification.
+- No database update or PR merge is authorized by these results.
+- Final SQL review, database execution clearance, and PR merge approval remain separate gates.
+
+## Git and EF baseline (historical verification)
 
 - Latest fetched `origin/develop` base: `588867ffd6b39686092de9f84d15cc34e110c3b7` (PR #277 merge).
 - Requested proposal commit: `fad5e19cf5f5d036fef122b84a869cdb0860f674`.
@@ -36,7 +63,7 @@ The generated SQL contains that table, its PK/FK/check, both indexes, and the EF
 
 The full-context drift inventory was scaffolded at prior base `13553911febb44343bf51227c08db470712bf804`. It lists unrelated M1/M2/M3/M8 tables, M2/M3 alternate keys, M3 hazard changes, and M6 voucher/ledger changes. Those changes are excluded from this reset migration and the reset-only snapshot delta. This refresh rechecked the latest committed snapshot diff; a new full-context scaffold was not required to generate the SQL delta and is not represented as current-base drift evidence.
 
-## Commands and results
+## Commands and results (historical verification)
 
 The .NET 10 SDK was installed to the user temp directory because the machine initially had only SDKs 9.0.301 and 11.0.100. CLI state was redirected to temp to avoid writing first-use sentinels under the profile. Build and test commands:
 
