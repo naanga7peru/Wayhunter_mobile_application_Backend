@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
@@ -55,7 +56,8 @@ public sealed class RoutePreviewControllerTests
     private static RoutePreviewController CreateController(
         FakeRoutesProvider fake,
         bool authenticated = true,
-        bool enabled = true)
+        bool enabled = true,
+        string? routesKey = "dummy-test-key")
     {
         var service = new PreviewTripRouteService(fake);
 
@@ -65,7 +67,7 @@ public sealed class RoutePreviewControllerTests
         var options = Options.Create(new MapsProviderOptions
         {
             EnableRoutes = enabled,
-            RoutesServerApiKey = "dummy-test-key"
+            RoutesServerApiKey = routesKey
         });
 
         var controller = new RoutePreviewController(
@@ -188,13 +190,16 @@ public sealed class RoutePreviewControllerTests
         Assert.Equal(0, fake.Calls);
     }
 
-    [Fact]
-    public async Task DisabledRoutes_Returns503()
+    [Theory]
+    [InlineData(false, "dummy-test-key")]
+    [InlineData(true, null)]
+    public async Task UnavailableRouteConfiguration_Returns503(bool enabled, string? routesKey)
     {
         var fake = new FakeRoutesProvider();
         var controller = CreateController(
             fake,
-            enabled: false);
+            enabled: enabled,
+            routesKey: routesKey);
 
         var result = await Preview(controller);
 
@@ -205,11 +210,16 @@ public sealed class RoutePreviewControllerTests
             error.StatusCode);
 
         Assert.Equal(0, fake.Calls);
+        AssertCodeOnly(error, "ROUTES_PROVIDER_UNAVAILABLE");
     }
 
     [Fact]
     public async Task ProviderFailure_Returns503()
     {
+        var successfulResponse = new FakeRoutesProvider().Response with
+        {
+            EncodedPolyline = "test-provider-polyline"
+        };
         var fake = new FakeRoutesProvider
         {
             Response = new RouteProviderResult(
@@ -218,32 +228,47 @@ public sealed class RoutePreviewControllerTests
                 null,
                 null,
                 null,
-                "Provider unavailable")
+                "Provider detail that must stay private")
         };
 
         var controller = CreateController(fake);
 
-        var result = await Preview(controller);
+        var request = ValidRequest();
+        var originalStops = new List<RouteWaypoint>(request.OrderedStops);
+        var result = await Preview(controller, request);
 
         var error = Assert.IsType<ObjectResult>(result);
 
         Assert.Equal(
             StatusCodes.Status503ServiceUnavailable,
             error.StatusCode);
+        AssertCodeOnly(error, "ROUTES_PROVIDER_UNAVAILABLE");
+        Assert.Equal(originalStops, request.OrderedStops);
+
+        fake.Response = successfulResponse;
+        var retry = Assert.IsType<OkObjectResult>(await Preview(controller, request));
+        var payload = JsonSerializer.SerializeToElement(retry.Value);
+        Assert.Equal(2.5, payload.GetProperty("distanceKm").GetDouble());
+        Assert.Equal(5, payload.GetProperty("estimatedDurationMinutes").GetDouble());
+        Assert.Equal("test-provider-polyline", payload.GetProperty("encodedPolyline").GetString());
+        Assert.Equal(2, fake.Calls);
     }
 
-    [Fact]
-    public async Task InvalidProviderResponse_Returns502()
+    [Theory]
+    [InlineData(false, 2.5, 5.0)]
+    [InlineData(true, null, 5.0)]
+    [InlineData(true, 2.5, null)]
+    [InlineData(true, 2.5, -1.0)]
+    public async Task InvalidProviderResponse_Returns502(
+        bool includeGeometry, double? distance, double? duration)
     {
-        var fake = new FakeRoutesProvider
+        var fake = new FakeRoutesProvider();
+        fake.Response = fake.Response with
         {
-            Response = new RouteProviderResult(
-                true,
-                Array.Empty<RouteWaypoint>(),
-                2.5,
-                5,
-                "TestRoutes",
-                null)
+            RouteGeometry = includeGeometry ? fake.Response.RouteGeometry : Array.Empty<RouteWaypoint>(),
+            DistanceKm = distance,
+            EstimatedDurationMinutes = duration,
+            EncodedPolyline = "unusable-provider-polyline"
         };
 
         var controller = CreateController(fake);
@@ -255,6 +280,15 @@ public sealed class RoutePreviewControllerTests
         Assert.Equal(
             StatusCodes.Status502BadGateway,
             error.StatusCode);
+        AssertCodeOnly(error, "INVALID_ROUTE_RESPONSE");
+    }
+
+    private static void AssertCodeOnly(ObjectResult result, string expectedCode)
+    {
+        var payload = JsonSerializer.SerializeToElement(result.Value);
+        var field = Assert.Single(payload.EnumerateObject());
+        Assert.Equal("code", field.Name);
+        Assert.Equal(expectedCode, field.Value.GetString());
     }
 
     [Fact]
