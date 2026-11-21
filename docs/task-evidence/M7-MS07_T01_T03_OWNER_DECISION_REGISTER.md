@@ -4,9 +4,9 @@
 
 | Decision | Recommended candidate for review | Required approver | Status |
 | --- | --- | --- | --- |
-| Admission authentication and retry identity | Server authenticates and authorizes before accepting or disclosing replay. Scope identity to ad/type/retry GUID. Permit v1 only for an explicitly approved unattributed flow. | M1 and M7 | PENDING |
-| Binding versions and conflict | Domain-separated SHA-256 over canonical RFC-order GUIDs, big-endian version and event type, and validated stable delivery GUID in v2. Pin version on the receipt. Reject conflicting reuse without a write. | M1 and M7, Campaign owner for v2 | PENDING |
-| Original receipt and external behavior | Preserve current internal Duplicate semantics. Candidate exact stable HTTP 200 replay after authorization, generic 409 conflict, 404 unavailable, 429 at quota and 503 for unresolved commit. Approve exposure of source ID/time, any attribution fields and retry guidance. | M1 and M7 | PENDING |
+| Admission authentication and retry identity | Server authenticates and authorizes before accepting or disclosing replay. Scope identity to ad/type/retry GUID. Require server-minted RetryEventId and authenticated admission credentials on every path, including unattributed v1; changing current T01 caller-generated IDs requires approval. | M1 and M7 | PENDING |
+| Binding versions and conflict | Domain-separated SHA-256 over canonical RFC-order GUIDs, big-endian version and event type, and validated stable delivery GUID in v2. Pin version on the receipt. Reject altered signed tuples before lookup; 409 remains reserved unless a reachable conflict is approved. | M1 and M7, Campaign owner for v2 | PENDING |
+| Original receipt and external behavior | Preserve current internal Duplicate semantics. Candidate stable HTTP 200 only after confirmed commit, and reviewed 401/403/410/429/503 responses. 409 is reserved because it is unreachable under current signed v1/v2 assumptions. Approve exposure of source ID/time, any attribution fields and retry guidance. | M1 and M7 | PENDING |
 | Quota and attempt limits | Nonpersonal ad/type SHA-256 partition, 60-second UTC buckets, candidate 120 impressions and 30 clicks, persisted configuration per bucket and boundary activation. Ten-minute candidate write age. Define separate attempt controls and review capacity. | M1, M7 and DB Coordinator, privacy owner for any expanded scope | PENDING |
 | Cardinality and authoritative attribution | Decide actual ad relation and what proves the Campaign shown. Prefer a stable server-issued delivery reference where a current link is ambiguous. Specify format, caller binding, validity and whether eligibility is rechecked. | Campaign owner and M7, M1 for proof authentication | PENDING |
 | Historical Campaign principal | Nullable only for approved unattributed flows. Retain approved unique principal for receipt FK, restrict hard delete, and preserve snapshot through archive or unlink. | Campaign owner, M7 and DB Coordinator | PENDING |
@@ -26,7 +26,7 @@ No implementation, migrations, data mutation or SQL execution is authorized by t
 | --- | --- | --- | --- |
 | Caller-account binding | Separate receipt-only algorithm version, key ID and HMAC-SHA-256 digest over the canonical M1 account and retry tuple. Verify ownership before payload equality or response. Preserve retry identity across refreshed sessions. | M1, M7, DB Coordinator and privacy/data owners | PENDING |
 | Binding key custody and retention | Version rotation for new writes, historical verification lifetime, fail-closed behavior for missing keys and no duplicate reacceptance. Update privacy and capacity impact before adoption. | M1, privacy/data owners, DB Coordinator and M7 | PENDING |
-| Replay, conflict and unavailable disclosure | Candidate stable 200 accepted/replay, 409 after verified ownership, 401 invalid session, 429 with approved Retry-After, and generic foreign-account or unavailable response. Use the revised security matrix in the M1 review. | M1 and M7 | PENDING |
+| Replay, conflict and unavailable disclosure | Candidate 200 after confirmed commit, generic 403 before lookup, same 410 for expired credentials, and 503 for unresolved commit. Current signed v1/v2 does not make 409 reachable. Use the revised security matrix in the M1 review. | M1 and M7 | PENDING |
 | Attempt and accepted quota | Attempt budget applies to retries before receipt access. A matching authorized retry consumes no accepted quota. Preserve open bucket version. Use 120/30 for load tests only. | M1, M7 and DB Coordinator | PENDING |
 | Sponsored proof | Caller-bound, server-issued proof of actual delivery. Keep sponsored intake disabled until the proof and attribution relationship are approved. | Campaign owner, M1 and M7 | PENDING |
 
@@ -56,3 +56,15 @@ See the [Latest M1 API review](M7-MS07_T01_T03_M1_API_CONTRACT_REVIEW.md) for ca
 | Option A one-way clearing or option B retention of caller HMAC | M1, Privacy/Data Governance and DB Coordinator | PENDING |
 
 [Deadline and FK lifecycle review](M7-MS07_T01_T03_BOUNDED_REPLAY_FK_REVIEW.md) records all boundary tests and the non-reissuance blocker. Campaign proof remains pending.
+
+## Joint review decisions and provenance
+
+- **Shayanthan, M1 IdentitySocial:** DIRECTION ACCEPTED FOR CONTINUED DESIGN REVIEW. Final joint sign-off remains BLOCKED on restore safety and exact HTTP response contract.
+- **Kaviyan, Team Leader / DB Coordinator:** DOCUMENTATION CORRECTIONS ACCEPTED. FINAL DESIGN AND SQL APPROVAL PENDING.
+- **Restore/reconciliation/fencing:** BLOCKED FOR DESIGN DECISION. Globally unique allocation does not prove a pre-restore committed acceptance remains represented after restore.
+- **Exact expiry and unresolved-commit HTTP behavior:** PENDING M1/M7. DB Coordinator must approve logical linearization, physical commit visibility requirement, settlement bound and recovery behavior.
+- **409 reachability:** REQUIRES CONTRACT REVIEW. Under signed v1/v2 assumptions it is unreachable after tuple validation; reserve it unless a reachable approved case is demonstrated.
+- **Option A caller-binding clearing:** M1 SUPPORTS FOR REVIEW; Privacy/Data Governance and DB Coordinator approval PENDING.
+- **Campaign delivery proof and attribution:** PENDING Campaign owner, M1 and M7 approval. Sponsored intake remains disabled.
+
+The bounded replay review contains 35 cases, all SQL/API NOT EXECUTED. This register records owner direction, not final schema approval or implementation authorization.

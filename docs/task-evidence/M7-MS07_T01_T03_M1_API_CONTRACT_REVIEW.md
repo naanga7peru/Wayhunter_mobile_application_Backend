@@ -36,7 +36,7 @@ All externally visible behavior is **PROPOSED**. The stable body for successful 
 | Authenticated request at attempt limit | 429, approved Retry-After. Rate check happens before replay. | Zero accepted-event writes |
 | First eligible, authorized event | 200 OK with stable accepted body after confirmed commit. | One receipt, one fact, one quota increment |
 | Same account and identical canonical payload | Internal Duplicate. HTTP 200 with the same accepted body, including across refreshed sessions or at exhausted accepted quota. | Zero new accepted-event writes |
-| Same account, same key, differing canonical payload | Generic 409 Conflict only after ownership and disclosure authorization. | Zero accepted-event writes |
+| Same account, same key, differing canonical payload | A post-validation 409 is reserved; under current signed v1/v2 fields no differing canonical payload is reachable. | Zero accepted-event writes |
 | Valid admission credential belonging to another authenticated account | Generic 403 Forbidden before receipt lookup, regardless of key existence. Unverifiable binding fails closed with no existing-key disclosure. Exact security equivalence remains pending. | Zero accepted-event writes |
 | Fresh admissible event at accepted quota | 429 with approved Retry-After semantics for the governing bucket. | Zero accepted-event writes |
 | Unavailable or unauthorized ad/delivery, including invalid required proof | Generic failure without protected ad or Campaign state. Exact status pending. | Zero accepted-event writes |
@@ -56,7 +56,7 @@ All checks below are **NOT EXECUTED**. The existing harness provides prior synth
 | Same account with valid refreshed bearer session | Both sessions resolve to the same stable account. Body is unchanged, with one fact and increment. | Future API and isolated SQL, NOT EXECUTED |
 | Different account repeats the same composite key | Generic failure and zero writes, with a control request for the equivalent absent-key denial path. | Future API and isolated SQL, NOT EXECUTED |
 | Caller-binding mismatch or missing version/key | No receipt, source or attribution and no detectable conflict distinction. Include comparison of response status, headers, body and timing. | Future security tests, NOT EXECUTED |
-| Same account reuses key with different canonical payload | Generic 409 and no accepted writes. Verify owner check occurs first. | Future API and isolated SQL, NOT EXECUTED |
+| Same account reuses key with altered signed tuple | Generic invalid-credential response before lookup; no writes. Analyze 409 reachability without adding unsigned inputs. | Future API and isolated SQL, NOT EXECUTED |
 | Bearer expired or revoked on retry | 401 before replay verification. Confirm missing and invalid session variants. | Future API, NOT EXECUTED |
 | Identical retry while accepted quota is exhausted | 200 replay, previous fact and count unchanged. | Future API and isolated SQL, NOT EXECUTED |
 | Attempt limit exhausted before replay | 429 with approved Retry-After, no lookup or accepted writes. | Future API, NOT EXECUTED |
@@ -81,7 +81,7 @@ Kaviyan acknowledged the M1 contract review as relayed in the task authorization
 | Required scenario | Expected evidence | Status |
 | --- | --- | --- |
 | Deactivate an account or revoke its access after acceptance | Fresh and replay paths deny access without revealing key or receipt. Re-activation cannot extend original admission. | NOT EXECUTED |
-| Reuse accepted key with a fresh different delivery proof | Owned retained key conflicts. A deleted receipt cannot make an old key admissible under any approved issuer/version. | NOT EXECUTED |
+| Reuse accepted key with a fresh different delivery proof | A changed DeliveryId is a signed-tuple mismatch rejected before lookup. A deleted receipt cannot make an old key admissible under any approved issuer/version. | NOT EXECUTED |
 | Retry at receipt-expiry and admission boundaries | Delays, version rollover, restored sessions and unknown commit never reopen accepted keys. After replay coverage ends, return only the approved generic disposition. | NOT EXECUTED |
 | Archive facts or authorize erasure | Retained replay identity persists within approved lifetime. Reports label missing coverage. Govern any approved retained exception and downstream copies. | NOT EXECUTED |
 | Withdraw consent | Future processing dependent on it stops. Delayed delivery and previously accepted records follow explicit approved handling. | NOT EXECUTED |
@@ -114,7 +114,7 @@ Use trusted database UTC to enforce both deadlines after acquiring the exact ret
 1. Apply M1 bearer validation and the active verified-account check. Invalid, revoked or expired session or deactivated account returns candidate 401 without lookup.
 2. Apply the attempt limiter to each authenticated attempt, including a replay. Candidate 429 uses approved Retry-After independent of receipt existence.
 3. Verify the credential and subject binding before lookup. A valid credential issued to a different account returns generic 403 regardless of whether a receipt exists. Other invalid or unavailable admission/delivery cases use the approved generic response. No protected state is disclosed.
-4. Under the scoped retry lock, for a retained receipt verify caller HMAC with its recorded key and version before comparing the pinned payload. Only the authorized matching replay within its deadline returns the stable 200. Only an authorized payload mismatch within the approved disclosure window returns generic 409. For an unverifiable or foreign owner, deny generically, never treat it as a missing row.
+4. Under the scoped retry lock, for a retained receipt verify caller HMAC with its recorded key and version before comparing the pinned payload. Only the authorized matching replay within its deadline returns the stable 200. Current signed v1/v2 fields do not provide a reachable post-validation payload mismatch; reserve 409 pending contract review. For an unverifiable or foreign owner, deny generically, never treat it as a missing row.
 5. With no receipt, require a matching signed identity inside the first-admission window and current eligibility. An old key with a different DeliveryId or a fresh proof is inadmissible. Only then reserve accepted quota. At capacity use candidate 429 with approved Retry-After. Commit the receipt, fact and increment together.
 6. For an ambiguous commit, verify the original scoped key on the primary with ownership, pinned payload and candidate source ID after settlement. Restore the original response only where replay is still authorized. A decisive absent receipt can proceed only within the original first-admission deadline and with the original credential. An indeterminate or expired outcome preserves the original key and returns no invented acceptance or new increment.
 
@@ -146,7 +146,7 @@ All cases are **NOT EXECUTED**. These extend the earlier matrix; earlier fake-st
 | Same account, refreshed valid session | Ownership HMAC and authorized identical body stay stable; same key, one fact/increment. |
 | Foreign credential and receipt existence | Identical generic 403 across present/absent controls, no receipt content, headers or timing signal; include unverifiable binding tests. |
 | Revoked/expired session or deactivated account | 401 without receipt lookup. Re-activation never extends either deadline. |
-| Payload mismatch and pinned version | Owned canonical mismatch gives generic 409, no increment. Exercise v1/v2 pinning and separate caller binding. |
+| Payload mismatch and pinned version | Analyze signed v1/v2 reachability; tuple changes fail before lookup and no 409 is currently reachable. Keep 409 reserved. |
 | HMAC rotation or unavailable historical key | New receipts use new KeyId; old receipt verifies using stored KeyId; missing/revoked key denies without disclosure or key reuse. |
 | Admission expiry boundary | First valid attempt just before expiry may win; at/after deadline no new fact, even after a lock wait. |
 | Replay expiry boundary and retained fact | Before boundary authorized exact stable 200; at/after no disclosure even if both rows remain. |
@@ -159,3 +159,21 @@ All cases are **NOT EXECUTED**. These extend the earlier matrix; earlier fake-st
 ## Latest M1 deadline and FK review
 
 [Deadline and FK lifecycle review](M7-MS07_T01_T03_BOUNDED_REPLAY_FK_REVIEW.md) specifies the 10-minute first acceptance and 24-hour replay from trusted issuance with half-open UTC checks. It replaces the earlier timelines and records the 366-day receipt candidate pending alongside 365-day fact retention, the caller-binding expiry alternatives, and all 24 NOT EXECUTED acceptance cases.
+
+## M1 and DB Coordinator joint-review corrections
+
+**Shayanthan (M1): DIRECTION ACCEPTED for continued design review. Final joint sign-off remains BLOCKED on restore safety and exact HTTP response contract. Kaviyan (Team Leader/DB Coordinator): DOCUMENTATION CORRECTIONS ACCEPTED. Final design and SQL approval remain PENDING.**
+
+The 10-minute first-admission and 24-hour replay intervals remain exclusive from trusted issuance T0. The last guarded decision under the retry-key lock is the proposed logical acceptance point. HTTP 200 is returned only after confirmed commit. DB Coordinator must decide whether physical COMMIT visibility must precede the expiry boundary and approve the maximum transaction settlement and recovery bound. Retry, reauthentication, delivery proof rotation and signing-key rotation never extend deadlines.
+
+### Restore-before-acceptance gap
+
+R1 is issued at T0 and committed at T0+2m. Restoring a pre-commit snapshot removes its receipt while the original R1 credential is still fresh. Resubmission at T0+3m can appear unused in the restored database. Globally unique allocation prevents minting R1 again but does not prove a previously committed row survived restoration. Keep affected intake closed until complete authoritative reconciliation or a non-rollback issuer-cohort fence makes every potentially accepted credential inadmissible. A separate database is not sufficient without a proven atomic/consensus protocol, replication and restore guarantees. Current architecture has no validated recovery authority. Restore/reconciliation/fencing remains BLOCKED FOR DESIGN DECISION.
+
+### HTTP and 409 review status
+
+The bounded review contains candidate codes and bodies for 401, 403, 410, 429 and 503 outcomes, and requires stable 200 only after confirmed commit. Exact response bodies, headers, timing, retry behavior and the 503 settlement semantics remain PENDING M1/M7 and DB Coordinator review. The same generic 410 is proposed for first-admission expiry, replay expiry with a retained receipt, and expiry after physical receipt cleanup. A 503 unresolved-commit response contains no accepted fields and requires retrying only the unchanged original credential through authoritative verification.
+
+Under the current signed v1/v2 contract, all payload digest inputs are authenticated before receipt lookup. Altering ad/type/retry or v2 DeliveryId fails credential validation. A matching valid tuple deterministically produces the pinned digest. Consequently HTTP 409 is UNREACHABLE under the stated assumptions. Reserve 409 for a future approved contract or a demonstrably reachable case; do not invent an unsigned field to make it reachable. This correction supersedes earlier generic 409 recommendations in this document.
+
+The bounded replay matrix contains 35 cases. All API and SQL cases remain NOT EXECUTED.

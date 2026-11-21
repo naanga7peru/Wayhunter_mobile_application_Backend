@@ -50,3 +50,11 @@ This documentation does not approve SQL execution, cleanup, production ingestion
 - [ ] Review 365-day facts and 366-day receipts as pending candidates and approve the separate 10-minute first-acceptance and 24-hour disclosure boundaries.
 - [ ] Decide whether post-replay digest clearing, key retirement and archived-copy handling satisfy minimization and erasure obligations. Approve any controlled mutation exception before use.
 - [ ] Confirm the non-reissuance and FK/cleanup evidence in the [Deadline and FK lifecycle review](M7-MS07_T01_T03_BOUNDED_REPLAY_FK_REVIEW.md). All SQL and API cases remain NOT EXECUTED.
+
+## Joint review status — caller binding and restore safety
+
+- Shayanthan supports Option A caller-binding clearing FOR REVIEW. Clear `CallerBindingDigest` and `CallerBindingKeyId` together only after the 24-hour replay window and approved commit-verification, settlement and recovery obligations close. Existing NOT NULL and append-only rules require a nullable-pair constraint and narrowly authorized audited maintenance exception. Privacy/Data Governance and DB Coordinator approval remain PENDING. No clearing is authorized.
+- Option B, retaining pseudonymous HMAC data until receipt storage expiry, requires separately justified purpose, strict access controls, key-custody limits and an approved erasure process. It is not an automatic fallback.
+- M1 accepts the admission direction for continued review; final joint sign-off is blocked on restore safety and exact HTTP semantics. Kaviyan accepted documentation corrections; final design and SQL approval remain pending.
+- Restore/reconciliation/fencing remains BLOCKED FOR DESIGN DECISION. Keep affected intake closed if acceptance completeness cannot be proven. Campaign delivery proof remains PENDING.
+- 365-day accepted facts and 366-day receipts remain PENDING; day 366 is candidate cleanup eligibility only, not guaranteed deletion. The 48-hour quota cleanup is CONDITIONALLY ACCEPTABLE, final approval pending.

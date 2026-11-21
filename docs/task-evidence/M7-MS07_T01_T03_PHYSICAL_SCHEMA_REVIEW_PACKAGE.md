@@ -40,7 +40,7 @@ Existing PK and alternate-key indexes cover exact retry lookups and source verif
 
 **PROPOSED binding v1** applies only to an enumerated, owner-approved unattributed flow. Its identity fields are AdvertisementId, EventType and RetryEventId. **PROPOSED binding v2** adds a required validated, server-issued stable delivery GUID. No delivery contract is approved. A sponsored or ambiguous flow stays blocked until the owner approves how delivery is proven. Validate delivery authenticity and caller binding before using its ID. For an existing receipt, proof identity may be authenticated after its admission window expires, subject to caller authorization and the approved proof verification lifetime. A missing receipt needs currently valid proof wherever required.
 
-For each version hash these canonical bytes with SHA-256: ASCII `Wayhunter.M7.AdEventRetry`, one zero delimiter, version as unsigned 16-bit big-endian, ad GUID as 16 RFC network-order bytes, type as unsigned 32-bit big-endian, retry GUID in the same GUID encoding, then exactly 16 network-order delivery GUID bytes for v2. Parse GUIDs into typed values first, reject zero, and use fixed byte order rather than the default mixed-endian .NET GUID array. Parse event type into canonical codes 1 and 2. Delivery token serialization, client timestamps, Campaign state, district hints, receipt time and quota version are excluded. Keep digest and binding version in the receipt and compare against that version under the retry-key lock. The server selects admissible versions for new requests. A receipt pins the version for comparison and a different semantic request, such as supplying delivery B for an existing delivery A, conflicts even if both are valid. Reject unsupported fields for a version. Do not downgrade a bound request or silently accept a new meaning for a key.
+For each version hash these canonical bytes with SHA-256: ASCII `Wayhunter.M7.AdEventRetry`, one zero delimiter, version as unsigned 16-bit big-endian, ad GUID as 16 RFC network-order bytes, type as unsigned 32-bit big-endian, retry GUID in the same GUID encoding, then exactly 16 network-order delivery GUID bytes for v2. Parse GUIDs into typed values first, reject zero, and use fixed byte order rather than the default mixed-endian .NET GUID array. Parse event type into canonical codes 1 and 2. Delivery token serialization, client timestamps, Campaign state, district hints, receipt time and quota version are excluded. Keep digest and binding version in the receipt and compare against that version under the retry-key lock. The server selects admissible versions for new requests. A receipt pins the version and digest. A different signed tuple, such as delivery B for an identity issued with delivery A, fails credential validation before receipt lookup; do not describe that path as an HTTP 409. Reject unsupported fields for a version. Do not downgrade a bound request or silently accept a new meaning for a key.
 
 Campaign changes, key case differences in textual GUIDs and quota rollover do not create a new retry key. A valid caller retry with the same canonical identity retrieves the stored source ID, UTC time and nullable Campaign ID, even if the fact has expired. Source ID, time and attribution are immutable. The future HTTP response is **PROPOSED pending M1 and M7 approval**. The current T01 enum has no conflict or exact-response replay contract.
 
@@ -49,8 +49,8 @@ Campaign changes, key case differences in textual GUIDs and quota rollover do no
 | First accepted request | Accepted, with stored source ID, UTC acceptance time and Campaign ID | 200 with authorized stable receipt fields in a fixed versioned response. Candidate public body contains source ID, UTC time and an accepted status. Keep Campaign ID internal unless M1 approves disclosure. |
 | Identical later retry | Current T01 returns Duplicate. Future adapter can also load the original receipt | 200 with the same stable accepted body if exact-response replay is approved. Alternative is a distinct Duplicate response. |
 | HTTP response lost | Same-key retry follows identical replay | Same candidate 200 body built from the stored receipt. |
-| SQL commit ambiguous | Fresh primary verification under exact retry-key lock. Matching digest and candidate source ID confirms Accepted. Matching digest and another source ID indicates Duplicate. Binding mismatch is Conflict. | Apply the corresponding response. Unresolved verification returns proposed 503 and instructs the caller to retain the original key. |
-| Reused key, conflicting payload | Conflict after caller authorization. No writes or quota reservation. | 409 with a generic conflict response and no receipt or attribution fields. |
+| SQL commit ambiguous | Verify exact key, owner, pinned tuple and source ID on the primary after settlement. Classify receipt state internally only. | Return the stable 200 only after confirmed commit and within replay authorization; unresolved outcome uses candidate generic 503 with no acceptance fields. A digest mismatch is not automatically an HTTP 409. |
+| Reused key, conflicting payload | No reachable mismatch under current signed v1/v2 tuple assumptions; altered signed inputs fail before lookup. | Reserve 409 for a future approved, demonstrably reachable conflict. Do not return 409 for invalid tuple/proof. |
 | Quota rejection | RateLimited with no receipt or fact. | 429 with an approved retry interval derived from the bucket boundary. |
 | Unavailable ad or required attribution | AdvertisementUnavailable with no receipt or fact. | Generic 404 candidate, subject to M1 anti-disclosure rules. |
 
@@ -78,7 +78,7 @@ Open a fresh DbContext and begin the whole unit under one bounded execution stra
 
 1. Seek and protect retry PK (ad, type, retry GUID), including an absent key.
    Existing: validate identity using pinned version. End without writes.
-   Match -> Duplicate plus stored internal receipt. Mismatch -> Conflict.
+   Match -> internal Duplicate plus stored receipt. Mismatch -> internal inconsistency/conflict classification only; it does not establish a reachable HTTP 409.
 2. Lock Advertisement and approved attribution rows in fixed key order.
    Check eligibility and required trusted delivery admission, or return Unavailable.
    Capture one immutable Campaign ID or approved null.
@@ -95,7 +95,7 @@ Any failure before commit rolls back all writes and discards the context.
 Deadlock victim 1205: bounded whole-unit retry with jitter (candidate max 3 attempts),
 using the same key, identity, receipt time and candidate source GUID.
 2601/2627: rollback, identify the actual constraint or verify on a fresh primary context.
-A confirmed matching retry receipt resolves replay. A differing digest resolves conflict.
+A confirmed matching receipt resolves replay. A differing stored digest is an internal inconsistency or legacy-contract condition; under current signed v1/v2 assumptions it is not a reachable caller conflict and must not automatically produce HTTP 409.
 A quota PK collision may retry the whole unit. An unrelated failure propagates.
 Ambiguous commit: lock/read exact receipt on fresh primary connection, check digest
 and source GUID. Resolve only after the original transaction has settled.
@@ -139,7 +139,7 @@ The DB Coordinator assigns sole migration ownership after physical approval. Ver
 | Test | Persisted assertions | Status |
 | --- | --- | --- |
 | Same-key race and first writer failure | One receipt, fact and increment when both contend, including takeover after rollback. Same GUID across types or ads remains independent. | NOT EXECUTED |
-| Binding versions and conflicts | Canonical encoding vectors, same identity replay, different delivery conflict, unauthorized replay and invalid admission proof. No extra writes or quota. | NOT EXECUTED |
+| Binding versions and conflicts | Canonical encoding vectors, same identity replay, signed tuple mismatch before lookup, unauthorized replay, and a reachability analysis showing no current signed v1/v2 payload conflict. No extra writes or quota. | NOT EXECUTED |
 | Last slot and missing bucket | One bucket row and exactly the permitted winners. Exercise version rollover and late first writes without splitting capacity. | NOT EXECUTED |
 | Rollback and constraints | Fail after quota or receipt insert. Assert unchanged committed state. Verify source/ad/type/time/Campaign mismatch, UTC/type checks and unauthorized writes fail. | NOT EXECUTED |
 | Lost acknowledgement | Inject before/after commit failure and failed verification. Confirm original stable receipt, single fact and increment, and correct indeterminate outcome. | NOT EXECUTED |
@@ -175,7 +175,7 @@ Shayanthan confirmed trusted M1 bearer validation, a current active and verified
 
 Propose receipt-only `CallerBindingAlgorithmVersion smallint NOT NULL`, `CallerBindingKeyId uniqueidentifier NOT NULL`, and `CallerBindingDigest binary(32) NOT NULL` using dedicated-key HMAC-SHA-256 scoped to the canonical account and retry tuple. Keep both separate from payload `BindingVersion` and `BindingDigest`. Do not alter the composite unique retry key or add account fields to the fact. Verify ownership under the retry-key lock before comparing payload or revealing any receipt outcome, including commit verification. Keep existing receipt ownership across refreshed sessions. A foreign or unverifiable caller receives a generic failure with no key-existence signal.
 
-Accepted and authorized identical replay are candidate HTTP 200 with the same stable accepted body. T01 retains internal Duplicate. Authorized payload mismatch is candidate generic 409. An invalid session maps to 401, and attempt or accepted-event quota exhaustion maps to 429 with approved Retry-After. Unavailable ad or proof uses a generic failure. Attempt limits apply before receipt lookup and include retries. The candidate 120/30 values are load-test values only. Preserve existing bucket versions and keep sponsored intake disabled pending caller-bound delivery proof and Campaign attribution approval.
+Accepted and authorized identical replay are candidate HTTP 200 with the same stable accepted body. T01 retains internal Duplicate. HTTP 409 is reserved; under current signed v1/v2 assumptions no post-validation payload mismatch is reachable. An invalid session maps to 401, and attempt or accepted-event quota exhaustion maps to 429 with approved Retry-After. Unavailable ad or proof uses a generic failure. Attempt limits apply before receipt lookup and include retries. The candidate 120/30 values are load-test values only. Preserve existing bucket versions and keep sponsored intake disabled pending caller-bound delivery proof and Campaign attribution approval.
 
 ## Current M1 privacy retention gate
 
@@ -188,3 +188,11 @@ Shayanthan's separate M1 privacy review declined unbounded retry receipts, left 
 ## Latest receipt lifecycle gate
 
 [Deadline and FK lifecycle review](M7-MS07_T01_T03_BOUNDED_REPLAY_FK_REVIEW.md) keeps the required composite NO ACTION FK. The 365-day fact and 366-day receipt candidates are PENDING. Review post-replay clearing as an explicit nullable-pair and controlled maintenance alternative. The proposed NOT NULL and immutable receipt policy remains the baseline until approved. Bounded retention remains BLOCKED FOR DESIGN DECISION.
+
+## Joint M1/DB review correction — restore, commit boundary and caller clearing
+
+A restore can erase a previously committed receipt while its original admission credential remains fresh. The allocator uniqueness constraint cannot establish that a missing restored row was never committed. Keep every potentially affected issuer cohort closed until authoritative fact/receipt/commit reconciliation completes or a durable non-rollback epoch fence rejects the cohort. Replicas, failover, leases, key rotation/compromise, legacy routes, in-flight commits and reporting checkpoints must share the same gate. An independent recovery authority requires a proved atomic/consensus and restore protocol; another database alone is insufficient. The proposed architecture has no validated mechanism, so restore/reconciliation/fencing is BLOCKED FOR DESIGN DECISION.
+
+Fresh eligibility is evaluated at the final guarded decision under the retry-key lock. This is only the proposed logical linearization point. HTTP 200 remains gated on confirmed commit. DB Coordinator approval is required for whether physical commit visibility must precede expiry and for the finite settlement/recovery bound.
+
+Shayanthan supports Option A for review: clear CallerBindingDigest and CallerBindingKeyId together only after the 24-hour replay window and approved commit-verification/settlement obligations close. The receipt composite key and accepted-fact-to-receipt NO ACTION FK remain unchanged. Current NOT NULL fields and append-only policy require a nullable-pair constraint and narrowly authorized audited maintenance exception. Privacy/Data Governance and DB Coordinator approval remain pending. No schema or SQL changes are made here.
