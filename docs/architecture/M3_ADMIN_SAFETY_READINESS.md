@@ -80,3 +80,9 @@ Base develop `0ba69f7`. `dotnet restore` and `dotnet build --no-restore` passed 
 | Focused Admin Safety HTTP | 23 | 0 | 0 |
 
 Full command `dotnet test --no-restore`. The separate focused run used `--no-restore --no-build --filter FullyQualifiedName~M3AdminSafety`. SQL opt-ins were cleared for the test process. Git diff checks passed. The tests cover changed and removed grants, role and consent revocation, membership removal, session finish and trip cancellation, stale/invalid/oversized projections, wrong scope, unavailable dependencies, audit failures and ordinary-user denial.
+
+## Final backend pass
+
+Grants containing unrecognized section bits now fail closed instead of silently yielding a basic summary. The HTTP suite additionally suspends the M1 account during the audit call and changes the grant to include an unknown section; the response is withheld in each case. Focused regression passed 5 unit and 25 HTTP cases.
+
+No authoritative production read adapter, production grant provider or durable audit sink has been approved or wired. The Phase A M1 role contract is approved for reuse. The owner matrix above continues to govern projection scope, revocation, retention and transaction fencing. The existing audit proposal requires no schema change until approved.
