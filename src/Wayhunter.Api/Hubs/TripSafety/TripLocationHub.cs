@@ -251,6 +251,9 @@ public sealed class TripLocationHub : Hub
 
         foreach (var recipient in recipients)
         {
+            // Fanout can await storage after the initial publisher check.
+            await RequireAccessAsync(tripPlanId, sessionId, userId);
+
             // Recheck recipient immediately before
             // delivering a GPS event.
 
@@ -281,8 +284,8 @@ public sealed class TripLocationHub : Hub
             // Protect against stale connections
             // and connection reassignment.
 
-            if (_registry.Find(
-                    recipient.ConnectionId) != recipient)
+            if (_registry.Find(Context.ConnectionId) != connection ||
+                _registry.Find(recipient.ConnectionId) != recipient)
             {
                 continue;
             }

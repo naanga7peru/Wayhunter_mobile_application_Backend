@@ -98,6 +98,37 @@ public sealed class M3HazardSeparationIntegrationTests
             cancelled.Trip.Id, cancelled.Session.SessionId, "traveler", Guid.NewGuid()));
     }
 
+    [Fact]
+    public void AntimeridianCrossingDoesNotMatchGreenwich()
+    {
+        RouteWaypoint[] route = [new(0, 179.9), new(0, -179.9)];
+        Assert.False(HazardRouteMatcher.IsWithinOneKilometer(route, 0, 0));
+        Assert.True(HazardRouteMatcher.IsWithinOneKilometer(route, 0, 180));
+        Assert.True(HazardRouteMatcher.IsWithinOneKilometer(route.Reverse().ToArray(), 0, -180));
+    }
+
+    [Fact]
+    public async Task ChangedOrInvalidRouteWithholdsWarningAndConsentRevocationDuringReadWins()
+    {
+        var fixture = await Fixture.CreateAsync();
+        var report = await fixture.Hazards.ReportAsync(fixture.Trip.Id, "owner",
+            new(9, 80.05, "Blocked road", "test/photo", fixture.Clock.Now));
+        Task<HazardAlertUpdate?> Observe() => fixture.Alerts.ObserveHazardAsync(
+            fixture.Trip.Id, fixture.Session.SessionId, "traveler", report.HazardId);
+
+        fixture.Route.Geometry = [new(9, 80), new(9, 80.1)];
+        Assert.True((await Observe())!.ShouldWarn);
+        fixture.Route.Geometry = [new(11, 80), new(11, 80.1)];
+        Assert.Null(await Observe());
+        fixture.Route.Geometry = [new(9, 80), new(9, 80.1), null!];
+        Assert.Null(await Observe());
+
+        fixture.Route.Geometry = [new(9, 80), new(9, 80.1)];
+        fixture.Route.OnRead = () => fixture.Access.SetMyConsentAsync(fixture.Trip.Id,
+            fixture.Session.SessionId, "traveler", false, fixture.Clock.Now);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(Observe);
+    }
+
     private sealed class ClockStub : TimeProvider
     {
         public DateTimeOffset Now { get; set; } = new(2026, 11, 21, 8, 0, 0, TimeSpan.Zero);
@@ -108,8 +139,14 @@ public sealed class M3HazardSeparationIntegrationTests
     {
         public Guid ExpectedTrip { get; init; }
         public IReadOnlyList<RouteWaypoint>? Geometry { get; set; }
-        public Task<IReadOnlyList<RouteWaypoint>?> ReadAsync(Guid tripPlanId, CancellationToken cancellationToken) =>
-            Task.FromResult(tripPlanId == ExpectedTrip ? Geometry : null);
+        public Func<Task>? OnRead { get; set; }
+
+        public async Task<IReadOnlyList<RouteWaypoint>?> ReadAsync(Guid tripPlanId, CancellationToken cancellationToken)
+        {
+            if (OnRead is not null)
+                await OnRead();
+            return tripPlanId == ExpectedTrip ? Geometry : null;
+        }
     }
 
     private sealed class Fixture
