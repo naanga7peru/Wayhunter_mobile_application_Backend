@@ -61,3 +61,11 @@ DECISION_REQUIRED: durable SQL claim and expiry implementation, tested condition
 The new tests cover service authorization, hidden private and proposed public memories, trip/stop binding, concurrent idempotency against a test double, failed upload retry, media size/type/signature and provider evidence, delete/cleanup recovery, HTTP fail-closed behavior, and shared-model metadata. An approved dedicated MS07 SQL test profile is absent. MS07 SQL concurrency/integrity tests were NOT EXECUTED.
 
 Reconciliation verification: restore and build passed with 0 warnings and 0 errors. The full run passed 3,036 unit tests and 132 integration tests, with 0 failures and 85 opt-in SQL skips. The focused run passed 24 unit/metadata tests and 3 HTTP tests with 0 failures and 0 skips. SQL opt-ins were disabled for both runs. No SQL DDL was executed.
+
+## Final backend pass
+
+The unregistered EfTripMemoryStore implements the existing contract using the shared context, per-attempt contexts, execution strategy and serializable transactions. It rechecks the trip owner and scoped stop before insertion, retains the unique operation across soft deletion, and maps the specific composite stop FK conflict to the existing safe HTTP 409 path. M2 stop deletion still requires an owner-reviewed translation of that exact constraint after rollback, preserving existing owner, draft, ETag and reorder semantics. Verify both lock orders under real SQL before rollout. No M2 code changed.
+
+Media reservation and immutable attachment recheck ownership and state. Cleanup claims freeze the exact key/version and retain the tombstone across retries. Cleanup of an expired reservation requires sealed provider evidence. A missing object cannot be treated as proof that a grant was never used. Two workers may repeat a conditional delete after a shared claim, so the approved provider must treat this exact-version deletion as idempotent. Provider signing, seal semantics, bounded retention, durable scheduling and SQL tests remain approval-gated. The store and cleanup remain unwired.
+
+Focused verification passed 24 unit and 4 integration cases, including a new EF InMemory repository test across separate contexts. The in-memory provider does not validate relational locks, rowversion, SQL FK/index enforcement or either stop race.

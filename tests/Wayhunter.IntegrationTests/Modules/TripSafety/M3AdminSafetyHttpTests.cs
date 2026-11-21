@@ -126,6 +126,8 @@ public sealed class M3AdminSafetyHttpTests
 
     [Theory]
     [InlineData("role", HttpStatusCode.Forbidden)]
+    [InlineData("suspended-account", HttpStatusCode.Forbidden)]
+    [InlineData("unknown-scope", HttpStatusCode.Forbidden)]
     [InlineData("removed-grant", HttpStatusCode.Forbidden)]
     [InlineData("changed-grant", HttpStatusCode.Forbidden)]
     [InlineData("membership", HttpStatusCode.ServiceUnavailable)]
@@ -140,6 +142,8 @@ public sealed class M3AdminSafetyHttpTests
             switch (change)
             {
                 case "role": fixture.Data.RoleStatus = AdministratorRoleAssignmentStatus.Revoked; break;
+                case "suspended-account": fixture.Admin.Suspend(); break;
+                case "unknown-scope": fixture.Data.Sections |= (AdminSafetySections)32; break;
                 case "removed-grant": fixture.Data.GrantRemoved = true; break;
                 case "changed-grant": fixture.Data.Sections = AdminSafetySections.Hazards; break;
                 case "membership":
@@ -218,6 +222,7 @@ public sealed class M3AdminSafetyHttpTests
         public InMemoryTripMembershipRevocationRepository Members { get; } = members;
         public Guid OtherSession { get; } = otherSession;
         public string AdminId => admin.UserId;
+        public UserAccount Admin => admin;
         public string Route => Uri(Data.Target);
         public static string Uri(AdminSafetyTarget target) => $"/api/admin/safety/trips/{target.TripPlanId:D}/sessions/{target.SessionId:D}";
 

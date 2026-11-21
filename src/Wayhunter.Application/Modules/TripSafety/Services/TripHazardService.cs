@@ -245,7 +245,8 @@ public sealed class TripHazardService
     {
         await RequireTripAccessAsync(tripPlanId, authenticatedUserId, cancellationToken);
         var geometry = await routes.ReadAsync(tripPlanId, cancellationToken);
-        return geometry is { Count: >= 2 }
+        return geometry is { Count: >= 2 } && geometry.All(point =>
+            point is not null && HazardRouteMatcher.IsValid(point.Latitude, point.Longitude))
             ? await MatchWarningsAsync(geometry, cancellationToken)
             : Array.Empty<HazardWarningDto>();
     }

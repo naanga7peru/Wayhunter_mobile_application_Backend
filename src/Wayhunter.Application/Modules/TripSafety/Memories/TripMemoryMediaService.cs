@@ -75,7 +75,7 @@ public sealed class TripMemoryMediaService(
         return new(asset.ContentType, asset.ContentLength);
     }
 
-    internal static bool Matches(TripMemoryMedia operation, VerifiedMemoryAsset asset) =>
+    public static bool Matches(TripMemoryMedia operation, VerifiedMemoryAsset asset) =>
         asset.IsPrivate && asset.OperationId == operation.OperationId && asset.MemoryId == operation.MemoryId &&
         string.Equals(asset.OwnerUserId, operation.OwnerUserId, StringComparison.Ordinal) &&
         asset.ContentType == operation.ContentType && asset.ContentLength == operation.ContentLength &&

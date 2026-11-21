@@ -5,7 +5,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
@@ -45,9 +44,6 @@ public sealed class M3LiveTripSessionSqlTests
     private const string AllowedDatabaseName =
         "Wayhunter_M3_LiveSessionIntegrationTest";
 
-    private const string AllowedServer =
-        @"(localdb)\MSSQLLocalDB";
-
     private static readonly SemaphoreSlim SchemaGate =
         new(1, 1);
 
@@ -66,36 +62,9 @@ public sealed class M3LiveTripSessionSqlTests
     // SQL CONNECTION SAFETY
     // -----------------------------------------------------
 
-    private static string GetConnectionString()
-    {
-        var connection = Environment.GetEnvironmentVariable(
-            "WAYHUNTER_M3_SESSION_TEST_SQL_CONNECTION");
-
-        if (string.IsNullOrWhiteSpace(connection))
-        {
-            throw new InvalidOperationException(
-                "M3 live session SQL test connection is missing.");
-        }
-
-        var builder =
-            new SqlConnectionStringBuilder(connection);
-
-        if (!string.Equals(
-                builder.InitialCatalog,
-                AllowedDatabaseName,
-                StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(
-                builder.DataSource,
-                AllowedServer,
-                StringComparison.OrdinalIgnoreCase) ||
-            !builder.IntegratedSecurity)
-        {
-            throw new InvalidOperationException(
-                "Only the dedicated M3 LiveSession LocalDB database is allowed.");
-        }
-
-        return connection;
-    }
+    private static string GetConnectionString() =>
+        M3LocalDbProfile.Validate(Environment.GetEnvironmentVariable("WAYHUNTER_M3_SESSION_TEST_SQL_CONNECTION"),
+            AllowedDatabaseName).ConnectionString;
 
     private static WayhunterSharedDbContext CreateContext()
     {
