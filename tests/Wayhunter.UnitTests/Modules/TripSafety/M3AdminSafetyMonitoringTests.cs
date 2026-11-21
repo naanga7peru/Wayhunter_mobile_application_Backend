@@ -45,12 +45,36 @@ public sealed class M3AdminSafetyMonitoringTests
         Assert.Equal(new(AdminSafetyOutcome.Unavailable), await disabled.ReadAsync(fixture.Actor, fixture.Target, default));
     }
 
+    [Fact]
+    public async Task UnavailableScopeIsAuditedWithoutReturningData()
+    {
+        var fixture = await Fixture.CreateAsync();
+        fixture.Source.Unavailable = true;
+        Assert.Equal(new(AdminSafetyOutcome.Unavailable), await fixture.Service.ReadAsync(fixture.Actor, fixture.Target, default));
+        Assert.Equal(AdminSafetyOutcome.Unavailable, Assert.Single(fixture.Audit.Records).Outcome);
+    }
+
+    [Fact]
+    public async Task FinalRoleDenialWithFailedAuditStillWithholdsSummary()
+    {
+        var fixture = await Fixture.CreateAsync();
+        fixture.Audit.FailAfterFirstRecord = true;
+        var checks = 0;
+        var result = await fixture.Service.ReadAsync(fixture.Actor, fixture.Target, default,
+            () => Task.FromResult(++checks == 1));
+        Assert.Equal(new(AdminSafetyOutcome.Unavailable), result);
+        Assert.Equal(AdminSafetyOutcome.Success, Assert.Single(fixture.Audit.Records).Outcome);
+        Assert.Equal(2, checks);
+    }
+
     private sealed class Scope : IAdminSafetyScopeReader
     {
         private int _reads;
         public bool RevokeAfterFirstRead { get; set; }
+        public bool Unavailable { get; set; }
         public AdminSafetyTarget? GrantTargetOverride { get; set; }
         public Task<AdminSafetyGrant?> ReadGrantAsync(string actor, AdminSafetyTarget target, CancellationToken ct) =>
+            Unavailable ? throw new InvalidOperationException("Scope source unavailable.") :
             Task.FromResult<AdminSafetyGrant?>(RevokeAfterFirstRead && ++_reads > 1
                 ? null : new(GrantTargetOverride ?? target, actor, AdminSafetySections.None));
     }
@@ -59,9 +83,10 @@ public sealed class M3AdminSafetyMonitoringTests
     {
         public List<AdminSafetyAuditRecord> Records { get; } = [];
         public bool Fail { get; set; }
+        public bool FailAfterFirstRecord { get; set; }
         public Task RecordAsync(AdminSafetyAuditRecord record, CancellationToken ct)
         {
-            if (Fail)
+            if (Fail || (FailAfterFirstRecord && Records.Count > 0))
                 throw new InvalidOperationException("Test audit store unavailable.");
             Records.Add(record);
             return Task.CompletedTask;

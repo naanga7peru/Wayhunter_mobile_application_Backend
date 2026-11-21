@@ -21,9 +21,43 @@ The audit contract records authenticated Admin read attempts with actor, action,
 | 200 | Audited, authorized summary |
 | 400 | Empty trip or session GUID |
 | 401 | Missing or invalid authenticated session |
-| 403 | No verified Admin assignment or exact monitoring grant |
+| 403 | No current verified Admin assignment or exact monitoring grant |
 | 404 | Invalid path shape, or the authorized trip/session pair does not exist |
-| 503 | Required monitoring or audit dependency unavailable |
+| 503 | Required dependency unavailable, or projection or read failed security revalidation |
+
+## Security hardening
+
+- The endpoint uses the same M1 trusted-role resolver for the entry policy and the checks before audit and response release. One bearer header is required. The role resolver rechecks account, session and server assignment. Missing or unavailable role resolution denies access.
+- The exact actor/trip/session grant is checked before and after each read, and the second pass must match the original grant. Each pass re-reads trip and session state, and evaluates membership and live GPS access against authoritative readers. A changed grant or role denies the response. A changed trip/session or effective summary withholds it.
+- Each requested projection must be freshly observed during its reader call using the same trusted UTC timebase. Future, stale, wrong-target and malformed data fail closed. The staging limit is 256 entries per granted section. The application copies and validates granted data before producing aggregates and discards ungranted sections. The response contract remains unchanged.
+- The first audit records the prepared result. The service then performs a fresh authorization and projection pass before returning data. A failed final check records a separate `WithholdTripSafety` outcome. Audit failure at either stage withholds the response. An initial `Success` records a prepared authorized read, which may subsequently be withheld.
+
+## Approval matrix
+
+| Owner | Decision | Status and evidence |
+|---|---|---|
+| M1 / Admin | Trusted Admin role contract, active verified account, non-revoked session and server assignment; deny missing or invalid assignment | **APPROVED** for Phase A by the [M1–M7 role checklist](../task-evidence/M1_M7_ADMIN_ROLE_SQL_APPROVAL_CHECKLIST.md), section 2 |
+| M1 / Admin | Production role resolver wiring, exact trip/session and section grants, grant revocation/version, and monitoring denial policy | **DECISION_REQUIRED** |
+| M3 / M2 | Authoritative, route-matched hazard read projection and route revision/invalidation | **DECISION_REQUIRED** |
+| M3 | Separation and Safe Check-in read projections, and recipient visibility | **DECISION_REQUIRED** |
+| M3 | Atomic consent, session and membership snapshots for monitoring; production limits and freshness contract | **DECISION_REQUIRED** |
+| DB Coordinator / Privacy | Durable audit persistence, reader roles, retention and deletion policy | **DECISION_REQUIRED** |
+| DB Coordinator / M1 / M3 | Transaction boundary, concurrency, idempotency and failure strategy | **DECISION_REQUIRED** |
+
+### Owner approval requests
+
+- **M1 / Admin** — Please confirm production use of the Phase A resolver and approve the exact trip/session and section grant source, change/version semantics and denied-access handling.
+- **M3 / M2** — Please confirm the authoritative route and hazard, separation, and Safe Check-in projections. Specify how each read proves scope and freshness, and how consent, membership and session changes invalidate a read.
+- **DB Coordinator / Privacy** — Please review the audit fields, authorized readers and retention policy, and choose a transaction and concurrency strategy that prevents release across revoked permissions.
+
+## Audit persistence proposal for DB Coordinator review
+
+The existing `IAdminSafetyAuditSink` receives trusted actor ID, bounded action and outcome, exact trip/session target and UTC timestamp. For durable review, propose an append-only event identifier and a server-generated opaque attempt identifier to correlate a prepared read with a later withheld outcome. Use bounded action and outcome codes and the approved M1 actor identifier format. Review target linking and deletion semantics because a denial can name a missing or untrusted target. Exclude response payloads, participant IDs, GPS, contacts, evidence references, authorization headers, tokens and free text.
+
+Use separate least-privilege write and review roles, restrict access to approved security/privacy staff, and track audit access and exports. Approve retention duration, deletion or de-identification, backup handling and legal holds before enabling persistence. Review indexes, uniqueness for retries, and an acknowledgement contract that distinguishes committed writes from uncertain failures. Required audit writes must be acknowledged before release. A failed or uncertain write withholds the summary. Review alerting for sink failures without logging sensitive request data.
+
+Prefer an approved consistent snapshot or revision fence covering the Admin role, monitoring grant, trip, session, membership, consent and projections, with an auditable release decision. An independently read role or projection may require a coordinated version across sources. The current checks narrow race windows but cannot make separate source reads and the audit write atomic. Revocation after the final check, change-and-reversal between reads, an adapter relabeling cached data, and a change while the HTTP response is being sent remain possible. A prepared record is not proof of delivery. Audit schema and durable storage remain proposed. No SQL migration or DDL is authorized.
+
 
 ## DECISION_REQUIRED before activation
 
@@ -36,13 +70,13 @@ The repository host registers the endpoint and policy while leaving the role res
 
 ## Verification
 
-Base develop `4e5d713`. Restore and build passed. The first build reported 0 errors and two existing M2 `xUnit2031` warnings. The incremental rebuild following the HTTP test correction reported 0 errors and 0 warnings.
+Base develop `0ba69f7`. `dotnet restore` and `dotnet build --no-restore` passed with zero errors and two existing M2 `xUnit2031` warnings.
 
 | Run | Passed | Failed | Skipped |
 |---|---:|---:|---:|
-| Full unit | 3236 | 0 | 0 |
-| Full integration | 185 | 0 | 85 opt-in SQL |
-| Focused Admin Safety unit | 3 | 0 | 0 |
-| Focused Admin Safety HTTP | 11 | 0 | 0 |
+| Full unit | 3238 | 0 | 0 |
+| Full integration | 197 | 0 | 85 opt-in SQL |
+| Focused Admin Safety unit | 5 | 0 | 0 |
+| Focused Admin Safety HTTP | 23 | 0 | 0 |
 
-Full command `dotnet test --no-restore`. The separate focused run used `--no-restore --no-build --filter FullyQualifiedName~M3AdminSafety`. SQL opt-ins were cleared for the test process. Git diff checks passed.
+Full command `dotnet test --no-restore`. The separate focused run used `--no-restore --no-build --filter FullyQualifiedName~M3AdminSafety`. SQL opt-ins were cleared for the test process. Git diff checks passed. The tests cover changed and removed grants, role and consent revocation, membership removal, session finish and trip cancellation, stale/invalid/oversized projections, wrong scope, unavailable dependencies, audit failures and ordinary-user denial.
