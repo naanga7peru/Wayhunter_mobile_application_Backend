@@ -253,6 +253,10 @@ builder.Services.AddScoped<
 builder.Services.AddScoped<
     TripHazardService>();
 
+builder.Services.AddSingleton(new LiveTripAlertSettings());
+builder.Services.AddSingleton<LiveTripAlertState>();
+builder.Services.AddScoped<LiveTripSafetyAlerts>();
+
 // ==========================================
 // M3 - Optional SQL Hazard Expiry Worker
 // ==========================================
@@ -319,6 +323,7 @@ if (builder.Environment.IsDevelopment())
 
 builder.Services.AddTripMemoryServices();
 builder.Services.AddNotificationFoundation(builder.Configuration);
+builder.Services.AddAdminSafetyMonitoring();
 builder.Services.AddTripSafetyBatch2Services(builder.Configuration);
 
 var app = builder.Build();
