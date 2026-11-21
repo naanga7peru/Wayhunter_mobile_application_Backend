@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Wayhunter.Api.Services.HunterPlaces;
 using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Application.Modules.HunterPlaces.Commands;
 using Wayhunter.Application.Modules.HunterPlaces.Interfaces;
@@ -28,6 +29,7 @@ public sealed class HunterPlacesStartupDiTests
         Assert.Equal(enableAuthentication,
             services.GetService<IHunterCaptureSessionIdentityResolver>() is not null);
         Assert.Null(services.GetService<IHunterCaptureSessionStore>());
+        Assert.Null(services.GetService<HunterDraftCreationService>());
         Assert.Null(services.GetService<IHunterCaptureSessionRevocationStore>());
         Assert.Null(services.GetService<HunterConsumeAuthorizedCaptureSessionHandler>());
     }
@@ -57,6 +59,7 @@ public sealed class HunterPlacesStartupDiTests
             services.GetRequiredService<IHunterCaptureSubmissionAccessReader>());
         Assert.IsType<SqlHunterSubmissionStatusTransitionStore>(
             services.GetRequiredService<IHunterSubmissionStatusTransitionStore>());
+        Assert.Single(services.GetServices<HunterDraftCreationService>());
         Assert.Single(services.GetServices<HunterStartAuthorizedCaptureSessionHandler>());
         Assert.Single(services.GetServices<HunterConsumeAuthorizedCaptureSessionHandler>());
     }

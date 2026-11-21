@@ -9,6 +9,8 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
+using Wayhunter.Application.Modules.HunterPlaces.Dtos;
+using Wayhunter.Application.Modules.HunterPlaces.Services;
 using Wayhunter.Domain.Modules.HunterPlaces.Entities;
 using Wayhunter.Domain.Modules.HunterPlaces.Enums;
 using Wayhunter.Domain.Modules.IdentitySocial.Entities;
@@ -293,6 +295,153 @@ public sealed class M4SqlIntegrationVerificationTests
     // =================================================
     // TEST 01 - Concurrent Session Consumption
     // =================================================
+
+    [M4SqlIntegrationFact]
+    public async Task VerifiedSubmit_RollsBackOnRevocationFailureAndQueuesOnlyOnce()
+    {
+        var seed = await SeedAsync();
+        try
+        {
+            await using var db = CreateContext();
+            var draft = await db.HunterSubmissions.AsNoTracking().SingleAsync(row => row.Id == seed.SubmissionId);
+            var now = DateTimeOffset.UtcNow;
+            var video = new HunterEvidence
+            {
+                HunterSubmissionId = draft.Id, EvidenceType = HunterEvidenceType.Guided360Video,
+                PrivateMediaReference = "test-video", CapturedAtUtc = now.AddMinutes(-4),
+                UploadedAtUtc = now.AddMinutes(-3)
+            };
+            var photo = new HunterEvidence
+            {
+                HunterSubmissionId = draft.Id, EvidenceType = HunterEvidenceType.LivePhoto,
+                PrivateMediaReference = "test-photo", CapturedAtUtc = now.AddMinutes(-2),
+                UploadedAtUtc = now.AddMinutes(-1)
+            };
+            db.HunterEvidence.AddRange(video, photo);
+            await db.SaveChangesAsync();
+            var request = new HunterSubmitRequestDto
+            {
+                PlaceName = draft.PlaceName, Description = draft.Description, ClaimedDistrict = draft.District,
+                Latitude = draft.Latitude, Longitude = draft.Longitude,
+                Guided360VideoEvidenceId = video.Id, LivePhotoEvidenceId = photo.Id
+            };
+            var verified = new HunterVerifiedSubmitInputs("Verified Hunter", draft.District, video, photo);
+            var interceptor = new FailHunterRevocationInterceptor();
+            await using (var failingDb = CreateContext(interceptor))
+            {
+                await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    new SqlHunterSubmissionStatusTransitionStore(failingDb)
+                        .TrySubmitVerifiedDraftAsync(draft.Id, seed.UserId, request, verified, now));
+            }
+
+            Assert.True(interceptor.RevocationBlocked);
+            Assert.True(await db.HunterSubmissions.AnyAsync(row => row.Id == draft.Id &&
+                row.Status == HunterSubmissionStatus.Draft && row.SubmittedAtUtc == null));
+            Assert.True(await db.HunterCaptureSessions.AnyAsync(row => row.Id == seed.SessionId && !row.IsRevoked));
+
+            var store = new SqlHunterSubmissionStatusTransitionStore(db);
+            Assert.False(await store.TrySubmitVerifiedDraftAsync(draft.Id, Guid.NewGuid().ToString("D"), request, verified, now));
+            Assert.True(await store.TrySubmitVerifiedDraftAsync(draft.Id, seed.UserId, request, verified, now));
+            Assert.False(await store.TrySubmitVerifiedDraftAsync(draft.Id, seed.UserId, request, verified, now));
+            var queued = await new SqlHunterCaptureSubmissionAccessReader(db).FindPendingReviewCandidateAsync(draft.Id);
+            Assert.NotNull(queued);
+            Assert.Equal(now, queued.SubmittedAtUtc);
+            Assert.True(await db.HunterCaptureSessions.AnyAsync(row => row.Id == seed.SessionId && row.IsRevoked));
+        }
+        finally
+        {
+            await CleanupAsync(seed.SubmissionId, seed.UserId);
+        }
+    }
+
+    [M4SqlIntegrationFact]
+    public async Task ConcurrentReview_RecordsOneDecisionAndRevokesCaptureWithReplay()
+    {
+        var seed = await SeedAsync();
+        try
+        {
+            await using var db = CreateContext();
+            var sessions = new SqlHunterCaptureSessionStore(db);
+            var now = DateTimeOffset.UtcNow;
+            Assert.True(await sessions.IsEligibleForEvidenceAsync(seed.SessionId, seed.HunterId, seed.SubmissionId, now));
+            Assert.False(await sessions.IsEligibleForEvidenceAsync(seed.SessionId, Guid.NewGuid(), seed.SubmissionId, now));
+
+            var transitions = new SqlHunterSubmissionStatusTransitionStore(db);
+            Assert.True(await transitions.TryTransitionAndRevokeCaptureSessionsAsync(
+                seed.SubmissionId, HunterSubmissionStatus.Draft, HunterSubmissionStatus.PendingReview));
+            Assert.False(await sessions.IsEligibleForEvidenceAsync(seed.SessionId, seed.HunterId, seed.SubmissionId, now));
+
+            var first = Guid.NewGuid();
+            var second = Guid.NewGuid();
+            async Task<bool> ApproveAsync(Guid id, string? reason = null)
+            {
+                await using var scopeDb = CreateContext();
+                return await new SqlHunterSubmissionStatusTransitionStore(scopeDb).TryRecordReviewAsync(
+                    id, seed.UserId, new HunterReviewRequestDto
+                    {
+                        HunterSubmissionId = seed.SubmissionId,
+                        ResultingStatus = HunterSubmissionStatus.Approved,
+                        Reason = reason
+                    }, now);
+            }
+
+            var outcomes = await Task.WhenAll(ApproveAsync(first), ApproveAsync(second));
+            Assert.Single(outcomes, outcome => outcome);
+            var winner = outcomes[0] ? first : second;
+            Assert.True(await ApproveAsync(winner));
+            Assert.False(await ApproveAsync(winner, "Different review reason"));
+
+            var audit = await db.HunterReviewDecisions.AsNoTracking()
+                .SingleAsync(row => row.HunterSubmissionId == seed.SubmissionId);
+            Assert.Equal(winner, audit.Id);
+            Assert.Equal(seed.UserId, audit.ReviewerUserId);
+            Assert.Equal(HunterSubmissionStatus.Approved, audit.ResultingStatus);
+            Assert.True(await db.HunterCaptureSessions.AnyAsync(row => row.Id == seed.SessionId && row.IsRevoked));
+        }
+        finally
+        {
+            await CleanupAsync(seed.SubmissionId, seed.UserId);
+        }
+    }
+
+    [M4SqlIntegrationFact]
+    public async Task DraftDetailsUpdate_RequiresOwnerAndDraftAndPreservesCaptureBinding()
+    {
+        var seed = await SeedAsync();
+        try
+        {
+            await using var db = CreateContext();
+            var reader = new SqlHunterCaptureSubmissionAccessReader(db);
+            var before = await db.HunterSubmissions.AsNoTracking().SingleAsync(row => row.Id == seed.SubmissionId);
+
+            Assert.False(await reader.UpdateDraftDetailsAsync(
+                Guid.NewGuid().ToString("D"), seed.SubmissionId, "Foreign edit", null));
+            Assert.True(await reader.UpdateDraftDetailsAsync(
+                seed.UserId, seed.SubmissionId, "Updated draft", "Updated description"));
+            Assert.True(await reader.UpdateDraftDetailsAsync(
+                seed.UserId, seed.SubmissionId, "Updated draft", "Updated description"));
+
+            var after = await db.HunterSubmissions.AsNoTracking().SingleAsync(row => row.Id == seed.SubmissionId);
+            Assert.Equal("Updated draft", after.PlaceName);
+            Assert.Equal("Updated description", after.Description);
+            Assert.Equal(before.UserId, after.UserId);
+            Assert.Equal(before.District, after.District);
+            Assert.Equal(before.Latitude, after.Latitude);
+            Assert.Equal(before.Longitude, after.Longitude);
+            Assert.Equal(before.Status, after.Status);
+            Assert.Equal(before.SubmittedAtUtc, after.SubmittedAtUtc);
+            Assert.True(await db.HunterCaptureSessions.AnyAsync(row => row.Id == seed.SessionId && !row.IsRevoked));
+
+            await db.HunterSubmissions.Where(row => row.Id == seed.SubmissionId)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(row => row.Status, HunterSubmissionStatus.PendingReview));
+            Assert.False(await reader.UpdateDraftDetailsAsync(
+                seed.UserId, seed.SubmissionId, "Late edit", null));
+        }
+        finally
+        {
+            await CleanupAsync(seed.SubmissionId, seed.UserId);
+        }
+    }
 
     [M4SqlIntegrationFact]
     public async Task ConcurrentConsume_ExactlyOne_ShouldSucceed()
