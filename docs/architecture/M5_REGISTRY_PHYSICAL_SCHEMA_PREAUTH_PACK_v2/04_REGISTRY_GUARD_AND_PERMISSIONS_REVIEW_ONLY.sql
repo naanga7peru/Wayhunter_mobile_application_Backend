@@ -7,7 +7,7 @@ SQL execution authorization. Not production-ready.
 IF DB_NAME() <> N'Wayhunter_M5_Registry_IsolatedTest'
     THROW 51020, 'Wrong test database; abort', 1;
 
--- PROCEDURE OWNER / ROLE MODEL: 
+-- PROCEDURE OWNER / ROLE MODEL:
 -- A vetted schema owner has DML through ownership chaining; application/test executor
 -- principal has no direct DML. The actual TX-A/B/C stored-procedure bodies are STILL
 -- TO BE REVIEWED/IMPLEMENTED. Grant EXECUTE only to those named, approved procedures.
