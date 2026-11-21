@@ -3,7 +3,6 @@ using System.Net.Mail;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
 using Wayhunter.Domain.Modules.IdentitySocial.Entities;
 using Wayhunter.Domain.Modules.IdentitySocial.Enums;
 using Wayhunter.Infrastructure.Persistence.DbContexts;
@@ -51,10 +50,8 @@ public sealed class PasswordRecoveryService
 
         var now = _clock.GetUtcNow();
         var token = CreateToken();
-        IdentityPasswordResetCredential credential;
-        string displayName;
-
-        await using (var transaction = await BeginSerializableAsync(cancellationToken))
+        var tokenHash = HashToken(token);
+        var issuance = await ExecuteSerializableAsync(async () =>
         {
             var account = await _db.Users.SingleOrDefaultAsync(
                 x => x.NormalizedEmail == normalizedEmail,
@@ -64,13 +61,21 @@ public sealed class PasswordRecoveryService
                 !account.VerifiedAtUtc.HasValue ||
                 account.DeletionRequestedAtUtc.HasValue)
             {
-                return;
+                return null;
             }
 
-            displayName = account.DisplayName;
-            credential = IdentityPasswordResetCredential.Create(
+            // A retry after an ambiguous commit finds the same credential and
+            // can safely proceed to the single email delivery below.
+            var committed = await _db.IdentityPasswordResetCredentials
+                .SingleOrDefaultAsync(
+                    x => x.UserId == account.UserId && x.TokenHash == tokenHash,
+                    cancellationToken);
+            if (committed is not null)
+                return new ResetIssuance(committed, account.DisplayName);
+
+            var credential = IdentityPasswordResetCredential.Create(
                 account.UserId,
-                HashToken(token),
+                tokenHash,
                 now,
                 now.AddMinutes(lifetime.Value));
             var outstanding = await _db.IdentityPasswordResetCredentials
@@ -83,29 +88,32 @@ public sealed class PasswordRecoveryService
 
             _db.IdentityPasswordResetCredentials.Add(credential);
             await _db.SaveChangesAsync(cancellationToken);
-            await CommitAsync(transaction, cancellationToken);
-        }
+            return new ResetIssuance(credential, account.DisplayName);
+        }, cancellationToken);
+
+        if (issuance is null)
+            return;
 
         try
         {
             var delivered = await _emailSender.SendAsync(
                 normalizedEmail,
-                displayName,
+                issuance.DisplayName,
                 token,
                 lifetime.Value,
                 cancellationToken);
             if (!delivered)
-                await RevokeUndeliveredAsync(credential, cancellationToken);
+                await RevokeUndeliveredAsync(issuance.Credential, cancellationToken);
         }
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
         {
-            await RevokeUndeliveredAsync(credential, CancellationToken.None);
+            await RevokeUndeliveredAsync(issuance.Credential, CancellationToken.None);
             throw;
         }
         catch
         {
-            await RevokeUndeliveredAsync(credential, CancellationToken.None);
+            await RevokeUndeliveredAsync(issuance.Credential, CancellationToken.None);
             _logger.LogWarning("Password reset email delivery failed.");
         }
     }
@@ -134,38 +142,47 @@ public sealed class PasswordRecoveryService
         }
 
         var now = _clock.GetUtcNow();
-        await using var transaction = await BeginSerializableAsync(cancellationToken);
-        var account = await _db.Users.SingleOrDefaultAsync(
-            x => x.NormalizedEmail == normalizedEmail,
-            cancellationToken);
-        if (account is null ||
-            account.Status != UserAccountStatus.Active ||
-            !account.VerifiedAtUtc.HasValue ||
-            account.DeletionRequestedAtUtc.HasValue)
-        {
-            return false;
-        }
-
         var tokenHash = HashToken(token);
-        var credential = await _db.IdentityPasswordResetCredentials
-            .SingleOrDefaultAsync(
-                x => x.UserId == account.UserId && x.TokenHash == tokenHash,
+        return await ExecuteSerializableAsync(async () =>
+        {
+            var account = await _db.Users.SingleOrDefaultAsync(
+                x => x.NormalizedEmail == normalizedEmail,
                 cancellationToken);
-        if (credential is null || !credential.CanUseAt(now))
-            return false;
+            if (account is null ||
+                account.Status != UserAccountStatus.Active ||
+                !account.VerifiedAtUtc.HasValue ||
+                account.DeletionRequestedAtUtc.HasValue)
+            {
+                return false;
+            }
 
-        credential.ConsumeAt(now);
-        account.ChangePasswordHash(passwordHash);
-        var activeSessions = await _db.IdentitySessions
-            .Where(x => x.UserId == account.UserId &&
-                        x.RevokedAtUtc == null)
-            .ToListAsync(cancellationToken);
-        foreach (var session in activeSessions)
-            session.Revoke(now);
+            var credential = await _db.IdentityPasswordResetCredentials
+                .SingleOrDefaultAsync(
+                    x => x.UserId == account.UserId && x.TokenHash == tokenHash,
+                    cancellationToken);
+            if (credential is null)
+                return false;
 
-        await _db.SaveChangesAsync(cancellationToken);
-        await CommitAsync(transaction, cancellationToken);
-        return true;
+            // If SQL committed but the connection failed during commit, the
+            // execution strategy retries. Recognize this same operation.
+            if (credential.ConsumedAtUtc.HasValue)
+                return string.Equals(
+                    account.PasswordHash, passwordHash, StringComparison.Ordinal);
+            if (!credential.CanUseAt(now))
+                return false;
+
+            credential.ConsumeAt(now);
+            account.ChangePasswordHash(passwordHash);
+            var activeSessions = await _db.IdentitySessions
+                .Where(x => x.UserId == account.UserId &&
+                            x.RevokedAtUtc == null)
+                .ToListAsync(cancellationToken);
+            foreach (var session in activeSessions)
+                session.Revoke(now);
+
+            await _db.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
     }
 
     private async Task RevokeUndeliveredAsync(
@@ -179,19 +196,32 @@ public sealed class PasswordRecoveryService
         await _db.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task<IDbContextTransaction?> BeginSerializableAsync(
-        CancellationToken cancellationToken) =>
-        _db.Database.IsRelational()
-            ? await _db.Database.BeginTransactionAsync(
-                IsolationLevel.Serializable, cancellationToken)
-            : null;
+    private async Task<T> ExecuteSerializableAsync<T>(
+        Func<Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        var strategy = _db.Database.CreateExecutionStrategy();
+        var attempt = 0;
+        return await strategy.ExecuteAsync(async () =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (attempt++ > 0)
+                _db.ChangeTracker.Clear();
 
-    private static Task CommitAsync(
-        IDbContextTransaction? transaction,
-        CancellationToken cancellationToken) =>
-        transaction is null
-            ? Task.CompletedTask
-            : transaction.CommitAsync(cancellationToken);
+            if (!_db.Database.IsRelational())
+                return await operation();
+
+            await using var transaction = await _db.Database.BeginTransactionAsync(
+                IsolationLevel.Serializable, cancellationToken);
+            var result = await operation();
+            await transaction.CommitAsync(cancellationToken);
+            return result;
+        });
+    }
+
+    private sealed record ResetIssuance(
+        IdentityPasswordResetCredential Credential,
+        string DisplayName);
 
     private static string? NormalizeEmail(string? email)
     {
