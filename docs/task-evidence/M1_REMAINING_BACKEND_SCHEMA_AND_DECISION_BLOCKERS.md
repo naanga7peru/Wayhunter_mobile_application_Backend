@@ -162,4 +162,14 @@ settings through runtime configuration; do not commit secrets.
 
 The route tests use the test email sender and EF InMemory. They do not prove the
 SQL table has been deployed or validate SQL Server transaction behavior.
- 
+
+## SQL Server execution strategy verification
+
+OTP verify/resend and password recovery now run each serializable database
+transaction inside EF Core's configured execution strategy. OTP email, reset
+email, and the post-activation reward handler run only after the transaction
+delegate succeeds. SQL verification for OTP requires the approved shared
+`InitialSharedSchema` in a dedicated disposable M1 SQL Server database.
+Forgot/reset verification additionally requires the DB Coordinator's additive
+`IdentityPasswordResetCredentials` migration. Neither a migration nor a shared
+database update was created or applied by this work.

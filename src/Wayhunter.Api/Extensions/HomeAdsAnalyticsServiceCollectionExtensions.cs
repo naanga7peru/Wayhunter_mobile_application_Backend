@@ -1,3 +1,4 @@
+using Wayhunter.Api.Services.HomeAdsAnalytics;
 
 using System;
 using Microsoft.Extensions.Configuration;
@@ -29,8 +30,13 @@ public static class HomeAdsAnalyticsServiceCollectionExtensions
             IAdvertisementWriteRepository,
             AdvertisementRepository>();
 
+        // Advertisement image-only persistence
+        services.TryAddScoped<
+            IAdvertisementImageUpdateRepository,
+            AdvertisementRepository>();
         // Advertisement application service
         services.TryAddScoped<AdvertisementService>();
+        services.TryAddScoped<AdvertisementImageLifecycleService>();
 
         return services;
     }
