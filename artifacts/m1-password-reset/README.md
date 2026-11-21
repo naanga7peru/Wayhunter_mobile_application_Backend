@@ -4,9 +4,9 @@
 
 ## Git and EF baseline
 
-- Latest fetched `origin/develop` base: `13553911febb44343bf51227c08db470712bf804`.
+- Latest fetched `origin/develop` base: `77d1f57ee717e012efc2d7dca1ad9710de28020b` (PR #275 merge).
 - Requested proposal commit: `fad5e19cf5f5d036fef122b84a869cdb0860f674`.
-- Existing PR branch: `codex/m1-password-reset-migration`. Synchronized with a merge, preserving history; merge commit `58189bf35baac150d00434a6b5b8a00dbe8d66be`. The branch is seven commits ahead of its remote tracking ref; nothing was pushed.
+- Existing PR branch: `codex/m1-password-reset-migration`. Saved the generated review artifacts in local commit `2e53a0af` then merged latest develop without rewriting history; merge commit `ac37f88`. The branch is fifteen commits ahead of its remote tracking ref; nothing was pushed.
 - Separate scratch worktree: `C:\Users\divik\WAYHUNTER\Wayhunter_mobile_application_Backend\.scratch-ef`, detached at the exact base SHA above.
 - EF Core / tooling: `10.0.15`.
 - Candidate migration ID retained for the pre-execution check: `20261121100000_AddIdentityPasswordResetCredentials`.
@@ -36,11 +36,11 @@ The earlier `20261121100000_AddIdentityPasswordResetCredentials.from-InitialShar
 
 ## Separate schema drift
 
-The full-context EF scaffold found unrelated pending model changes beyond the reset table. They are excluded from the reset migration/designer/snapshot. See [unrelated-model-drift.md](unrelated-model-drift.md) for the full list: 17 additional M1/M2/M3/M8 tables, M2/M3 alternate keys, M3 hazard changes, and M6 voucher/ledger changes.
+The full-context EF scaffold at the prior base `13553911febb44343bf51227c08db470712bf804` found unrelated pending model changes beyond the reset table. They are excluded from the reset migration/designer/snapshot. See [unrelated-model-drift.md](unrelated-model-drift.md) for that inventory: 17 additional M1/M2/M3/M8 tables, M2/M3 alternate keys, M3 hazard changes, and M6 voucher/ledger changes. On the latest base, the committed snapshot diff was rechecked and remains limited to the reset entity and relationship. A fresh full-context drift scaffold was not completed because the compiler failed before current-model scaffolding could run; the inventory above is retained with its earlier provenance.
 
 ## Commands and results
 
-Scratch-only reset scaffold and script generation:
+Scratch-only reset scaffold and script generation (completed against the prior base):
 
 ```powershell
 dotnet test tests/Wayhunter.UnitTests/Wayhunter.UnitTests.csproj --no-restore -m:1 --filter "FullyQualifiedName~IdentityMigrationReadinessTests"
@@ -59,14 +59,14 @@ dotnet test tests/Wayhunter.UnitTests/Wayhunter.UnitTests.csproj --no-restore -m
 dotnet test Wayhunter.slnx --no-restore -m:1 --logger "console;verbosity=minimal"
 ```
 
-- Focused M1/M3 unit tests: **674 passed, 0 failed**. This includes the corrected M3 snapshot assertion.
-- Full solution build: **succeeded, 0 warnings, 0 errors**.
-- Full suite: unit **3,238 passed**; integration **197 passed, 85 skipped**; **0 failed**. SQL integration-test connection variables were unset, so opt-in database tests skipped. No test wrote to `Wayhunter_M1_Verify`.
-- EF SQL script generation: succeeded. Script inspected: only reset table create, two indexes, and migration-history insert; no unrelated objects.
+- On prior base `13553911febb44343bf51227c08db470712bf804`, focused M1/M3 unit tests passed **674/674**; full build succeeded with **0 warnings, 0 errors**; full suite had unit **3,238 passed**, integration **197 passed, 85 skipped**, and **0 failed**. These are prior-base results, not results for the latest merged tip.
+- On latest base `77d1f57ee717e012efc2d7dca1ad9710de28020b`, restore completed (all projects up-to-date). Full build, focused test command, and full test command were each attempted but blocked before compilation/test execution by Roslyn `MSB3883` access denied to a `\\.\pipe\LOCAL\dotnet_<id>` named pipe. Both tests therefore have **no current-base result**.
+- `dotnet ef migrations script 20261117093023_InitialSharedSchema 20261121100000_AddIdentityPasswordResetCredentials --project src/Wayhunter.Infrastructure/Wayhunter.Infrastructure.csproj --startup-project src/Wayhunter.Infrastructure/Wayhunter.Infrastructure.csproj --no-build --output artifacts/m1-password-reset/ef-generated.sql` exited **0**. It refreshed the script using the existing compiled migration assembly because the latest source build was blocked. The SQL contains only reset-table create, primary key, FK, expiry check, two indexes, and migration-history insert; no unrelated DDL.
+- The latest-base snapshot diff is only the reset entity and relationship. The candidate migration source still has one `CreateTable` with its PK/FK/check, two indexes, and only a `DropTable` in `Down`. Initial migration artifacts remain unchanged.
 
 ## Read-only SQL pre-execution verification
 
-Target checked after the full suite:
+Target checked read-only after the latest-base build/test attempts:
 
 - LocalDB instance: `(localdb)\MSSQLLocalDB`, LocalDB `15.0.4382.1`, `Running`, owner `DESKTOP-7K755NU\divik`.
 - SQL Server identity: `DESKTOP-7K755NU\LOCALDB#B7B9EF76`.
@@ -75,7 +75,7 @@ Target checked after the full suite:
 - `20261117093023_InitialSharedSchema`: **present**, ProductVersion `10.0.15`.
 - `20261121100000_AddIdentityPasswordResetCredentials`: **absent** from `__EFMigrationsHistory`.
 - `dbo.IdentityPasswordResetCredentials`: `OBJECT_ID` **NULL**.
-- Migration history table exists; read-only lookup returned only the initial migration among the two checked IDs.
+- Migration history table exists; read-only lookup returned only the initial migration among the two checked IDs. The repeated latest check returned the same database identity, owner, creation date, migration history, and NULL table lookup.
 
 Only `SELECT`/metadata queries were run. No migration SQL or database update was executed.
 
