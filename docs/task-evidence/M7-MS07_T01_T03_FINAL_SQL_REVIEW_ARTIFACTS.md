@@ -216,3 +216,7 @@ All configuration below is **PENDING**. The coordinator supplies each value thro
 | Procedure permissions, SQL constraints and report parity | Reject unauthorized direct writes and reads, enforce all constraints, test scoped snapshots and deadlock handling, reconcile counts without legacy totals. | NOT EXECUTED |
 
 Create receipt and quota definitions before dependent facts, then trusted indexes and FKs, then controlled routines and grants after coordinator review. Review deployment, restore and forward-fix plans before migration ownership is assigned. After durable acceptances exist, disabling intake preserves history and replay protection. Removing stored facts or receipts requires separate authorization.
+
+## M1 admission review dependency
+
+The DDL and procedure sketches above are the pre-M1 physical baseline. The [M1 API contract review](M7-MS07_T01_T03_M1_API_CONTRACT_REVIEW.md) proposes two additional receipt-only caller-binding fields and requires ownership verification ahead of payload comparison and receipt disclosure. Reconcile those changes, including commit verification and attempt limiting, before approving any executable definition. No SQL definition, migration or test execution is authorized by this addendum.

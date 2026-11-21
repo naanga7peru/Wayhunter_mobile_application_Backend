@@ -19,3 +19,15 @@
 | Isolated SQL environment and cleanup | Approve disposable target and provisioner, verified server and per-run DB allowlists, opt-in, marker, account grants, rollback and guarded cleanup authority. | DB Coordinator | PENDING |
 
 No implementation, migrations, data mutation or SQL execution is authorized by this register. Record approval with the reviewed commit, approver and exact decision scope before taking dependent implementation steps.
+
+## Shayanthan review decisions
+
+| Decision | Recommended candidate for review | Required approver | Status |
+| --- | --- | --- | --- |
+| Caller-account binding | Separate receipt-only version and keyed digest over a trusted stable account. Verify ownership before payload equality or response. Preserve retry identity across refreshed sessions. | M1, M7, DB Coordinator and privacy/data owners | PENDING |
+| Binding key custody and retention | Version rotation for new writes, historical verification lifetime, fail-closed behavior for missing keys and no duplicate reacceptance. Update privacy and capacity impact before adoption. | M1, privacy/data owners, DB Coordinator and M7 | PENDING |
+| Replay, conflict and unavailable disclosure | Candidate stable 200 accepted/replay, 409 after verified ownership, 401 invalid session, 429 with approved Retry-After, and generic foreign-account or unavailable response. Use the revised security matrix in the M1 review. | M1 and M7 | PENDING |
+| Attempt and accepted quota | Attempt budget applies to retries before receipt access. A matching authorized retry consumes no accepted quota. Preserve open bucket version. Use 120/30 for load tests only. | M1, M7 and DB Coordinator | PENDING |
+| Sponsored proof | Caller-bound, server-issued proof of actual delivery. Keep sponsored intake disabled until the proof and attribution relationship are approved. | Campaign owner, M1 and M7 | PENDING |
+
+Shayanthan confirmed the authentication requirements. This review leaves production HTTP semantics, privacy governance and final SQL approval pending. [Full M1 review](M7-MS07_T01_T03_M1_API_CONTRACT_REVIEW.md)

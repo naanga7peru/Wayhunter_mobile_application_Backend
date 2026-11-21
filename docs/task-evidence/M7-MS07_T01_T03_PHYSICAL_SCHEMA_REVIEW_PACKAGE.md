@@ -168,3 +168,11 @@ The existing harness results are prior evidence for application contract behavio
 ## Final implementation review handoff
 
 Kaviyan conditionally accepted this design at commit 239bc059bebd6dfdb2e51bc4d7e8030dc0bd3819. Final sign-off remains pending. The [final SQL review artifacts](M7-MS07_T01_T03_FINAL_SQL_REVIEW_ARTIFACTS.md) provide the exact candidate definitions, procedure boundaries and disposable test protocol. The [owner register](M7-MS07_T01_T03_OWNER_DECISION_REGISTER.md) and [develop compatibility evidence](M7-MS07_T01_T03_LATEST_DEVELOP_COMPATIBILITY.md) track the remaining approvals and source-verified prerequisites. The architecture and prior verification remain as recorded above.
+
+## M1 API contract review addendum
+
+Shayanthan confirmed trusted M1 bearer validation, a current active and verified account, and a valid unexpired, non-revoked session. This addendum extends the conditional physical review candidate. The [M1 review](M7-MS07_T01_T03_M1_API_CONTRACT_REVIEW.md) supersedes earlier generic response candidates and adds the future acceptance matrix. Final approval remains pending.
+
+Propose receipt-only `CallerBindingVersion smallint NOT NULL` and `CallerBindingDigest binary(32) NOT NULL` using a managed, versioned keyed binding to the authenticated stable account. Keep both separate from payload `BindingVersion` and `BindingDigest`. Do not alter the composite unique retry key or add account fields to the fact. Verify ownership under the retry-key lock before comparing payload or revealing any receipt outcome, including commit verification. Keep existing receipt ownership across refreshed sessions. A foreign or unverifiable caller receives a generic failure with no key-existence signal.
+
+Accepted and authorized identical replay are candidate HTTP 200 with the same stable accepted body. T01 retains internal Duplicate. Authorized payload mismatch is candidate generic 409. An invalid session maps to 401, and attempt or accepted-event quota exhaustion maps to 429 with approved Retry-After. Unavailable ad or proof uses a generic failure. Attempt limits apply before receipt lookup and include retries. The candidate 120/30 values are load-test values only. Preserve existing bucket versions and keep sponsored intake disabled pending caller-bound delivery proof and Campaign attribution approval.
