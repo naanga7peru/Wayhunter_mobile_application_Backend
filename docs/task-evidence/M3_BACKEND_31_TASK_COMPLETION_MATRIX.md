@@ -8,8 +8,8 @@ Baseline `13553911febb44343bf51227c08db470712bf804`. Existing PRs #229, #232, #2
 | 2 | Snapshot reconciliation | Known drift | Compared design model, snapshot and initial target; captured exact differences | Metadata test | COMPLETED — TEST VERIFIED | — | [SQL report](../architecture/M3_FINAL_SQL_VERIFICATION_READINESS.md) |
 | 3 | LocalDB safety | Mixed guards | Strict local identity and option validation across all profiles | 7 guard cases | COMPLETED — TEST VERIFIED | — | [SQL report](../architecture/M3_FINAL_SQL_VERIFICATION_READINESS.md) |
 | 4 | SQL readiness report | Missing | Recorded inspected inventory, metadata, guards and row-count plan | Inventory and metadata | COMPLETED — CODE VERIFIED | — | [SQL report](../architecture/M3_FINAL_SQL_VERIFICATION_READINESS.md) |
-| 5 | SQL approval package | Conditional schema review | Prepared precise authorization request tied to verified fixtures | Inventory and guard cases | COMPLETED — CODE VERIFIED | Kaviyan / DB response pending | [SQL report](../architecture/M3_FINAL_SQL_VERIFICATION_READINESS.md) |
-| 6 | Execute M3 SQL | Unapproved | Kept opt-ins unset | 0 executed, 45 skipped | BLOCKED — DB COORDINATOR | Kaviyan / DB Coordinator | [SQL report](../architecture/M3_FINAL_SQL_VERIFICATION_READINESS.md) |
+| 5 | SQL approval package | Conditional schema review | Prepared precise authorization request tied to verified fixtures | Inventory and guard cases | COMPLETED — CODE VERIFIED | Kaviyan accepted for review; execution sign-off pending | [SQL report](../architecture/M3_FINAL_SQL_VERIFICATION_READINESS.md) |
+| 6 | Execute M3 SQL | Unapproved | Kept opt-ins unset | 0 executed, 45 skipped | BLOCKED — DB COORDINATOR | Kaviyan / DB Coordinator; catalog ownership and exact drop approval pending | [SQL report](../architecture/M3_FINAL_SQL_VERIFICATION_READINESS.md) |
 | 7 | SQL results | No authorized run | Prepared result template; SQL results remain pending | Non-SQL only | PARTIAL — APPROVAL REQUIRED | DB Coordinator | [SQL report](../architecture/M3_FINAL_SQL_VERIFICATION_READINESS.md) |
 | 8 | Durable memories | EF mappings only | Added unregistered transactional CRUD and tombstones | MS07 suite | PARTIAL — APPROVAL REQUIRED | DB schema and relational validation | [MS07 readiness](../architecture/M3_MS07_TRIP_MEMORIES_READINESS.md) |
 | 9 | TripStop conflict | Logical retention approved | Rechecked scoped stop and mapped exact create FK to 409; proposed M2 delete-side handling | MS07 EF integration; race orders pending | PARTIAL — APPROVAL REQUIRED | M2 / DB Coordinator | [MS07 SQL readiness](../architecture/M3_MS07_TRIP_MEMORIES_SQL_READINESS.md) |
@@ -48,3 +48,7 @@ Eight tasks completed, 18 partial, five blocked, zero not started. The full suit
 - **Kaviyan** — Review the five isolated package commits and evidence. Record actual acceptance after the outstanding approvals and execution evidence are complete.
 
 Package commits before the E2E commit are `c3d3f0d` (SQL), `1d46de3` (Memories), `1832475` (Hazard/Separation), and `c418c86` (Admin). E2E evidence and this matrix are in the fifth commit on the review branch.
+
+## Post-merge SQL pre-execution gate
+
+PR #275 merge `77d1f57ee717e012efc2d7dca1ad9710de28020b` was verified on fetched develop. The [final checklist](../architecture/M3_FINAL_SQL_PREEXECUTION_AUTHORIZATION_CHECKLIST.md) covers all 45 operation approvals, the shared REV setup helper, the SAFE create/drop ownership gap, and recovery and count evidence. Kaviyan accepted the package for review. SQL execution remains blocked pending explicit DB Coordinator and Kaviyan authorization. No task counts or production activation status changed.

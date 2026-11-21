@@ -1,6 +1,6 @@
 # M3 final SQL verification readiness
 
-**BLOCKED — EXPLICIT SQL EXECUTION AUTHORIZATION REQUIRED.** SQL test bodies executed: 0. Backend baseline `13553911febb44343bf51227c08db470712bf804` matched fetched develop. SecondBrain `42a5cf38001c1afbb0c69e75718c0aa615bdc39d` supplied the active rules, milestones and team workflow. Conditional schema review does not authorize SQL.
+**BLOCKED — EXPLICIT SQL EXECUTION AUTHORIZATION REQUIRED.** SQL test bodies executed: 0. Backend baseline `13553911febb44343bf51227c08db470712bf804` matched fetched develop. SecondBrain `42a5cf38001c1afbb0c69e75718c0aa615bdc39d` supplied the active rules, milestones and team workflow. Conditional schema review does not authorize SQL. See the [final pre-execution checklist](M3_FINAL_SQL_PREEXECUTION_AUTHORIZATION_CHECKLIST.md) for post-merge target identity, permissions and outstanding sign-off.
 
 ## Inventory
 
@@ -62,9 +62,9 @@ All profiles now require exact `(localdb)\MSSQLLocalDB`, integrated security and
 |---|---|---|
 | GPS | `WAYHUNTER_M3_GPS_TEST_SQL_CONNECTION`, `Wayhunter_M3_GpsConsentIntegrationTest` | Shared-model EnsureCreated; seed accounts/trip/invitation/member/session; consent and revocation writes and injected rollback; test-keyed outbox, consent, member, invite, session, trip and user deletes. Fixed catalog retained. |
 | Session | `WAYHUNTER_M3_SESSION_TEST_SQL_CONNECTION`, `Wayhunter_M3_LiveSessionIntegrationTest` | Shared-model EnsureCreated; lifecycle writes and direct unique index conflict; test-keyed session, trip and user deletes. Fixed catalog retained. |
-| Revocation | `WAYHUNTER_M3_TEST_SQL_CONNECTION`, `Wayhunter_M3_RevocationIntegrationTest` | Concurrency class calls shared-model EnsureCreated; transactional member/outbox writes; rollback class injects commit failure. Test-keyed outbox/member/invite/trip/user deletes. |
-| Invitation / Strategy | Same Revocation target | No bootstrap in these classes. Require approved fixture schema. Atomic accept/reject or retry-enabled revocation; injected invitation rollback. Each cleans its seeded relationship, trip and account rows. |
-| Safe | `WAYHUNTER_M3_SAFECHECKIN_TEST_SQL_CONNECTION`, template `Wayhunter_M3_SafeCheckInIntegrationTest` | Each fixture creates `Wayhunter_M3_SafeCheckInIntegrationTest_<32 lowercase hex GUID>` using its reduced model. Drops only the fresh catalog it successfully created. One test uses an unfiltered companion-outbox delete in its isolated catalog. One adds a rejecting CHECK via ALTER TABLE. Other tests exercise competing writes, claim fencing, retries and fake sends. |
+| Revocation | `WAYHUNTER_M3_TEST_SQL_CONNECTION`, `Wayhunter_M3_RevocationIntegrationTest` | All four REV classes call the same shared-model EnsureCreated helper directly or via their seed setup; transactional member/outbox writes; rollback class injects commit failure. Test-keyed outbox/member/invite/trip/user deletes. |
+| Invitation / Strategy | Same Revocation target | Both classes invoke the revocation concurrency class bootstrap helper before seeding; no test-order dependency within one process. Atomic accept/reject or retry-enabled revocation; injected invitation rollback. Each cleans its seeded relationship, trip and account rows. |
+| Safe | `WAYHUNTER_M3_SAFECHECKIN_TEST_SQL_CONNECTION`, template `Wayhunter_M3_SafeCheckInIntegrationTest` | Each fixture creates `Wayhunter_M3_SafeCheckInIntegrationTest_<32 lowercase hex GUID>` using its reduced model. Drop is gated by the exact private connection and EnsureCreated success flag. That flag alone cannot prove creation ownership of an existing empty catalog. See the final checklist for the pending drop blocker. One test uses an unfiltered companion-outbox delete in its isolated catalog. One adds a rejecting CHECK via ALTER TABLE. Other tests exercise competing writes, claim fencing, retries and fake sends. |
 
 ## Read-only EF reconciliation
 
@@ -314,7 +314,7 @@ TripStops KEY AK_TripStops_Id_TripPlanId (Id,TripPlanId)
 
 Kaviyan and DB Coordinator: approve or reject each listed test, exact local instance and catalogs, creation and deletion, the explicit ALTER TABLE and companion deletion, test-keyed cleanup, bootstrap order and row-count inspection. Confirm no shared data and no competing runner on fixed catalogs. Review failure recovery separately. Migration generation and deployment require their own approval.
 
-After approval, run one profile at a time with all other SQL opt-ins unset. Bootstrap the Revocation target before Invitation and Strategy, as approved. Run the inventory classes with `dotnet test tests/Wayhunter.IntegrationTests --no-build --filter 'FullyQualifiedName~<class>'`. EnsureCreated does not update an existing schema. Capture independent counts before seeding, after representative assertions and after cleanup for Users, Trips, Invitations, Members, Sessions, GPS consents and both outboxes/check-ins as applicable. For GUID-suffixed catalogs, capture counts before drop and verify catalog absence. Record catalog identity and counts without connection strings or row contents.
+After approval, run one profile at a time with all other SQL opt-ins unset. Approve and verify the Revocation schema before a run. Each REV class invokes the same helper; the first caller can bootstrap, and no test discovery order is required. Run the inventory classes with `dotnet test tests/Wayhunter.IntegrationTests --no-build --filter 'FullyQualifiedName~<class>'`. EnsureCreated does not update an existing schema. Capture independent counts before seeding, after representative assertions and after cleanup for Users, Trips, Invitations, Members, Sessions, GPS consents and both outboxes/check-ins as applicable. For GUID-suffixed catalogs, capture counts before drop and verify catalog absence. Record catalog identity and counts without connection strings or row contents.
 
 | Result field | Actual |
 |---|---|
