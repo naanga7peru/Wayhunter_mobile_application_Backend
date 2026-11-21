@@ -22,6 +22,26 @@ IF DB_NAME() COLLATE Latin1_General_100_BIN2 <> N'Wayhunter_M5_Registry_Isolated
     THROW 59204,'STOP: wrong database',1;
 IF DB_ID() <> 7
     THROW 59205,'STOP: changed DB identity',1;
+-- Creation time is the observed sys.databases.create_date (datetime), compared at explicit datetime2(3) precision.
+-- Do not accept a newly created database that happens to reuse name and database_id.
+IF NOT EXISTS (
+    SELECT 1 FROM sys.databases
+    WHERE database_id = DB_ID()
+      AND name COLLATE Latin1_General_100_BIN2 = N'Wayhunter_M5_Registry_IsolatedTest' COLLATE Latin1_General_100_BIN2
+      AND CONVERT(datetime2(3), create_date) = CONVERT(datetime2(3), N'2026-11-21T14:56:24.330', 126))
+    THROW 59219,'STOP: database creation timestamp mismatch; preserve database',1;
+
+-- Exact observed LocalDB runtime identity from 2026-11-21 authorized read-only SQLCMD inspection.
+-- LocalDB# names can change after instance restart; a changed identity is a STOP, not permission to edit this guard.
+IF ISNULL(CONVERT(nvarchar(256), SERVERPROPERTY(N'ServerName')), N'') COLLATE Latin1_General_100_BIN2
+    <> N'UNICOMTIC48\LOCALDB#00357BA9' COLLATE Latin1_General_100_BIN2
+ OR ISNULL(CONVERT(nvarchar(256), @@SERVERNAME), N'') COLLATE Latin1_General_100_BIN2
+    <> N'UNICOMTIC48\LOCALDB#00357BA9' COLLATE Latin1_General_100_BIN2
+ OR ISNULL(CONVERT(nvarchar(256), SERVERPROPERTY(N'InstanceName')), N'') COLLATE Latin1_General_100_BIN2
+    <> N'LOCALDB#00357BA9' COLLATE Latin1_General_100_BIN2
+ OR ISNULL(CONVERT(nvarchar(256), SERVERPROPERTY(N'MachineName')), N'') COLLATE Latin1_General_100_BIN2
+    <> N'UNICOMTIC48' COLLATE Latin1_General_100_BIN2
+    THROW 59220,'STOP: LocalDB instance identity mismatch; coordinator re-review required',1;
 IF @@TRANCOUNT <> 0
     THROW 59206,'STOP: preexisting transaction',1;
 IF SESSIONPROPERTY(N'QUOTED_IDENTIFIER') <> 1
