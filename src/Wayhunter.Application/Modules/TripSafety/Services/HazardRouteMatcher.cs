@@ -29,7 +29,7 @@ public static class HazardRouteMatcher
             var start = routeGeometry[index - 1];
             var end = routeGeometry[index];
 
-            if (!IsValid(start.Latitude, start.Longitude) ||
+            if (start is null || end is null || !IsValid(start.Latitude, start.Longitude) ||
                 !IsValid(end.Latitude, end.Longitude))
             {
                 continue;
@@ -88,9 +88,12 @@ public static class HazardRouteMatcher
         var longitudeScale =
             EarthRadiusMeters * Math.Cos(latitudeRad);
 
+        // Unwrap each segment as a unit. Wrapping its endpoints independently can
+        // turn a short antimeridian crossing into a line through Greenwich.
+        var delta = LongitudeDelta(endLongitude, startLongitude);
+        var midpointOffset = LongitudeDelta(startLongitude + delta / 2, pointLongitude);
         var startX =
-            DegreesToRadians(
-                LongitudeDelta(startLongitude, pointLongitude))
+            DegreesToRadians(midpointOffset - delta / 2)
             * longitudeScale;
 
         var startY =
@@ -98,8 +101,7 @@ public static class HazardRouteMatcher
             * EarthRadiusMeters;
 
         var endX =
-            DegreesToRadians(
-                LongitudeDelta(endLongitude, pointLongitude))
+            DegreesToRadians(midpointOffset + delta / 2)
             * longitudeScale;
 
         var endY =
