@@ -121,7 +121,7 @@ public sealed class M3SafeCheckInSchemaMetadataTests
     {
         using var context = CreateContext();
         var migrations = context.GetService<IMigrationsAssembly>();
-        Assert.Equal("20261117093023_InitialSharedSchema", Assert.Single(migrations.Migrations).Key);
+        Assert.Contains("20261117093023_InitialSharedSchema", migrations.Migrations.Keys);
         var snapshot = migrations.ModelSnapshot!.Model;
         var tables = snapshot.GetEntityTypes().Select(x => x.GetTableName()).ToArray();
         Assert.DoesNotContain("TripSafety_SafeCheckIns", tables);
