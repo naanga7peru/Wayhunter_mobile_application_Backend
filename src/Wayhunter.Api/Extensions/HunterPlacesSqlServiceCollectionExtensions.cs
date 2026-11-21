@@ -3,6 +3,7 @@ using System;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Wayhunter.Api.Services.HunterPlaces;
 using Wayhunter.Application.Modules.HunterPlaces.Interfaces;
 using Wayhunter.Infrastructure.Persistence.Repositories.HunterPlaces;
 
@@ -42,9 +43,11 @@ public static class HunterPlacesSqlServiceCollectionExtensions
         // Trusted submission ownership and status reader.
         services.RemoveAll<IHunterCaptureSubmissionAccessReader>();
 
-        services.AddScoped<
-            IHunterCaptureSubmissionAccessReader,
-            SqlHunterCaptureSubmissionAccessReader>();
+        services.TryAddScoped<SqlHunterCaptureSubmissionAccessReader>();
+        services.AddScoped<IHunterCaptureSubmissionAccessReader>(
+            sp => sp.GetRequiredService<SqlHunterCaptureSubmissionAccessReader>());
+        services.TryAddScoped<IHunterOwnedSubmissionReader>(
+            sp => sp.GetRequiredService<SqlHunterCaptureSubmissionAccessReader>());
 
         // Atomic status transition and session revocation.
         services.RemoveAll<IHunterSubmissionStatusTransitionStore>();
@@ -79,6 +82,7 @@ public static class HunterPlacesSqlServiceCollectionExtensions
 
         services.AddHunterPlacesSqlPersistence(configuration);
         services.AddHunterPlacesApplication();
+        services.TryAddScoped<HunterDraftCreationService>();
 
         return services;
     }
