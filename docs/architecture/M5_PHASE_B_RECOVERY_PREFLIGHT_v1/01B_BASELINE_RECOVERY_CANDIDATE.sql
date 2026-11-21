@@ -31,17 +31,23 @@ IF NOT EXISTS (
       AND CONVERT(datetime2(3), create_date) = CONVERT(datetime2(3), N'2026-11-21T14:56:24.330', 126))
     THROW 59219,'STOP: database creation timestamp mismatch; preserve database',1;
 
--- Exact observed LocalDB runtime identity from 2026-11-21 authorized read-only SQLCMD inspection.
--- LocalDB# names can change after instance restart; a changed identity is a STOP, not permission to edit this guard.
-IF ISNULL(CONVERT(nvarchar(256), SERVERPROPERTY(N'ServerName')), N'') COLLATE Latin1_General_100_BIN2
-    <> N'UNICOMTIC48\LOCALDB#00357BA9' COLLATE Latin1_General_100_BIN2
- OR ISNULL(CONVERT(nvarchar(256), @@SERVERNAME), N'') COLLATE Latin1_General_100_BIN2
-    <> N'UNICOMTIC48\LOCALDB#00357BA9' COLLATE Latin1_General_100_BIN2
- OR ISNULL(CONVERT(nvarchar(256), SERVERPROPERTY(N'InstanceName')), N'') COLLATE Latin1_General_100_BIN2
-    <> N'LOCALDB#00357BA9' COLLATE Latin1_General_100_BIN2
- OR ISNULL(CONVERT(nvarchar(256), SERVERPROPERTY(N'MachineName')), N'') COLLATE Latin1_General_100_BIN2
-    <> N'UNICOMTIC48' COLLATE Latin1_General_100_BIN2
-    THROW 59220,'STOP: LocalDB instance identity mismatch; coordinator re-review required',1;
+-- Stable binding: SQLCMD connects via the currently verified named pipe belonging to
+-- logical (localdb)\MSSQLLocalDB. A read-only preflight must independently establish
+-- alias -> pipe -> actual server and pass its verified identities using -v.
+-- Do NOT hardcode a LOCALDB# runtime suffix: Microsoft documents that it changes on startup.
+DECLARE @runtimeServer nvarchar(256)=ISNULL(CONVERT(nvarchar(256),SERVERPROPERTY(N'ServerName')),N'');
+DECLARE @registeredServer nvarchar(256)=ISNULL(CONVERT(nvarchar(256),@@SERVERNAME),N'');
+DECLARE @runtimeInstance nvarchar(256)=ISNULL(CONVERT(nvarchar(256),SERVERPROPERTY(N'InstanceName')),N'');
+DECLARE @machine nvarchar(256)=ISNULL(CONVERT(nvarchar(256),SERVERPROPERTY(N'MachineName')),N'');
+DECLARE @expectedServer nvarchar(256)=N'$(M5PreflightServerName)';
+DECLARE @expectedInstance nvarchar(256)=N'$(M5PreflightInstanceName)';
+IF @machine COLLATE Latin1_General_100_BIN2 <> N'UNICOMTIC48' COLLATE Latin1_General_100_BIN2
+ OR @runtimeInstance NOT LIKE N'LOCALDB#[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]' COLLATE Latin1_General_100_BIN2
+ OR @runtimeServer COLLATE Latin1_General_100_BIN2 <> (N'UNICOMTIC48\'+@runtimeInstance) COLLATE Latin1_General_100_BIN2
+ OR @registeredServer COLLATE Latin1_General_100_BIN2 <> @runtimeServer COLLATE Latin1_General_100_BIN2
+ OR @expectedInstance COLLATE Latin1_General_100_BIN2 <> @runtimeInstance COLLATE Latin1_General_100_BIN2
+ OR @expectedServer COLLATE Latin1_General_100_BIN2 <> @runtimeServer COLLATE Latin1_General_100_BIN2
+    THROW 59220,'STOP: verified LocalDB named-pipe/runtime binding mismatch; coordinator review required',1;
 IF @@TRANCOUNT <> 0
     THROW 59206,'STOP: preexisting transaction',1;
 IF SESSIONPROPERTY(N'QUOTED_IDENTIFIER') <> 1

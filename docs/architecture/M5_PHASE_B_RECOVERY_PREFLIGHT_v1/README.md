@@ -1,23 +1,18 @@
-# WAYHUNTER M5 — Phase B recovery preflight proposal v1
+# WAYHUNTER M5 — Phase B stable LocalDB binding recovery proposal v2
 
-**Coordinator status: Phase B HOLD; recovery review required.** No SQL mutations were run while preparing this package.
+**PHASE B HOLD — PREPARATION / READ-ONLY ONLY.** Prior single attempt was consumed by error 59220; database preservation and all other holds continue. Never run baseline or Phase C from this pack.
 
-This is a **new add-on proposal**, not a modification to the approved 29-file Release v2 or to its baseline migration file. Package is for review and approved read-only inspection only. The existing isolated database must remain intact (reported database ID **7**).
+Previous fixed `LOCALDB#00357BA9` guard was too brittle because the physical named-pipe suffix changes across LocalDB starts. The revised wrapper only accepts a fresh runtime identity which the read-only `05_READ_ONLY_TARGET_BINDING_PREFLIGHT.ps1` has verified against both the logical `(localdb)\MSSQLLocalDB` and its `sqllocaldb info MSSQLLocalDB` physical named pipe. **The actual future proposed SQLCMD connection is the verified pipe** (requires coordinator authorization for this revised choice). The wrapper still fails closed on identity mismatch and protects DB ID 7, exact datetime2(3) create timestamp, operator, fixture, zero history, schema inventory and unmodified baseline.
 
-## Files
+### Review contents
 
-- `00_READ_ONLY_RECOVERY_AUDIT.sql`: Only session SET statements, catalog reads, fixture identity/read-only SELECT queries, and THROW fail-closed checks. **No schema/data changes.**
-- `01B_BASELINE_RECOVERY_CANDIDATE.sql`: **NOT AUTHORIZED** SQLCMD executable recovery wrapper, with `QUOTED_IDENTIFIER ON`, other indexed-computed-column SET options, empty-history special case, no unexpected objects, fixed LocalDB/DB ID/operator/fixture identity, import of unmodified baseline, and required postflight history/objects checks.
-- `02_PHASE_B_COMMANDS_DO_NOT_RUN.md`: exact approved-scope read-only audit and **unapproved** Phase B proposed SQLCMD command (`-I`).
-- `03_RECOVERY_EVIDENCE_TEMPLATE.md`: actual-result placeholders; must not invent postflight results.
-- `SHA256_MANIFEST.json`: SHA-256 hashes of the five payload files (including README), for copy/review integrity. The manifest does not hash itself.
+- `00_READ_ONLY_RECOVERY_AUDIT.sql`: existing unchanged, read-only catalog audit.
+- `01B_BASELINE_RECOVERY_CANDIDATE.sql`: NEW unapproved execution candidate, no hardcoded transient runtime suffix; requires verified SQLCMD variables.
+- `02_PHASE_B_COMMANDS_DO_NOT_RUN.md`: read-only and explicitly **UNAUTHORIZED** future SQLCMD command.
+- `03_RECOVERY_EVIDENCE_TEMPLATE.md`: existing evidence template, unchanged.
+- `04_READ_ONLY_BINDING_ROW.sql`: read-only, headerless SQL identity probe, both alias and pipe.
+- `05_READ_ONLY_TARGET_BINDING_PREFLIGHT.ps1`: strictly read-only, fail-closed hash/alias/pipe/fixture/catalog checks; NEVER invokes mutating wrapper.
+- `06_STABLE_INSTANCE_RECOVERY_REVIEW.md`: cause, security boundaries, evidence pending, reviewer decisions.
+- `SHA256_MANIFEST.json`: SHA256 hashes for repository payloads except itself and the previously committed `99_ACTUAL_READ_ONLY_RECOVERY_RESULT.md` historical evidence file.
 
-## Important finding
-
-The prior Release v2 `01B_BASELINE_INITIALIZE.sql` has a guard that rejects `__EFMigrationsHistory` **whenever it exists**, even empty. That does not match the coordinator's post-error-1934 recovery state. The new candidate instead requires the history table **already present and empty**, and refuses unexpected user schema objects/constraints/indexes. A clean uncreated database will NOT pass this recovery wrapper.
-
-The authoritative migration `src/Wayhunter.Infrastructure/Persistence/Migrations/InitialSharedSchema.idempotent.sql` **must remain byte-identical**; expected Git blob `90a193505e8efe0e680ec2c94cae4d2186b3d87e`, previously observed local file SHA-256 `74243E7CE8C5C79A79D1B455C7EE0C263E1894CD570A4EF3FC45FEDE3DAE6724`. Re-verify before authorization. Its reviewed source has no top-level `USE`, `:connect`, `:r`, or `SET QUOTED_IDENTIFIER OFF`; it has `GO` and a guarded migration transaction. SQLCMD `-I` plus connection-level SETs before import are meant to keep required options across those batches.
-
-## Hard hold
-
-No rerun of Phase B, no database repair, no CREATE/DROP, no Phase C, no production M4 or shared migrations, no PR #256 merge. The Coordinator must issue a separate written Phase B *recovery* grant after actual read-only inventory evidence and approved script hashes.
+**Original authoritative baseline:** `src/Wayhunter.Infrastructure/Persistence/Migrations/InitialSharedSchema.idempotent.sql`, SHA-256 `74243E7CE8C5C79A79D1B455C7EE0C263E1894CD570A4EF3FC45FEDE3DAE6724`, Git blob `90a193505e8efe0e680ec2c94cae4d2186b3d87e`. Never edit it.
