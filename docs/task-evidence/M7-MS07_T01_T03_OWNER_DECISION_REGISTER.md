@@ -80,3 +80,22 @@ See the [Latest M1 API review](M7-MS07_T01_T03_M1_API_CONTRACT_REVIEW.md) for ca
 - Campaign attribution and sponsored delivery proof — **PENDING**.
 - Security and isolated SQL/API tests — **NOT EXECUTED**.
 The bounded replay review contains 46 cases, all SQL/API NOT EXECUTED. This register records owner direction, not final schema approval or implementation authorization.
+
+## Latest DB Coordinator technical directions — recorded, not implementation approval
+
+Kaviyan's latest review accepts these directions for continued design: restore-independent monotonic issuer/cohort fencing is the mandatory preferred safety foundation; authoritative reconciliation is required for committed acceptance history; the final guarded logical acceptance decision must be strictly before T0+10m; receipt, fact and accepted quota commit atomically; HTTP 200 follows authoritative commit confirmation; physical COMMIT visibility may follow the guarded decision only within a separately validated finite settlement period; ambiguous commits are reauthorized and verified with the original credential/key and never blindly reaccepted; primary SQL UTC is the candidate trusted deadline clock with issuer synchronization and health checks; preserve the composite NO ACTION fact-to-receipt FK and fact-first cleanup; Option A HMAC clearing is conditionally supported; and the 46-case matrix is accepted as future verification scope only. HTTP 409 remains reserved and unreachable under fully signed v1/v2 assumptions, conditional on entry-path verification.
+
+| Approval or proof item | Status |
+| --- | --- |
+| Implemented/proven restore-independent fencing authority and enforcement at every replica and ingress | BLOCKED — none verified |
+| Authoritative reconciliation after restore/failover, including R1 accepted at T0+2m then removed by a pre-commit snapshot before its credential expires | BLOCKED — no approved authority/evidence |
+| Numeric transaction settlement maximum and logical-decision versus physical-COMMIT boundary | PENDING — no numeric bound approved |
+| Maximum issuer/database clock uncertainty and synchronization/health thresholds | PENDING |
+| Final M1/M7 admission credential, expiry precedence and HTTP contract | PENDING |
+| Campaign DeliveryId and attribution contract | PENDING; sponsored intake disabled |
+| Privacy/Data Governance, retention and Option A clearing approval | PENDING |
+| Physical SQL, controlled maintenance writer and migration ownership | PENDING DB Coordinator approval |
+| Disposable database provisioning and test execution authorization | PENDING; no SQL/API tests run |
+| 46-case acceptance scope | ACCEPTED FOR FUTURE VERIFICATION; NOT EXECUTED |
+
+These are design directions only. They do not prove recovery safety, approve physical implementation, or authorize tests or cleanup.
