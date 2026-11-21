@@ -219,8 +219,12 @@ Create receipt and quota definitions before dependent facts, then trusted indexe
 
 ## M1 admission review dependency
 
-The DDL and procedure sketches above are the pre-M1 physical baseline. The [M1 API contract review](M7-MS07_T01_T03_M1_API_CONTRACT_REVIEW.md) proposes two additional receipt-only caller-binding fields and requires ownership verification ahead of payload comparison and receipt disclosure. Reconcile those changes, including commit verification and attempt limiting, before approving any executable definition. No SQL definition, migration or test execution is authorized by this addendum.
+The DDL and procedure sketches above are the pre-M1 physical baseline. The [M1 API contract review](M7-MS07_T01_T03_M1_API_CONTRACT_REVIEW.md) proposes three additional receipt-only caller-binding fields and requires ownership verification ahead of payload comparison and receipt disclosure. Reconcile those changes, including commit verification and attempt limiting, before approving any executable definition. No SQL definition, migration or test execution is authorized by this addendum.
 
 ## Current M1 privacy retention gate
 
 Shayanthan's separate M1 privacy review declined unbounded retry receipts, left the 365-day accepted-fact candidate PENDING, and found cleanup of quota windows 48 hours after end CONDITIONALLY ACCEPTABLE. No cleanup or ingestion is authorized. The [updated assessment](M7-MS07_T01_T03_PRIVACY_RETENTION_ASSESSMENT.md) is the current source for bounded retention analysis and acceptance boundaries. Earlier physical and SQL examples remain review artifacts. A caller-chosen key with a fresh delivery proof can be reaccepted after receipt deletion. Require a proven non-reissuable, authenticated admission identity or another design with equivalent deduplication before opening intake. Keep bounded retention BLOCKED FOR DESIGN DECISION. The three-table architecture, immutable attribution, and atomic write direction are unchanged.
+
+## Latest caller ownership and admission gates
+
+[Latest M1 API review](M7-MS07_T01_T03_M1_API_CONTRACT_REVIEW.md) defines proposed receipt-only CallerBindingAlgorithmVersion, CallerBindingKeyId and CallerBindingDigest. Earlier DDL is preserved as the pre-M1 candidate. Before final sign-off reconcile the receipt CHECKs, writer inputs and historic-key verification. Admission and replay deadlines are separate. Check the signed tuple and ownership before payload comparison, and enforce guarded deadlines and FK-safe finite storage. Neither unbounded storage nor caller-generated expiry by itself is acceptable. The issuer, finite retention and final SQL review remain blocked or pending. No migration or SQL execution is authorized.

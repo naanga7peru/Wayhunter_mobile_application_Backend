@@ -24,7 +24,7 @@ No implementation, migrations, data mutation or SQL execution is authorized by t
 
 | Decision | Recommended candidate for review | Required approver | Status |
 | --- | --- | --- | --- |
-| Caller-account binding | Separate receipt-only version and keyed digest over a trusted stable account. Verify ownership before payload equality or response. Preserve retry identity across refreshed sessions. | M1, M7, DB Coordinator and privacy/data owners | PENDING |
+| Caller-account binding | Separate receipt-only algorithm version, key ID and HMAC-SHA-256 digest over the canonical M1 account and retry tuple. Verify ownership before payload equality or response. Preserve retry identity across refreshed sessions. | M1, M7, DB Coordinator and privacy/data owners | PENDING |
 | Binding key custody and retention | Version rotation for new writes, historical verification lifetime, fail-closed behavior for missing keys and no duplicate reacceptance. Update privacy and capacity impact before adoption. | M1, privacy/data owners, DB Coordinator and M7 | PENDING |
 | Replay, conflict and unavailable disclosure | Candidate stable 200 accepted/replay, 409 after verified ownership, 401 invalid session, 429 with approved Retry-After, and generic foreign-account or unavailable response. Use the revised security matrix in the M1 review. | M1 and M7 | PENDING |
 | Attempt and accepted quota | Attempt budget applies to retries before receipt access. A matching authorized retry consumes no accepted quota. Preserve open bucket version. Use 120/30 for load tests only. | M1, M7 and DB Coordinator | PENDING |
@@ -35,3 +35,14 @@ Shayanthan confirmed the authentication requirements. This review leaves product
 ## Review decision provenance
 
 Kaviyan acknowledged Shayanthan's M1 API review, with joint sign-off and final SQL approval pending. Shayanthan's separate privacy review declined unbounded receipt retention. The [privacy assessment](M7-MS07_T01_T03_PRIVACY_RETENTION_ASSESSMENT.md) records the decision, outstanding processing basis and consent rules, and the bounded admission blocker. This is not formal governance or implementation approval.
+
+## Latest bounded admission decisions
+
+| Decision | Required approval | Status |
+| --- | --- | --- |
+| HMAC canonical M1 identity, framing, dedicated key and version lifecycle | M1, M7, DB Coordinator and privacy/data owners | PENDING |
+| Server-minted key, signed deadlines, globally non-reused allocation and restore/compromise fences | M1, M7 and DB Coordinator, Campaign owner for delivery contract | BLOCKED FOR DESIGN DECISION |
+| Candidate 15-minute admission, 24-hour replay and generic 403/no-disclosure or expiry behavior | M1 and M7, with governance and coordinator review of timing and enforcement | PENDING |
+| FK-compatible finite receipt lifecycle, archive/holds, key retirement and cleanup bounds | Privacy/Data Governance, M1, M7 and DB Coordinator, Team Leader coordinates | BLOCKED FOR DESIGN DECISION |
+
+See the [Latest M1 API review](M7-MS07_T01_T03_M1_API_CONTRACT_REVIEW.md) for candidate timelines, tradeoffs and tests, all NOT EXECUTED.

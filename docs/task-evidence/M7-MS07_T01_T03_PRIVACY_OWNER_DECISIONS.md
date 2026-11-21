@@ -38,3 +38,9 @@
 - [ ] Resolve open approval ownership for processing basis and exceptions, follow-up review dates and go-live gates.
 
 This documentation does not approve SQL execution, cleanup, production ingestion or any final governance decision.
+
+## Latest M1 ownership and expiry gates
+
+- [ ] Approve purpose-specific HMAC and verification-key retirement, signed admission identity, privacy classification and generic foreign-caller behavior.
+- [ ] Approve separate first-admission and replay deadlines and a finite FK-compatible receipt lifecycle covering archival, holds and restore. Prove eventual deletion cannot revive a key with new proof. This stays BLOCKED FOR DESIGN DECISION.
+- [ ] Review the [Latest M1 API review](M7-MS07_T01_T03_M1_API_CONTRACT_REVIEW.md) candidate durations, evidence requirements, consent withdrawal and erasure tests before formal sign-off. No SQL tests have been executed.
