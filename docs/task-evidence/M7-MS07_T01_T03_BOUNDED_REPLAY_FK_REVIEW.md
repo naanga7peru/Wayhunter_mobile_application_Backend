@@ -53,9 +53,11 @@ Rotate new writes to the active key. Retain old verification material only for t
 | First admission and replay | A and R as above, independent of row storage. |
 | Binding material | Option A candidate clears key ID/digest after R and the approved verification and settlement horizon. Option B is pending necessity evidence. For any version without a stored deadline, `AcceptedAtUtc + maximum replay window for admitted versions` plus approved settlement allowance is a conservative lower bound for clearing, since issuance precedes acceptance. Never reduce that floor on a version change. |
 | Accepted fact | 365 days from the candidate server-derived AcceptedAtUtc, pending governance. Archive or remove only if explicitly authorized, and track resulting reporting coverage. |
-| Receipt row | 366 days from the same AcceptedAtUtc, pending. At 365 days the proposed fact disposition can release the dependency, leaving a candidate one-day completion margin. Only if no dependent fact or required archive/recovery dependency remains can the receipt be removed at or after its authorized cutoff. Do not promise 366-day deletion if the FK remains. |
+| Receipt row | 366 days from `AcceptedAtUtc`, pending as the requested review candidate. The nominal one-day gap after the 365-day fact candidate is not a guaranteed cleanup budget. Receipt removal is eligible only after the authorized fact disposition and when no dependent fact, archive, legal/governance hold, commit-recovery or backup-restoration dependency remains. |
 | Quota | 48 hours after UTC window end, conditionally acceptable. Separate from receipt and consent expiry and still subject to safe pending transaction cutoffs. |
 | Retry identity | Permanently non-reissuable across archived and deleted storage. Expired proof and all legacy routes stay inadmissible. This is an issuer property, not a purge operation. |
+
+**366-day sufficiency review — BLOCKED for a guaranteed deletion date.** `AcceptedAtUtc + 366 days` is only a pending earliest receipt-storage cutoff candidate. It does not prove that fact cleanup or archival completes by day 365, nor that legal/governance holds, delayed cleanup, uncertain commits, backup restoration, or another accepted-event FK dependency are absent by day 366. If any dependency remains, retain the receipt and preserve the FK; escalate the overrun for owner disposition. Do not force cleanup to meet the candidate date. A 372-day duration is not the selected candidate and must not be substituted; any separate alternative would need an explicit seven-day cleanup-budget label and approval.
 
 1. Close fresh acceptance at A. Close receipt disclosure separately at R. Settle ambiguous writes and protect original identity. No absent-row shortcut.
 2. Under the retry-key lock, consider option A only after the approved replay/settlement floor and any governed erasure decision. The FK and immutable event values stay intact.
@@ -70,11 +72,11 @@ Rotate new writes to the active key. Retain old verification material only for t
 | # | Input and clock boundary | Expected candidate result | Persisted-state invariant | Approval / status |
 | --- | --- | --- | --- | --- |
 | 1 | Approved issuance at server T0 with divergent client clock | Authenticate T0, A=T0+10m and R=T0+24h; ignore client clock | Allocated key is non-reused. No fact, receipt or quota on issue | J/D — NOT EXECUTED |
-| 2 | Valid unused identity, final locked decision at A−1 tick | 200 after confirmed commit within authorized replay coverage | One fact, receipt and increment | J/D — NOT EXECUTED |
-| 3 | Unused identity, locked decision exactly A | Generic expiry, no replay | No accepted writes | J/D — NOT EXECUTED |
+| 2 | Valid unused identity at `T0+09:59:59`, final locked decision before A | First acceptance eligible; candidate 200 only after confirmed commit | One fact, receipt and increment | J/D — NOT EXECUTED |
+| 3 | Unused identity at `T0+10:00:00` exactly | First acceptance expired; generic expiry, no replay | No accepted writes | J/D — NOT EXECUTED |
 | 4 | Unused identity arrives before A but obtains final lock after A | Generic expiry; rollback tentative work | No accepted writes | J/D — NOT EXECUTED |
-| 5 | Owned compatible receipt, release at R−1 tick | Stable identical 200 body | No extra fact, receipt or quota | J/D — NOT EXECUTED |
-| 6 | Owned receipt, release exactly R | Generic expiry, no receipt fields | Existing rows unchanged | J/D — NOT EXECUTED |
+| 5 | Owned compatible receipt at `T0+23:59:59`, release before R | Authorized replay eligible; stable identical 200 body | No extra fact, receipt or quota | J/D — NOT EXECUTED |
+| 6 | Owned receipt at `T0+24:00:00` exactly | Replay disclosure expired; generic expiry, no receipt fields | Existing rows unchanged | J/D — NOT EXECUTED |
 | 7 | Replay after R while dependent fact remains | Generic expiry, no source ID, time or Campaign | Fact and receipt unaffected | J/D/P — NOT EXECUTED |
 | 8 | Same active account refreshes session before R | Same authorized 200 with original deadlines | One historical fact and increment | J/D — NOT EXECUTED |
 | 9 | Revoked session or deactivated account before R | 401 before lookup | No receipt access or accepted writes | J — NOT EXECUTED |
@@ -86,8 +88,8 @@ Rotate new writes to the active key. Retain old verification material only for t
 | 15 | After A and after cleanup, attempt fresh proof with expired old RetryEventId | Issuer refuses old ID and ingress rejects any replacement/mismatch | No recreated receipt, fact or increment | J/C/D — NOT EXECUTED |
 | 16 | Concurrent acceptance/cleanup, early attempt holds key and other waiter crosses A or R | Wait, recheck locked deadlines and settlement; no expiry bypass | No partial acceptance or premature deletion | J/D/P — NOT EXECUTED |
 | 17 | Lost acknowledgement, receipt lookup missing on primary | Before A only decisive absence may allow original attempt; after A or unresolved, generic indeterminate/expiry | No blind increment or invented 200 | J/D — NOT EXECUTED |
-| 18 | At candidate day 366 with dependent fact still retained | Cleanup refused by checks and NO ACTION FK | Both rows preserved | D/P — NOT EXECUTED |
-| 19 | Approved fact expiry at day 365 and receipt cutoff at day 366 | Remove/archive fact as allowed first, then receipt only with no dependency | No cascade and expired key stays inadmissible | D/P — NOT EXECUTED |
+| 18 | At candidate `AcceptedAtUtc+366 days`, receipt cleanup attempted while FK-dependent fact remains | Cleanup refused; NO ACTION FK is the final guard | Both rows preserved regardless of candidate storage cutoff | D/P — NOT EXECUTED |
+| 19 | Approved fact expiry/archive at `AcceptedAtUtc+365 days`; receipt cutoff candidate at `AcceptedAtUtc+366 days` | Process fact first only under approved policy; remove receipt only after rechecking all dependencies and holds | No cascade; retain receipt if any dependency remains; expired key stays inadmissible | D/P — NOT EXECUTED |
 | 20 | Option A after R and approved settlement floor or earlier authorized erasure | Controlled one-way clearing only under approved policy; old replay denies | No change to composite FK or acceptance facts; clear both ownership fields together | J/D/P — NOT EXECUTED |
 | 21 | Rotate key during replay and lose historic key | Use recorded KeyId while available; missing historic key fails generically | No digest rewrite or reacceptance | J/D/P — NOT EXECUTED |
 | 22 | Approved archival changes requested historical window after fact horizon | Report complete coverage only if proven; otherwise label partial/unavailable/unknown | Never turn known coverage gaps into verified zero | J/D/P — NOT EXECUTED |

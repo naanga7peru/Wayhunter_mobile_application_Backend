@@ -52,7 +52,7 @@ See the [Latest M1 API review](M7-MS07_T01_T03_M1_API_CONTRACT_REVIEW.md) for ca
 | Decision | Required approval | Status |
 | --- | --- | --- |
 | 10-minute first acceptance and 24-hour replay from trusted UTC issuance | M1/M7 and DB Coordinator for time and transaction proof | PENDING |
-| 365-day fact and 366-day receipt lifecycle with dependent fact released before receipt | Privacy/Data Governance, M1, M7 and DB Coordinator | PENDING, retention design blocked |
+| 365-day fact and 366-day receipt storage candidates measured from `AcceptedAtUtc`; receipt cleanup only after fact disposition and all FK/archive/recovery dependencies end | Privacy/Data Governance, M1, M7 and DB Coordinator | PENDING; guaranteed day-366 deletion BLOCKED because delayed cleanup, holds, recovery, restoration or remaining references may outlast the nominal one-day margin |
 | Option A one-way clearing or option B retention of caller HMAC | M1, Privacy/Data Governance and DB Coordinator | PENDING |
 
 [Deadline and FK lifecycle review](M7-MS07_T01_T03_BOUNDED_REPLAY_FK_REVIEW.md) records all boundary tests and the non-reissuance blocker. Campaign proof remains pending.
