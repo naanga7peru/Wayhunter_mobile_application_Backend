@@ -46,6 +46,22 @@ public interface IGameProofSubmissionOperationStore
         string expectedClaimToken,
         CancellationToken cancellationToken = default);
 
+
+    /// <summary>
+    /// Records a trusted provider's confirmed capture consumption
+    /// for the current operation and valid SQL claim.
+    ///
+    /// Does not invoke the capture provider or complete
+    /// game evidence and progress persistence.
+    /// Production activation requires separate approval.
+    /// </summary>
+    Task<bool> TryRecordConfirmedConsumptionAsync(
+        GameProofSubmissionOperationBinding binding,
+        string expectedClaimToken,
+        GameProofCaptureOperationOutcome outcome,
+        CancellationToken cancellationToken = default);
+
+
     Task<GameProofSubmissionOperationSnapshot?> GetAsync(
         Guid submissionOperationId,
         CancellationToken cancellationToken = default);
