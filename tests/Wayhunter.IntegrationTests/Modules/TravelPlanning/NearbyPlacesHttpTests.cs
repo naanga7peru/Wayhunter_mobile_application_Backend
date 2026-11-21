@@ -401,6 +401,22 @@ public sealed class NearbyPlacesHttpTests
         Assert.Equal(HttpStatusCode.Unauthorized, result.StatusCode);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("malformed-user")]
+    public async Task SuggestedCopy_RejectsMissingOrMalformedTrustedIdentity(string? userId)
+    {
+        using var factory = CreateFactory(new FakeProvider());
+        using var client = factory.CreateClient();
+        if (userId is not null)
+            Authenticate(client, userId);
+
+        using var result = await client.PostAsync(
+            "/api/mobile/trip-plans/suggested/" + Guid.NewGuid() + "/copy", null);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, result.StatusCode);
+    }
+
     [Fact]
     public async Task SuggestedCopy_RepeatedRequestWhileDisabled_CreatesNoDraft()
     {
