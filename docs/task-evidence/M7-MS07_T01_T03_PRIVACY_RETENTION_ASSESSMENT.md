@@ -128,6 +128,13 @@ Previously recorded application tests are prior evidence only. This assessment a
 
 **Decision provenance** This section records the separate review from Shayanthan (M1), as relayed in the task authorization. M1 declined unbounded retry-receipt retention, left 365-day fact retention PENDING, and found 48-hour quota cleanup CONDITIONALLY ACCEPTABLE. Kaviyan acknowledged the M1 contract review with joint sign-off and final SQL approval pending. Formal Privacy/Data Governance approval remains pending for each processing purpose, lawful basis, retention, disclosure and erasure policy.
 
+| Item | M1 review decision |
+| --- | --- |
+| Accepted-event facts | 365 days — PENDING governance approval. |
+| Retry receipts | UNBOUNDED RETENTION DECLINED BY M1. |
+| Quota windows | 48-hour cleanup after window end — CONDITIONALLY ACCEPTABLE, not final. |
+| Historical deletion | NOT AUTHORIZED. |
+
 - Require a purpose-specific pre-acceptance consent or other governance-approved processing-basis check wherever required. Repeat it at the point of acceptance under the approved freshness and revocation rules. Login does not grant consent. Withdrawal stops new collection and use that relied on the withdrawn permission, invalidates derived district cache, and blocks future targeted delivery. Delayed events and previously accepted facts require a separately approved historical basis and disclosure policy. No automatic erasure or indefinite retention follows.
 - Apply M1-confirmed active verified account and valid session requirements to ingestion and replay. Account deactivation or authorization revocation blocks future intake and receipt disclosure. It does not recycle the composite key. Handle erasure through the governed matrix above. Record only approved exceptions and deadlines, with controlled access and explicit review.
 - Recommend aggregate-only dashboard and CSV/PDF reporting with scoped, allowlisted dimensions, minimum cohort sizes and differencing checks. Raw audit is a separate narrowly scoped exception requiring explicit authorization and access audit. Receipts are restricted to controlled acceptance, verification and approved cleanup. Caller binding, full payload digest, raw identifiers and credentials do not enter facts or exports.
