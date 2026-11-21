@@ -16,9 +16,9 @@ Suggested detail uses the same access and field projection as the list. The memb
 
 Weather forecasts use OpenWeather’s five-day, three-hour product. Forecast timestamps are UTC and expired points are omitted. Forecast age is measured from retrieval, and current weather age is measured from observation and cache timestamps. Each weather cache holds up to 256 exact coordinate pairs. Stale fallback lasts up to 24 hours. Weather is advisory and independent from M3 hazards. [OpenWeather forecast contract](https://openweathermap.org/api/forecast5)
 
-Existing Nearby, Routes and Gemini limits retain their original daily values. Place search and details share a 60-request UTC-day limit per verified identity. Current weather and forecasts share a separate 60-request limit. Each quota holds up to 10,000 identities per UTC day, denies new identities at capacity and clears counters on rollover. These are process-local controls. Distributed provider-budget enforcement remains open.
+Current code limits are process-local: Nearby search 20 requests per user per UTC day; Routes preview 20; Google place search and details share 60; current weather and forecast share 60; AI generation defaults to 10 and is configurable from 1 to 100. Each quota instance has capacity for 10,000 identities. Counters are not shared across API replicas. See [M2-MS10-T05 provider and local run guide](M2_MS10_T05_PROVIDER_RUN_GUIDE.md) for verified settings, provider bounds, offline commands, and a synthetic local demo flow.
 
-The local completion branch is based on `origin/develop` at `d13a350`. The changes introduced by `e2a2465` are present as working-tree edits, with its DI changes reconciled against newer Nearby wiring. Review with `git status -sb` and `git diff`, then inspect each untracked M2 file. Stage reviewed M2 paths explicitly, commit locally and push the completion branch only after review. Exclude the pre-existing prompt and Microsoft directory.
+The prior branch-specific checkout instructions in this handover are retired. Check the current branch and working tree before any Git operation. This handover documents code behavior and does not approve enabling external providers or SQL persistence.
 
 ## Changed code and test files
 
