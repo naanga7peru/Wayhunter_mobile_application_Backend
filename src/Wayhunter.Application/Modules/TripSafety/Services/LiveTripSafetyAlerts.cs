@@ -121,6 +121,7 @@ public sealed class LiveTripSafetyAlerts(
         if (own.TripPlanId != trip || peer.TripPlanId != trip ||
             own.SessionId != session || peer.SessionId != session ||
             !string.Equals(own.UserId, user, StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(peer.UserId) || peer.UserId != peer.UserId.Trim() ||
             string.Equals(own.UserId, peer.UserId, StringComparison.Ordinal))
             throw new UnauthorizedAccessException("Location samples must belong to the same active trip session.");
 
@@ -134,6 +135,11 @@ public sealed class LiveTripSafetyAlerts(
         var (first, second) = string.CompareOrdinal(own.UserId, peer.UserId) < 0 ? (own, peer) : (peer, own);
         var key = (trip, session, first.UserId, second.UserId);
         var distance = HazardRouteMatcher.DistanceBetweenMeters(own.Latitude, own.Longitude, peer.Latitude, peer.Longitude);
+
+        // A peer check can await storage while the publisher loses consent or membership.
+        // Recheck both sides before recording a transition.
+        await RequireAccessAsync(trip, session, user, ct);
+        await access.EnsureAllowedAsync(trip, session, peer.UserId, ct);
 
         lock (state.Gate)
         {

@@ -438,13 +438,8 @@ public sealed class M3SafeCheckInSqlTests
 
         public static async Task<Fixture> CreateAsync()
         {
-            var configured = new SqlConnectionStringBuilder(
-                Environment.GetEnvironmentVariable("WAYHUNTER_M3_SAFECHECKIN_TEST_SQL_CONNECTION"));
-            if (!string.Equals(configured.InitialCatalog, CatalogPrefix, StringComparison.Ordinal) ||
-                !string.Equals(configured.DataSource, @"(localdb)\MSSQLLocalDB", StringComparison.OrdinalIgnoreCase) ||
-                !configured.IntegratedSecurity || !string.IsNullOrEmpty(configured.AttachDBFilename))
-                throw new InvalidOperationException("Only the dedicated M3 safe check-in LocalDB test profile is allowed.");
-
+            var configured = M3LocalDbProfile.Validate(
+                Environment.GetEnvironmentVariable("WAYHUNTER_M3_SAFECHECKIN_TEST_SQL_CONNECTION"), CatalogPrefix);
             configured.InitialCatalog = $"{CatalogPrefix}_{Guid.NewGuid():N}";
             var fixture = new Fixture(configured.ConnectionString);
             try

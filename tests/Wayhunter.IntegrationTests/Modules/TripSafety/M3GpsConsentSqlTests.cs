@@ -6,7 +6,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
@@ -42,9 +41,6 @@ public sealed class M3GpsConsentSqlTests
     private const string AllowedDatabaseName =
         "Wayhunter_M3_GpsConsentIntegrationTest";
 
-    private const string AllowedServer =
-        @"(localdb)\MSSQLLocalDB";
-
     private static readonly SemaphoreSlim SchemaGate = new(1, 1);
     private static bool _schemaReady;
 
@@ -66,35 +62,9 @@ public sealed class M3GpsConsentSqlTests
     private static readonly DateTimeOffset RemoveAt =
         CreatedAt.AddHours(3);
 
-    private static string GetConnectionString()
-    {
-        var value = Environment.GetEnvironmentVariable(
-            "WAYHUNTER_M3_GPS_TEST_SQL_CONNECTION");
-
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            throw new InvalidOperationException(
-                "Dedicated M3 GPS SQL connection is missing.");
-        }
-
-        var builder = new SqlConnectionStringBuilder(value);
-
-        if (!string.Equals(
-                builder.InitialCatalog,
-                AllowedDatabaseName,
-                StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(
-                builder.DataSource,
-                AllowedServer,
-                StringComparison.OrdinalIgnoreCase) ||
-            !builder.IntegratedSecurity)
-        {
-            throw new InvalidOperationException(
-                "M3 GPS SQL tests permit only the isolated LocalDB test database.");
-        }
-
-        return value;
-    }
+    private static string GetConnectionString() =>
+        M3LocalDbProfile.Validate(Environment.GetEnvironmentVariable("WAYHUNTER_M3_GPS_TEST_SQL_CONNECTION"),
+            AllowedDatabaseName).ConnectionString;
 
     private static WayhunterSharedDbContext CreateContext(
         DbTransactionInterceptor? interceptor = null)

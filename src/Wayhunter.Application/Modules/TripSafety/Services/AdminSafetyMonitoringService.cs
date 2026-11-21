@@ -68,6 +68,9 @@ public sealed class AdminSafetyMonitoringService(
 {
     // Technical staging bound per section. Product and persistence limits need approval.
     private const int ProjectionItemLimit = 256;
+    private const AdminSafetySections KnownSections =
+        AdminSafetySections.Participants | AdminSafetySections.Hazards |
+        AdminSafetySections.Separation | AdminSafetySections.SafeCheckIn;
 
     public async Task<AdminSafetyResult> ReadAsync(
         string actor, AdminSafetyTarget target, CancellationToken ct, Func<Task<bool>>? revalidateAdmin = null)
@@ -139,7 +142,8 @@ public sealed class AdminSafetyMonitoringService(
             return new(AdminSafetyOutcome.Unavailable);
 
         var grant = await scope.ReadGrantAsync(actor, target, ct);
-        if (grant is null || grant.Target != target || !string.Equals(grant.Actor, actor, StringComparison.Ordinal))
+        if (grant is null || grant.Target != target || !string.Equals(grant.Actor, actor, StringComparison.Ordinal) ||
+            (grant.Sections & ~KnownSections) != 0)
             return new(AdminSafetyOutcome.Denied);
 
         if (expectedGrant is not null && grant != expectedGrant)
@@ -157,8 +161,7 @@ public sealed class AdminSafetyMonitoringService(
         var started = session.StartedAtUtc;
         var finished = session.FinishedAtUtc;
         var active = tripStatus != TripDraftStatus.Cancelled && sessionStatus == LiveTripStatus.Active;
-        var sections = grant.Sections & (AdminSafetySections.Participants | AdminSafetySections.Hazards |
-            AdminSafetySections.Separation | AdminSafetySections.SafeCheckIn);
+        var sections = grant.Sections;
         if (!active)
             sections &= ~(AdminSafetySections.Hazards | AdminSafetySections.Separation);
 
