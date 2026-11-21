@@ -4,7 +4,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 using Wayhunter.Domain.Modules.IdentitySocial.Entities;
@@ -56,32 +55,9 @@ public sealed class M3MembershipRevocationSqlConcurrencyTests
     private static readonly DateTimeOffset RemovedAt =
         JoinedAt.AddHours(1);
 
-    private static string GetConnectionString()
-    {
-        var connectionString =
-            Environment.GetEnvironmentVariable(
-                "WAYHUNTER_M3_TEST_SQL_CONNECTION");
-
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException(
-                "M3 SQL test connection is missing.");
-        }
-
-        var builder =
-            new SqlConnectionStringBuilder(connectionString);
-
-        if (!string.Equals(
-            builder.InitialCatalog,
-            AllowedDatabaseName,
-            StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(
-                "Only the dedicated M3 integration test database is allowed.");
-        }
-
-        return connectionString;
-    }
+    private static string GetConnectionString() =>
+        M3LocalDbProfile.Validate(Environment.GetEnvironmentVariable("WAYHUNTER_M3_TEST_SQL_CONNECTION"),
+            AllowedDatabaseName).ConnectionString;
 
     // SQL deadlock retry support for concurrency tests.
     private static WayhunterSharedDbContext CreateContext()
