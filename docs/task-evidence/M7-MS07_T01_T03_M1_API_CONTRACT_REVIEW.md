@@ -158,7 +158,7 @@ All cases are **NOT EXECUTED**. These extend the earlier matrix; earlier fake-st
 
 ## Latest M1 deadline and FK review
 
-[Deadline and FK lifecycle review](M7-MS07_T01_T03_BOUNDED_REPLAY_FK_REVIEW.md) specifies the 10-minute first acceptance and 24-hour replay from trusted issuance with half-open UTC checks. It replaces the earlier timelines and records the 366-day receipt candidate pending alongside 365-day fact retention, the caller-binding expiry alternatives, and all 24 NOT EXECUTED acceptance cases.
+[Deadline and FK lifecycle review](M7-MS07_T01_T03_BOUNDED_REPLAY_FK_REVIEW.md) specifies the 10-minute first acceptance and 24-hour replay from trusted issuance with half-open UTC checks. It replaces the earlier timelines and records the 366-day receipt candidate pending alongside 365-day fact retention, the caller-binding expiry alternatives, and all 46 NOT EXECUTED acceptance cases.
 
 ## M1 and DB Coordinator joint-review corrections
 
@@ -176,4 +176,12 @@ The bounded review contains candidate codes and bodies for 401, 403, 410, 429 an
 
 Under the current signed v1/v2 contract, all payload digest inputs are authenticated before receipt lookup. Altering ad/type/retry or v2 DeliveryId fails credential validation. A matching valid tuple deterministically produces the pinned digest. Consequently HTTP 409 is UNREACHABLE under the stated assumptions. Reserve 409 for a future approved contract or a demonstrably reachable case; do not invent an unsigned field to make it reachable. This correction supersedes earlier generic 409 recommendations in this document.
 
-The bounded replay matrix contains 35 cases. All API and SQL cases remain NOT EXECUTED.
+The bounded replay matrix contains 46 cases. All API and SQL cases remain NOT EXECUTED.
+
+## Latest conditional M1 review — restore and T01 contract audit
+
+Shayanthan's latest direction is **ACCEPTED FOR CONTINUED REVIEW**; final M1 sign-off remains on hold. M1 accepts the restore-risk analysis and conditional alternatives, proposed HTTP direction, 409-unreachable conclusion under signed v1/v2 assumptions, and the coverage direction of the 35-case matrix. The current expanded review matrix contains 46 cases; none has been executed.
+
+Read-only inspection of T01 commit `9cc37dad7c92e1c272224f9eb118920b5787eaea` found `AdvertisementEventKey(AdvertisementId, Type, EventId)` and `RecordAsync(advertisementId, type, eventId, ...)`; the application store has no payload digest and returns internal Duplicate for an identical composite key. The inspected T01 prototype contains no event-ingestion HTTP route and no controller/DI registration for this service. Therefore T01 itself supplies no validated post-lookup differing payload that could make 409 reachable. `EventId` is caller-supplied in the prototype and is not equivalent to the proposed server-minted signed admission credential.
+
+This does not establish that every future, legacy or separately deployed entry path is safe. Before activation, M7 must inventory direct consumers, registrations, routes and fallback paths; each must enforce the approved admission credential and recovery fence or be disabled. Until that inventory and contract receive approval, treat the universal 409 conclusion as conditional. Restore-before-acceptance safety remains **BLOCKED**, issuer/non-reissuance remains **PENDING APPROVAL**, and exact precedence/response semantics remain **PENDING M1/M7**. See the [bounded replay review](M7-MS07_T01_T03_BOUNDED_REPLAY_FK_REVIEW.md) and [owner decision register](M7-MS07_T01_T03_OWNER_DECISION_REGISTER.md).

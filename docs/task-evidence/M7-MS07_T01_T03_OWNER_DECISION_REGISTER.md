@@ -63,8 +63,20 @@ See the [Latest M1 API review](M7-MS07_T01_T03_M1_API_CONTRACT_REVIEW.md) for ca
 - **Kaviyan, Team Leader / DB Coordinator:** DOCUMENTATION CORRECTIONS ACCEPTED. FINAL DESIGN AND SQL APPROVAL PENDING.
 - **Restore/reconciliation/fencing:** BLOCKED FOR DESIGN DECISION. Globally unique allocation does not prove a pre-restore committed acceptance remains represented after restore.
 - **Exact expiry and unresolved-commit HTTP behavior:** PENDING M1/M7. DB Coordinator must approve logical linearization, physical commit visibility requirement, settlement bound and recovery behavior.
-- **409 reachability:** REQUIRES CONTRACT REVIEW. Under signed v1/v2 assumptions it is unreachable after tuple validation; reserve it unless a reachable approved case is demonstrated.
+- **HTTP 409 conclusion:** ACCEPTED UNDER CURRENT SIGNED V1/V2 ASSUMPTIONS. It remains reserved and unreachable after validated tuple checks; the T01 prototype audit found no payload-digest conflict path. Full future/legacy entry-path inventory and final contract approval remain required.
 - **Option A caller-binding clearing:** M1 SUPPORTS FOR REVIEW; Privacy/Data Governance and DB Coordinator approval PENDING.
 - **Campaign delivery proof and attribution:** PENDING Campaign owner, M1 and M7 approval. Sponsored intake remains disabled.
 
-The bounded replay review contains 35 cases, all SQL/API NOT EXECUTED. This register records owner direction, not final schema approval or implementation authorization.
+
+### Latest M1 conditional review status
+
+- M1 design direction — **ACCEPTED FOR CONTINUED REVIEW**; final M1 sign-off remains on hold.
+- HTTP 409 conclusion — **ACCEPTED UNDER CURRENT SIGNED V1/V2 ASSUMPTIONS**; T01 prototype audit also found no payload field or event-ingestion HTTP route in the inspected commit. Full future/legacy path inventory remains required.
+- Restore safety evidence — **BLOCKED**; allocator uniqueness does not prove a pre-restore committed receipt is represented.
+- Issuer/non-reissuance contract — **PENDING APPROVAL**.
+- HTTP exact precedence and response semantics — **PENDING APPROVAL**.
+- DB Coordinator locking/settlement and physical SQL — **PENDING**.
+- Privacy and retention — **PENDING**.
+- Campaign attribution and sponsored delivery proof — **PENDING**.
+- Security and isolated SQL/API tests — **NOT EXECUTED**.
+The bounded replay review contains 46 cases, all SQL/API NOT EXECUTED. This register records owner direction, not final schema approval or implementation authorization.
