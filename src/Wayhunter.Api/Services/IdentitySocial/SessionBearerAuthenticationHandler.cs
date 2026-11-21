@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
+using Wayhunter.Api.Contracts.Responses;
 using Microsoft.Extensions.Options;
 
 namespace Wayhunter.Api.Services.IdentitySocial;
@@ -79,5 +80,29 @@ public sealed class SessionBearerAuthenticationHandler
             new AuthenticationTicket(
                 principal,
                 SchemeName));
+    }
+
+    protected override Task HandleChallengeAsync(
+        AuthenticationProperties properties) =>
+        WriteAuthorizationErrorAsync(
+            StatusCodes.Status401Unauthorized,
+            "authentication_required",
+            "Authentication is required.");
+
+    protected override Task HandleForbiddenAsync(
+        AuthenticationProperties properties) =>
+        WriteAuthorizationErrorAsync(
+            StatusCodes.Status403Forbidden,
+            "access_denied",
+            "The authenticated account is not allowed to access this resource.");
+
+    private Task WriteAuthorizationErrorAsync(
+        int statusCode,
+        string code,
+        string message)
+    {
+        Response.StatusCode = statusCode;
+        return Response.WriteAsJsonAsync(ApiErrorResponse.Create(
+            code, message, Context.TraceIdentifier));
     }
 }

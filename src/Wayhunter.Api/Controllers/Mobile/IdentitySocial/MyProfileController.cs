@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Wayhunter.Api.Contracts;
+using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Infrastructure.Persistence.DbContexts;
 
@@ -9,7 +10,7 @@ namespace Wayhunter.Api.Controllers.Mobile.IdentitySocial;
 
 [ApiController]
 [Authorize]
-[Route("api/mobile/identity/me")]
+[Route(IdentityApiContract.MyProfileRoute)]
 public sealed class MyProfileController : ControllerBase
 {
     private readonly WayhunterSharedDbContext _db;
@@ -25,7 +26,10 @@ public sealed class MyProfileController : ControllerBase
         if (!TrustedIdentityAccessContract.TryResolveUserId(
                 User, out var userId))
         {
-            return Unauthorized();
+            return AuthorizationError(
+                StatusCodes.Status401Unauthorized,
+                "authentication_required",
+                "Authentication is required.");
         }
 
         var account = await _db.Users
@@ -37,7 +41,10 @@ public sealed class MyProfileController : ControllerBase
         if (!TrustedIdentityAccessContract.IsActiveAccountOwner(
                 userId, account))
         {
-            return Forbid();
+            return AuthorizationError(
+                StatusCodes.Status403Forbidden,
+                "access_denied",
+                "The authenticated account is not allowed to access this resource.");
         }
 
         var profile = await _db.UserProfiles
@@ -53,7 +60,15 @@ public sealed class MyProfileController : ControllerBase
         }
         catch (UnauthorizedAccessException)
         {
-            return Unauthorized();
+            return AuthorizationError(
+                StatusCodes.Status401Unauthorized,
+                "authentication_required",
+                "Authentication is required.");
         }
     }
+
+    private ObjectResult AuthorizationError(
+        int statusCode, string code, string message) =>
+        StatusCode(statusCode, ApiErrorResponse.Create(
+            code, message, HttpContext.TraceIdentifier));
 }

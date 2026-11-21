@@ -19,11 +19,20 @@ public sealed class IdentityApiContractTests
         IdentityApiContract.VerifyOtpRoute,
         IdentityEndpointAccess.Anonymous)]
     [InlineData(
+        IdentityApiContract.ResendOtpRoute,
+        IdentityEndpointAccess.Anonymous)]
+    [InlineData(
+        IdentityApiContract.ForgotPasswordRoute,
+        IdentityEndpointAccess.Anonymous)]
+    [InlineData(
+        IdentityApiContract.ResetPasswordRoute,
+        IdentityEndpointAccess.Anonymous)]
+    [InlineData(
         IdentityApiContract.MyProfileRoute,
         IdentityEndpointAccess.AuthenticatedUser)]
     [InlineData(
-        IdentityApiContract.AdminUsersRoute,
-        IdentityEndpointAccess.Administrator)]
+        IdentityApiContract.LogoutRoute,
+        IdentityEndpointAccess.AuthenticatedUser)]
     public void Route_ShouldHaveCorrectAccessRequirement(
         string route,
         IdentityEndpointAccess expected)

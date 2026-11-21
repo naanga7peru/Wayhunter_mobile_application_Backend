@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Wayhunter.Api.Controllers.Mobile.IdentitySocial;
+using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Application.Modules.IdentitySocial.Dtos;
 using Wayhunter.Domain.Modules.IdentitySocial.Entities;
 using Wayhunter.Infrastructure.Persistence.DbContexts;
@@ -55,7 +56,14 @@ public sealed class MyProfileControllerTests
             db, Guid.NewGuid().ToString("D"));
         var result = await controller.Get(CancellationToken.None);
 
-        Assert.IsType<ForbidResult>(result);
+        var response = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(403, response.StatusCode);
+
+        var error = Assert.IsType<ApiErrorResponse>(response.Value);
+        Assert.Equal("access_denied", error.Code);
+        Assert.False(string.IsNullOrWhiteSpace(error.Message));
+        Assert.Equal(controller.HttpContext.TraceIdentifier, error.CorrelationId);
+        Assert.False(string.IsNullOrWhiteSpace(error.CorrelationId));
     }
 
     private static WayhunterSharedDbContext CreateDb()

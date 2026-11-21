@@ -3,6 +3,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Wayhunter.Api.Controllers.Mobile.IdentitySocial;
+using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Domain.Modules.IdentitySocial.Entities;
 using Xunit;
@@ -140,7 +141,7 @@ public sealed class SessionLogoutControllerTests
         var result = await test.Controller.Logout(
             CancellationToken.None);
 
-        Assert.IsType<UnauthorizedResult>(result);
+        AssertApiError(test.Controller, result, 401, "authentication_required");
         Assert.Equal(0, test.Store.RevokeCount);
     }
 
@@ -152,7 +153,7 @@ public sealed class SessionLogoutControllerTests
         var result = await test.Controller.Logout(
             CancellationToken.None);
 
-        Assert.IsType<UnauthorizedResult>(result);
+        AssertApiError(test.Controller, result, 401, "authentication_required");
         Assert.Equal(0, test.Store.RevokeCount);
     }
 
@@ -164,7 +165,7 @@ public sealed class SessionLogoutControllerTests
         var result = await test.Controller.Logout(
             CancellationToken.None);
 
-        Assert.IsType<UnauthorizedResult>(result);
+        AssertApiError(test.Controller, result, 401, "authentication_required");
         Assert.Equal(0, test.Store.RevokeCount);
     }
 
@@ -177,7 +178,23 @@ public sealed class SessionLogoutControllerTests
         var result = await test.Controller.Logout(
             CancellationToken.None);
 
-        Assert.IsType<UnauthorizedResult>(result);
+        AssertApiError(test.Controller, result, 401, "authentication_required");
         Assert.Equal(0, test.Store.RevokeCount);
+    }
+
+    private static void AssertApiError(
+        ControllerBase controller,
+        IActionResult result,
+        int expectedStatusCode,
+        string expectedCode)
+    {
+        var response = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(expectedStatusCode, response.StatusCode);
+
+        var error = Assert.IsType<ApiErrorResponse>(response.Value);
+        Assert.Equal(expectedCode, error.Code);
+        Assert.False(string.IsNullOrWhiteSpace(error.Message));
+        Assert.Equal(controller.HttpContext.TraceIdentifier, error.CorrelationId);
+        Assert.False(string.IsNullOrWhiteSpace(error.CorrelationId));
     }
 }
