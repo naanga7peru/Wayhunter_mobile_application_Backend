@@ -532,4 +532,63 @@ public sealed class M5SqlGameProofSubmissionOperationStoreTests
         var result = await store.GetAsync(Guid.NewGuid());
         Assert.Null(result);
     }
+
+    [M5RecoverySqlIntegrationFact]
+    public async Task ConfirmedConsumption_ShouldPersistReceiptAndRejectReplay()
+    {
+        var seed = await SeedAsync();
+        try
+        {
+            var store = new SqlGameProofSubmissionOperationStore(Environment.GetEnvironmentVariable("WAYHUNTER_M5_TEST_SQL_CONNECTION")!);
+            var binding = new GameProofSubmissionOperationBinding(Guid.NewGuid(), seed.PlayerUserId, seed.GameId, seed.AttemptId, 1, $"capture-{Guid.NewGuid():N}", "m5-test", $"media-{Guid.NewGuid():N}");
+            await store.RegisterOrReadAsync(binding, DateTimeOffset.UtcNow);
+            var token = $"worker-{Guid.NewGuid():N}";
+            Assert.True(await store.TryClaimPendingAsync(binding, token, DateTimeOffset.UtcNow.AddMinutes(5)));
+            var outcome = new GameProofCaptureOperationOutcome(binding.SubmissionOperationId, GameProofCaptureOperationOutcomeStatus.Consumed, $"receipt-{Guid.NewGuid():N}");
+            Assert.True(await store.TryRecordConfirmedConsumptionAsync(binding, token, outcome));
+            var snapshot = await store.GetAsync(binding.SubmissionOperationId);
+            Assert.NotNull(snapshot);
+            Assert.Equal(GameProofSubmissionOperationState.CaptureConsumed, snapshot.State);
+            Assert.Equal(outcome.ProviderReceiptId, snapshot.ProviderReceiptId);
+            Assert.NotNull(snapshot.ProviderConsumptionConfirmedAtUtc);
+            Assert.Null(snapshot.ClaimToken);
+            Assert.False(await store.TryRecordConfirmedConsumptionAsync(binding, token, outcome));
+        }
+        finally
+        {
+            await CleanupAsync(seed);
+        }
+    }
+
+    [M5RecoverySqlIntegrationFact]
+    public async Task ConfirmedConsumption_ShouldRejectStaleClaimBindingAndExpiredLease()
+    {
+        var seed = await SeedAsync();
+        try
+        {
+            var store = new SqlGameProofSubmissionOperationStore(Environment.GetEnvironmentVariable("WAYHUNTER_M5_TEST_SQL_CONNECTION")!);
+            var binding = new GameProofSubmissionOperationBinding(Guid.NewGuid(), seed.PlayerUserId, seed.GameId, seed.AttemptId, 1, $"capture-{Guid.NewGuid():N}", "m5-test", $"media-{Guid.NewGuid():N}");
+            await store.RegisterOrReadAsync(binding, DateTimeOffset.UtcNow);
+            var validToken = $"valid-{Guid.NewGuid():N}";
+            var lease = DateTimeOffset.UtcNow.AddSeconds(5);
+            Assert.True(await store.TryClaimPendingAsync(binding, validToken, lease));
+            var outcome = new GameProofCaptureOperationOutcome(binding.SubmissionOperationId, GameProofCaptureOperationOutcomeStatus.Consumed, $"receipt-{Guid.NewGuid():N}");
+            Assert.False(await store.TryRecordConfirmedConsumptionAsync(binding, $"stale-{Guid.NewGuid():N}", outcome));
+            var wrongBinding = binding with { CanonicalMediaId = $"wrong-media-{Guid.NewGuid():N}" };
+            Assert.False(await store.TryRecordConfirmedConsumptionAsync(wrongBinding, validToken, outcome));
+            var wait = lease - DateTimeOffset.UtcNow + TimeSpan.FromSeconds(2);
+            if (wait > TimeSpan.Zero) await Task.Delay(wait);
+            Assert.False(await store.TryRecordConfirmedConsumptionAsync(binding, validToken, outcome));
+            var snapshot = await store.GetAsync(binding.SubmissionOperationId);
+            Assert.NotNull(snapshot);
+            Assert.Equal(GameProofSubmissionOperationState.VerificationInFlight, snapshot.State);
+            Assert.Equal(validToken, snapshot.ClaimToken);
+            Assert.Null(snapshot.ProviderReceiptId);
+            Assert.Null(snapshot.ProviderConsumptionConfirmedAtUtc);
+        }
+        finally
+        {
+            await CleanupAsync(seed);
+        }
+    }
 }
