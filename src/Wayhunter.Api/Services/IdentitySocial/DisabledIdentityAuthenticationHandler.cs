@@ -3,6 +3,7 @@ using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Wayhunter.Api.Contracts.Responses;
 
 namespace Wayhunter.Api.Services.IdentitySocial;
 
@@ -31,15 +32,20 @@ public sealed class DisabledIdentityAuthenticationHandler
     protected override Task HandleChallengeAsync(
         AuthenticationProperties properties)
     {
-        // Protected endpoints must return 401, never 500.
-        Response.StatusCode = 401;
-        return Task.CompletedTask;
+        Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return Response.WriteAsJsonAsync(ApiErrorResponse.Create(
+            "authentication_required",
+            "Authentication is required.",
+            Context.TraceIdentifier));
     }
 
     protected override Task HandleForbiddenAsync(
         AuthenticationProperties properties)
     {
-        Response.StatusCode = 403;
-        return Task.CompletedTask;
+        Response.StatusCode = StatusCodes.Status403Forbidden;
+        return Response.WriteAsJsonAsync(ApiErrorResponse.Create(
+            "access_denied",
+            "The authenticated account is not allowed to access this resource.",
+            Context.TraceIdentifier));
     }
 }

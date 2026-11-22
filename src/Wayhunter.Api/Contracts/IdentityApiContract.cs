@@ -12,12 +12,14 @@ public enum IdentityEndpointAccess
 
 public static class IdentityApiContract
 {
-    // Proposed routes, not yet active endpoints.
     public const string MobileBaseRoute =
         "api/mobile/identity";
 
-    public const string AdminBaseRoute =
-        "api/admin/identity";
+    public const string MobileAuthBaseRoute =
+        "api/mobile/auth";
+
+    [Obsolete("No active administrator identity users endpoint is registered.")]
+    public const string AdminBaseRoute = "api/admin/identity";
 
     public const string RegisterRoute =
         MobileBaseRoute + "/register";
@@ -37,11 +39,14 @@ public static class IdentityApiContract
     public const string ResetPasswordRoute =
         MobileBaseRoute + "/reset-password";
 
+    public const string LogoutRoute =
+        MobileAuthBaseRoute + "/logout";
+
+    [Obsolete("No active administrator identity users endpoint is registered.")]
+    public const string AdminUsersRoute = AdminBaseRoute + "/users";
+
     public const string MyProfileRoute =
         MobileBaseRoute + "/me";
-
-    public const string AdminUsersRoute =
-        AdminBaseRoute + "/users";
 
     public const string CorrelationIdHeader =
         "X-Correlation-ID";
@@ -75,8 +80,7 @@ public static class IdentityApiContract
             MyProfileRoute =>
                 IdentityEndpointAccess.AuthenticatedUser,
 
-            AdminUsersRoute =>
-                IdentityEndpointAccess.Administrator,
+            LogoutRoute => IdentityEndpointAccess.AuthenticatedUser,
 
             _ => throw new ArgumentException(
                 "Unknown identity API route.",

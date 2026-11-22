@@ -2,13 +2,15 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Wayhunter.Api.Contracts;
+using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Services.IdentitySocial;
 
 namespace Wayhunter.Api.Controllers.Mobile.IdentitySocial;
 
 [ApiController]
 [Authorize]
-[Route("api/mobile/auth")]
+[Route(IdentityApiContract.MobileAuthBaseRoute)]
 public sealed class SessionLogoutController : ControllerBase
 {
     private readonly SessionLogoutService _logout;
@@ -37,7 +39,7 @@ public sealed class SessionLogoutController : ControllerBase
     {
         if (User.Identity?.IsAuthenticated != true)
         {
-            return Unauthorized();
+            return AuthorizationError();
         }
 
         var userId = User.FindFirst("sub")?.Value;
@@ -49,7 +51,7 @@ public sealed class SessionLogoutController : ControllerBase
         if (!TryValidId(userId) ||
             !TryValidId(sessionId))
         {
-            return Unauthorized();
+            return AuthorizationError();
         }
 
         // Reject inconsistent user identity claims.
@@ -59,7 +61,7 @@ public sealed class SessionLogoutController : ControllerBase
                 userId,
                 StringComparison.Ordinal))
         {
-            return Unauthorized();
+            return AuthorizationError();
         }
 
         var revoked = await _logout.LogoutAsync(
@@ -70,7 +72,7 @@ public sealed class SessionLogoutController : ControllerBase
 
         if (!revoked)
         {
-            return Unauthorized();
+            return AuthorizationError();
         }
 
         // Successful logout.
@@ -83,4 +85,11 @@ public sealed class SessionLogoutController : ControllerBase
             value, "D", out var parsed) &&
             parsed != Guid.Empty;
     }
+
+    private ObjectResult AuthorizationError() =>
+        StatusCode(StatusCodes.Status401Unauthorized,
+            ApiErrorResponse.Create(
+                "authentication_required",
+                "Authentication is required.",
+                HttpContext.TraceIdentifier));
 }

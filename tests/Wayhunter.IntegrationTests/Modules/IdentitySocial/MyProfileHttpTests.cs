@@ -7,6 +7,8 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Wayhunter.Api.Controllers.Mobile.IdentitySocial;
+using Wayhunter.Api.Contracts;
+using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Application.Modules.IdentitySocial.Dtos;
@@ -77,6 +79,7 @@ public sealed class MyProfileHttpTests
             builder.Configuration);
 
         await using var app = builder.Build();
+        app.UseMiddleware<Wayhunter.Api.Middleware.CorrelationIdMiddleware>();
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapControllers();
@@ -94,6 +97,12 @@ public sealed class MyProfileHttpTests
         using var client = app.GetTestClient();
         var anonymous = await client.GetAsync("/api/mobile/identity/me");
         Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+        var error = await anonymous.Content.ReadFromJsonAsync<ApiErrorResponse>();
+        Assert.NotNull(error);
+        Assert.Equal("authentication_required", error.Code);
+        Assert.Equal(error.CorrelationId,
+            Assert.Single(anonymous.Headers.GetValues(
+                IdentityApiContract.CorrelationIdHeader)));
 
         var tokenService = app.Services
             .GetRequiredService<SignedSessionTokenService>();

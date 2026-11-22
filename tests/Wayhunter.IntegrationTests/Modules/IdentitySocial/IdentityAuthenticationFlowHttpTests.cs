@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Wayhunter.Api.Controllers.Mobile.IdentitySocial;
 using Wayhunter.Api.Contracts;
+using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Application.Modules.IdentitySocial.Dtos;
@@ -118,6 +119,12 @@ public sealed class IdentityAuthenticationFlowHttpTests
         await using var app = await CreateServerAsync(emailSender);
         using var client = app.GetTestClient();
 
+        var anonymousLogout = await client.PostAsync(
+            "/" + IdentityApiContract.LogoutRoute, null);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousLogout.StatusCode);
+        await AssertApiErrorAsync(
+            anonymousLogout, "authentication_required");
+
         var email = $"flow-{Guid.NewGuid():N}@example.test";
         var register = await client.PostAsJsonAsync(
             "/" + IdentityApiContract.RegisterRoute,
@@ -134,12 +141,16 @@ public sealed class IdentityAuthenticationFlowHttpTests
             new IdentityRegisterRequest(
                 "Duplicate", email, "A-strong-test-password", "A-strong-test-password"));
         Assert.Equal(HttpStatusCode.Conflict, duplicateRegistration.StatusCode);
+        await AssertApiErrorAsync(
+            duplicateRegistration, "account_conflict");
         Assert.Single(emailSender.Sent);
 
         var beforeActivation = await client.PostAsJsonAsync(
             "/" + IdentityApiContract.LoginRoute,
             new IdentitySignInRequest(email, "A-strong-test-password"));
         Assert.Equal(HttpStatusCode.Unauthorized, beforeActivation.StatusCode);
+        await AssertApiErrorAsync(
+            beforeActivation, "invalid_credentials_or_account_state");
 
         var verify = await client.PostAsJsonAsync(
             "/" + IdentityApiContract.VerifyOtpRoute,
@@ -162,10 +173,11 @@ public sealed class IdentityAuthenticationFlowHttpTests
         Assert.Equal(registered.UserId, privateProfile.UserId);
         Assert.Equal(email, privateProfile.Email);
 
-        var logout = await client.PostAsync("/api/mobile/auth/logout", null);
+        var logout = await client.PostAsync("/" + IdentityApiContract.LogoutRoute, null);
         Assert.Equal(HttpStatusCode.NoContent, logout.StatusCode);
         var reusedToken = await client.GetAsync("/" + IdentityApiContract.MyProfileRoute);
         Assert.Equal(HttpStatusCode.Unauthorized, reusedToken.StatusCode);
+        await AssertApiErrorAsync(reusedToken, "authentication_required");
     }
 
     [Fact]
@@ -345,6 +357,20 @@ public sealed class IdentityAuthenticationFlowHttpTests
         Assert.Equal(HttpStatusCode.NoContent, verify.StatusCode);
     }
 
+    private static async Task AssertApiErrorAsync(
+        HttpResponseMessage response,
+        string expectedCode)
+    {
+        var error = await response.Content.ReadFromJsonAsync<ApiErrorResponse>();
+        Assert.NotNull(error);
+        Assert.Equal(expectedCode, error.Code);
+        Assert.False(string.IsNullOrWhiteSpace(error.Message));
+        Assert.False(string.IsNullOrWhiteSpace(error.CorrelationId));
+        Assert.Equal(error.CorrelationId,
+            Assert.Single(response.Headers.GetValues(
+                IdentityApiContract.CorrelationIdHeader)));
+    }
+
     private static async Task<WebApplication> CreateServerAsync(
         TestEmailSender emailSender,
         ManualTimeProvider? clock = null,
@@ -380,6 +406,7 @@ public sealed class IdentityAuthenticationFlowHttpTests
                 sp.GetRequiredService<WayhunterSharedDbContext>()));
 
         var app = builder.Build();
+        app.UseMiddleware<Wayhunter.Api.Middleware.CorrelationIdMiddleware>();
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapControllers();
