@@ -1,7 +1,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Dtos;
@@ -27,16 +26,9 @@ public sealed class AdvertisementService
         DateTimeOffset nowUtc,
         CancellationToken cancellationToken = default)
     {
-        var advertisements =
-            await _repository.GetAllAsync(cancellationToken);
-
-        return advertisements
-    .Where(ad =>
-        ad.IsEnabled &&
-        ad.Status == AdvertisementStatus.Active &&
-        ad.StartAtUtc <= nowUtc &&
-        nowUtc < ad.EndAtUtc)
-    .ToArray();
+        return await _repository.GetActiveAsync(
+            nowUtc,
+            cancellationToken: cancellationToken);
     }
 
     // Existing: Get active advertisements by placement
@@ -54,12 +46,10 @@ public sealed class AdvertisementService
                 "Unsupported advertisement placement.");
         }
 
-        var activeAdvertisements =
-            await GetActiveAsync(nowUtc, cancellationToken);
-
-        return activeAdvertisements
-            .Where(ad => ad.Placement == placement)
-            .ToArray();
+        return await _repository.GetActiveAsync(
+            nowUtc,
+            placement,
+            cancellationToken);
     }
 
     // New: Validated internal advertisement query
@@ -88,17 +78,9 @@ public sealed class AdvertisementService
         // This is an internal as-of query.
         var queryTimeUtc = request.AtUtc ?? nowUtc;
 
-        var advertisements =
-            await GetActiveAsync(queryTimeUtc, cancellationToken);
-
-        if (request.Placement.HasValue)
-        {
-            return advertisements
-                .Where(ad =>
-                    ad.Placement == request.Placement.Value)
-                .ToArray();
-        }
-
-        return advertisements;
+        return await _repository.GetActiveAsync(
+            queryTimeUtc,
+            request.Placement,
+            cancellationToken);
     }
 }

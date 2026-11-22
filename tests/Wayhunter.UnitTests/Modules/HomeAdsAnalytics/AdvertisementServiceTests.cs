@@ -531,6 +531,23 @@ public sealed class AdvertisementServiceTests
             _ads = ads;
         }
 
+        public Task<IReadOnlyList<AdvertisementDto>> GetActiveAsync(
+            DateTimeOffset nowUtc,
+            AdvertisementPlacement? placement = null,
+            CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<AdvertisementDto> result = _ads
+                .Where(ad =>
+                    ad.IsEnabled &&
+                    ad.Status == AdvertisementStatus.Active &&
+                    ad.StartAtUtc <= nowUtc &&
+                    nowUtc < ad.EndAtUtc &&
+                    (!placement.HasValue || ad.Placement == placement.Value))
+                .ToArray();
+
+            return Task.FromResult(result);
+        }
+
         public Task<IReadOnlyList<AdvertisementDto>> GetAllAsync(
             CancellationToken cancellationToken = default)
         {
@@ -556,6 +573,18 @@ public sealed class AdvertisementServiceTests
         {
             get;
             private set;
+        }
+
+        public Task<IReadOnlyList<AdvertisementDto>> GetActiveAsync(
+            DateTimeOffset nowUtc,
+            AdvertisementPlacement? placement = null,
+            CancellationToken cancellationToken = default)
+        {
+            ReadCount++;
+            LastCancellationToken = cancellationToken;
+            IReadOnlyList<AdvertisementDto> advertisements =
+                Array.Empty<AdvertisementDto>();
+            return Task.FromResult(advertisements);
         }
 
         public Task<IReadOnlyList<AdvertisementDto>> GetAllAsync(

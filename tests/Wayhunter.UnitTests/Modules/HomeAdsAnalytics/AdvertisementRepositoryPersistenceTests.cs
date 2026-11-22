@@ -3,6 +3,7 @@ using System;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Dtos;
+using Wayhunter.Domain.Modules.HomeAdsAnalytics.Entities;
 using Wayhunter.Domain.Modules.HomeAdsAnalytics.Enums;
 using Wayhunter.Infrastructure.Persistence.DbContexts;
 using Wayhunter.Infrastructure.Persistence.Repositories.HomeAdsAnalytics;
@@ -36,6 +37,77 @@ public sealed class AdvertisementRepositoryPersistenceTests
                 2026, 12, 18, 0, 0, 0, TimeSpan.Zero),
             Placement = AdvertisementPlacement.HomeBanner
         };
+    }
+
+    [Fact]
+    public async Task GetActiveAsync_FiltersWindowStatusAndPlacementInRepository()
+    {
+        var databaseName = Guid.NewGuid().ToString("N");
+        var now = new DateTimeOffset(
+            2026, 11, 18, 12, 0, 0, TimeSpan.Zero);
+
+        await using var db = CreateDbContext(databaseName);
+        var activeHome = CreateActiveAdvertisement(
+            AdvertisementPlacement.HomeBanner,
+            now,
+            now.AddHours(1));
+        var activePoi = CreateActiveAdvertisement(
+            AdvertisementPlacement.SponsoredPoi,
+            now.AddHours(-1),
+            now.AddHours(1));
+        var future = CreateActiveAdvertisement(
+            AdvertisementPlacement.HomeBanner,
+            now.AddHours(1),
+            now.AddHours(2));
+        var expired = CreateActiveAdvertisement(
+            AdvertisementPlacement.HomeBanner,
+            now.AddHours(-2),
+            now);
+        var paused = CreateActiveAdvertisement(
+            AdvertisementPlacement.HomeBanner,
+            now.AddHours(-1),
+            now.AddHours(1));
+        paused.Disable();
+
+        db.Advertisements.AddRange(
+            activeHome, activePoi, future, expired, paused);
+        await db.SaveChangesAsync();
+
+        var result = await new AdvertisementRepository(db).GetActiveAsync(
+            now,
+            AdvertisementPlacement.HomeBanner);
+
+        var onlyResult = Assert.Single(result);
+        Assert.Equal(activeHome.Id, onlyResult.Id);
+    }
+
+    [Fact]
+    public async Task GetActiveAsync_RejectsNonUtcQueryTime()
+    {
+        await using var db = CreateDbContext(Guid.NewGuid().ToString("N"));
+        var repository = new AdvertisementRepository(db);
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            repository.GetActiveAsync(
+                new DateTimeOffset(2026, 11, 18, 12, 0, 0,
+                    TimeSpan.FromHours(5))));
+    }
+
+    private static Advertisement CreateActiveAdvertisement(
+        AdvertisementPlacement placement,
+        DateTimeOffset startAtUtc,
+        DateTimeOffset endAtUtc)
+    {
+        var advertisement = new Advertisement(
+            Guid.NewGuid(),
+            "Test advertisement",
+            "https://example.com/test.jpg",
+            null,
+            startAtUtc,
+            endAtUtc);
+        advertisement.SetPlacement(placement);
+        advertisement.Enable();
+        return advertisement;
     }
 
     [Fact]

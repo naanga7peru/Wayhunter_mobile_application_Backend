@@ -18,9 +18,11 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using Wayhunter.Api.Authorization;
+using Wayhunter.Api.Contracts.HomeAdsAnalytics;
 using Wayhunter.Api.Controllers.Admin.HomeAdsAnalytics;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Dtos;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Interfaces;
+using Wayhunter.Application.Modules.HomeAdsAnalytics.Services;
 using Wayhunter.Domain.Modules.HomeAdsAnalytics.Enums;
 
 using Xunit;
@@ -109,6 +111,27 @@ public sealed partial class AdvertisementAdminPositiveHttpTests
                 _items.Values.ToArray();
 
             return Task.FromResult(result);
+        }
+
+        public Task<IReadOnlyList<AdvertisementDto>> GetActiveAsync(
+            DateTimeOffset nowUtc,
+            AdvertisementPlacement? placement = null,
+            CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<AdvertisementDto> result = _items.Values
+                .Where(ad =>
+                    ad.IsEnabled &&
+                    ad.Status == AdvertisementStatus.Active &&
+                    ad.StartAtUtc <= nowUtc &&
+                    nowUtc < ad.EndAtUtc &&
+                    (!placement.HasValue || ad.Placement == placement.Value))
+                .ToArray();
+            return Task.FromResult(result);
+        }
+
+        public void AddForMobileRead(AdvertisementDto advertisement)
+        {
+            _items.Add(advertisement.Id, advertisement);
         }
 
         public Task<AdvertisementDto?> GetByIdAsync(
@@ -266,6 +289,8 @@ public sealed partial class AdvertisementAdminPositiveHttpTests
         builder.Services.AddScoped<IAdvertisementRepository>(
             sp => sp.GetRequiredService<FakeRepository>());
 
+        builder.Services.AddScoped<AdvertisementService>();
+
         builder.Services.AddScoped<IAdvertisementWriteRepository>(
             sp => sp.GetRequiredService<FakeRepository>());
 
@@ -295,6 +320,52 @@ public sealed partial class AdvertisementAdminPositiveHttpTests
         await app.StartAsync();
 
         return app;
+    }
+
+    [Fact]
+    public async Task MobileActiveListing_AppliesPlacementAndServerSchedule()
+    {
+        await using var app = await CreateServerAsync();
+        var now = DateTimeOffset.UtcNow;
+        var repository = app.Services.GetRequiredService<FakeRepository>();
+
+        var homeAd = new AdvertisementDto
+        {
+            Id = Guid.NewGuid(),
+            Title = "Current home ad",
+            ImageUrl = "https://example.com/home.jpg",
+            StartAtUtc = now.AddMinutes(-5),
+            EndAtUtc = now.AddMinutes(5),
+            IsEnabled = true,
+            Placement = AdvertisementPlacement.HomeBanner,
+            Status = AdvertisementStatus.Active
+        };
+        var poiAd = homeAd with
+        {
+            Id = Guid.NewGuid(),
+            Placement = AdvertisementPlacement.SponsoredPoi
+        };
+        var futureAd = homeAd with
+        {
+            Id = Guid.NewGuid(),
+            StartAtUtc = now.AddMinutes(5),
+            EndAtUtc = now.AddMinutes(10)
+        };
+        repository.AddForMobileRead(homeAd);
+        repository.AddForMobileRead(poiAd);
+        repository.AddForMobileRead(futureAd);
+
+        using var client = app.GetTestClient();
+        client.DefaultRequestHeaders.Add("X-Test-User", "traveler");
+        using var response = await client.GetAsync(
+            "/" + AdvertisementMobileReadEndpointContract.ActiveAdsRoute +
+            "?placement=HomeBanner");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var advertisements = await response.Content
+            .ReadFromJsonAsync<AdvertisementDto[]>();
+        var onlyAdvertisement = Assert.Single(advertisements!);
+        Assert.Equal(homeAd.Id, onlyAdvertisement.Id);
     }
 
     // ==========================================

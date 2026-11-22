@@ -21,6 +21,7 @@ using Wayhunter.Api.Controllers.Admin.HomeAdsAnalytics;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Dtos;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Interfaces;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Services;
+using Wayhunter.Domain.Modules.HomeAdsAnalytics.Enums;
 
 using Xunit;
 
@@ -86,6 +87,15 @@ public sealed class AdvertisementAuthorizationHttpTests
         IAdvertisementRepository,
         IAdvertisementWriteRepository
     {
+        public Task<IReadOnlyList<AdvertisementDto>> GetActiveAsync(
+            DateTimeOffset nowUtc,
+            AdvertisementPlacement? placement = null,
+            CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<AdvertisementDto> advertisements = [];
+            return Task.FromResult(advertisements);
+        }
+
         public Task<IReadOnlyList<AdvertisementDto>> GetAllAsync(
             CancellationToken cancellationToken = default)
         {
