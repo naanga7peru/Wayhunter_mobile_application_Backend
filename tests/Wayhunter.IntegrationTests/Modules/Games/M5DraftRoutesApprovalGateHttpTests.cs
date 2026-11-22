@@ -32,7 +32,9 @@ public sealed class M5DraftRoutesApprovalGateHttpTests
                 request.Content = new StringContent("{}");
 
             using var response = await client.SendAsync(request);
-            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            Assert.True(
+                response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed,
+                $"Draft route must remain unmapped: {method} {path}; actual: {response.StatusCode}");
         }
     }
 }

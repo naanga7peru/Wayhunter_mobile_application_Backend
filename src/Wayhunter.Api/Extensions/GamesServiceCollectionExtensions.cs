@@ -152,4 +152,46 @@ public static class GamesServiceCollectionExtensions
 
         return services;
     }
+
+    /// <summary>
+    /// Registers only durable Games read providers. The in-memory application
+    /// store is never selected for the mobile HTTP read routes.
+    /// </summary>
+    public static IServiceCollection AddGamesReadApiServices(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        services.RemoveAll<IAvailableGamesQueryStore>();
+        services.RemoveAll<IPublicGameDetailsQueryStore>();
+        services.RemoveAll<IMyGameAttemptsQueryStore>();
+
+        if (configuration.GetValue<bool>(SqlPersistenceFlag))
+        {
+            services.TryAddScoped<SqlGamesReadRepository>();
+            services.AddScoped<IAvailableGamesQueryStore>(sp =>
+                sp.GetRequiredService<SqlGamesReadRepository>());
+            services.AddScoped<IPublicGameDetailsQueryStore>(sp =>
+                sp.GetRequiredService<SqlGamesReadRepository>());
+            services.AddScoped<IMyGameAttemptsQueryStore>(sp =>
+                sp.GetRequiredService<SqlGamesReadRepository>());
+        }
+        else
+        {
+            services.TryAddSingleton<UnavailableGamesReadQueryStores>();
+            services.AddSingleton<IAvailableGamesQueryStore>(sp =>
+                sp.GetRequiredService<UnavailableGamesReadQueryStores>());
+            services.AddSingleton<IPublicGameDetailsQueryStore>(sp =>
+                sp.GetRequiredService<UnavailableGamesReadQueryStores>());
+            services.AddSingleton<IMyGameAttemptsQueryStore>(sp =>
+                sp.GetRequiredService<UnavailableGamesReadQueryStores>());
+        }
+
+        services.TryAddScoped<GetAvailableGamesQueryService>();
+        services.TryAddScoped<GetPublicGameDetailsQueryService>();
+        services.TryAddScoped<GetMyGameAttemptsQueryService>();
+        return services;
+    }
 }

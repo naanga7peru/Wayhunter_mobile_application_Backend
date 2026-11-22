@@ -192,6 +192,9 @@ builder.Services.AddGamesApplicationServices();
 builder.Services.AddConfiguredGamesPersistence(
     builder.Configuration);
 
+builder.Services.AddGamesReadApiServices(
+    builder.Configuration);
+
 // ==========================================
 // M3 - GPS Consent
 // ==========================================
