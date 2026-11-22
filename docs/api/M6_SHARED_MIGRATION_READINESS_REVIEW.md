@@ -185,22 +185,25 @@ Sample voucher:
 - Voucher reference value: LKR 100
 - Actual cash payout: Out of scope
 
-## 6. Voucher Debit Decision Conflict
+## 6. Approved Voucher Debit Timing (VCH-DEC-01)
 
-Earlier repository documents:
-- Debit on Admin approval
+The current owner decision in `docs/second-brain/ACTIVE_RULES.md` resolves
+voucher debit timing:
 
-Later Product Owner clarification:
-- Reserve at request
-- Admin approval does not finalize debit
-- Debit only when sample voucher is issued/fulfilled
+- Require at least 10,100 spendable Coins before request.
+- Reserve 10,000 Coins when the request is created; do not post a debit then.
+- Admin approval finalizes the 10,000-Coin debit exactly once and consumes the
+  reservation.
+- Rejection or cancellation releases the reservation exactly once.
+- Voucher issuance happens after approval and must not debit again. If issue
+  fails, retain the approved debit and the Approved/Unissued state for a
+  controlled idempotent retry; automatic refunds are not approved.
+- The academic sample voucher uses a sample image, unique code and generated
+  QR. OCR/barcode intake remains optional; no commercial payout is in scope.
 
-Required:
-- Reconfirm latest owner decision
-- Update BRD, rules, tests and ERD consistently
-- Obtain recorded approval before SQL implementation
-
-Status: DECISION RECONCILIATION REQUIRED
+This decision is resolved. The mapping, transaction implementation, and tests
+must reflect it before SQL migration acceptance; implementation agreement is
+not itself migration authorization.
 
 ## 7. Transaction Strategy
 
@@ -218,15 +221,19 @@ Voucher request:
 3. Create pending request
 4. Commit atomically
 
-Voucher fulfillment:
-1. Verify approved request and active reservation
-2. Verify unique sample voucher inventory
-3. Finalize issuance and one debit atomically
-4. Consume reservation
-5. Record audit entry
-6. Commit
+Voucher Admin approval:
+1. Verify the pending request and active reservation.
+2. Atomically record the Admin decision, append the 10,000-Coin debit,
+   consume the reservation, and record the audit entry.
+3. Enforce idempotency so a repeated approval cannot debit twice.
+4. Commit before attempting voucher issuance.
 
-Final debit timing is subject to decision reconciliation.
+Voucher issuance/retry:
+1. Verify the approved, unissued request and its consumed reservation.
+2. Allocate one unique sample voucher and persist the issued code/image/QR
+   references and status idempotently.
+3. Do not append another debit. If issuance fails, retain Approved/Unissued
+   state for controlled retry; no automatic refund.
 
 ## 8. Cross-Module Contracts
 
@@ -265,7 +272,8 @@ Do not infer approval from GitHub PR merges.
 ## 10. Migration Gate
 
 - Final schema reviewed
-- Conflicting voucher policy reconciled
+- VCH-DEC-01 debit-on-approval reflected in final mappings, transaction tests,
+  and the migration review
 - M1/M4/M5 contracts approved
 - All seven members explicitly signed off
 - DB Coordinator appointed
