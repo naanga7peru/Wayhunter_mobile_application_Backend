@@ -34,11 +34,14 @@ public sealed class GameSubmissionService
     {
         ArgumentNullException.ThrowIfNull(creator);
 
-        // Only verified, active users can submit.
-        if (creator.Status != UserAccountStatus.Active)
+        // A persisted Active status alone is not sufficient evidence for
+        // identity eligibility. Fail closed on malformed account snapshots
+        // and deletion-requested accounts, matching M1's trusted identity
+        // contract at this application boundary.
+        if (!IsEligibleCreator(creator))
         {
             throw new InvalidOperationException(
-                "Only active users can submit games.");
+                "Only active, verified users without a deletion request can submit games.");
         }
 
         // Check the server timestamp and game ID.
@@ -71,5 +74,24 @@ public sealed class GameSubmissionService
             .SubmitDraftAndEnqueueAsync(
                 identity,
                 cancellationToken);
+    }
+
+    private static bool IsEligibleCreator(UserAccount creator)
+    {
+        if (creator.Status != UserAccountStatus.Active ||
+            !creator.VerifiedAtUtc.HasValue ||
+            creator.DeletionRequestedAtUtc.HasValue)
+        {
+            return false;
+        }
+
+        var createdAtUtc = creator.CreatedAtUtc;
+        var verifiedAtUtc = creator.VerifiedAtUtc.Value;
+
+        return createdAtUtc != default &&
+            createdAtUtc.Offset == TimeSpan.Zero &&
+            verifiedAtUtc != default &&
+            verifiedAtUtc.Offset == TimeSpan.Zero &&
+            verifiedAtUtc >= createdAtUtc;
     }
 }

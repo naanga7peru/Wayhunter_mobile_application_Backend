@@ -1,10 +1,12 @@
 
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Wayhunter.Api.Authorization;
 using Wayhunter.Api.BackgroundServices;
 using Wayhunter.Api.Contracts.Responses;
+using Wayhunter.Api.Controllers.Mobile.Games;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Api.Hubs.TripSafety;
 using Wayhunter.Api.Services.IdentitySocial;
@@ -21,7 +23,34 @@ using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
+var enableDevelopmentDraftApi =
+    builder.Environment.IsDevelopment() &&
+    builder.Configuration.GetValue<bool>(
+        "Games:EnableDevelopmentDraftHttpApi") &&
+    builder.Configuration.GetValue<bool>(
+        "Identity:EnableSharedAuthentication") &&
+    !builder.Configuration.GetValue<bool>(
+        "Games:EnableSqlPersistence");
+
+builder.Services.AddControllers()
+    .ConfigureApplicationPartManager(manager =>
+        manager.FeatureProviders.Add(
+            new GameDraftApiControllerFeatureProvider(
+                enableDevelopmentDraftApi)));
+
+if (enableDevelopmentDraftApi)
+{
+    builder.Services.AddScoped<GameDraftApplicationAdapter>();
+    builder.Services.AddScoped<GameDraftAuthenticationFilter>();
+    builder.Services.Configure<ApiBehaviorOptions>(options =>
+    {
+        options.InvalidModelStateResponseFactory = context =>
+            new BadRequestObjectResult(ApiErrorResponse.Create(
+                "GAME_DRAFT_INVALID",
+                "The draft request is invalid.",
+                context.HttpContext.TraceIdentifier));
+    });
+}
 
 if (builder.Environment.IsDevelopment())
 {
@@ -129,6 +158,8 @@ builder.Services.AddSingleton(TimeProvider.System);
 // ==========================================
 // M5 - Games SQL Repository
 // ==========================================
+
+builder.Services.AddGamesApplicationServices();
 
 builder.Services.AddConfiguredGamesPersistence(
     builder.Configuration);

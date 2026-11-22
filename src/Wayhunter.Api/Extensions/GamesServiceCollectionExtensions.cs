@@ -3,7 +3,11 @@ using System;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Wayhunter.Api.BackgroundServices;
 using Wayhunter.Application.Modules.Games.Interfaces;
+using Wayhunter.Application.Modules.Games.Services;
+using Wayhunter.Infrastructure.Integrations.Games;
 using Wayhunter.Infrastructure.Persistence.Repositories.Games;
 
 namespace Wayhunter.Api.Extensions;
@@ -12,6 +16,64 @@ public static class GamesServiceCollectionExtensions
 {
     private const string SqlPersistenceFlag =
         "Games:EnableSqlPersistence";
+
+    /// <summary>
+    /// Registers the current M5 in-memory workflow store and
+    /// the application services backed by its implemented contracts.
+    /// SQL persistence remains limited to the CRUD contracts below.
+    /// </summary>
+    public static IServiceCollection AddGamesApplicationServices(
+        this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton<InMemoryGameSubmissionStore>();
+
+        services.TryAddSingleton<IGameRepository>(sp =>
+            sp.GetRequiredService<InMemoryGameSubmissionStore>());
+        services.TryAddSingleton<IGameDraftDeletionRepository>(sp =>
+            sp.GetRequiredService<InMemoryGameSubmissionStore>());
+        services.TryAddSingleton<IGameSubmissionStore>(sp =>
+            sp.GetRequiredService<InMemoryGameSubmissionStore>());
+        services.TryAddSingleton<IGameApprovalStore>(sp =>
+            sp.GetRequiredService<InMemoryGameSubmissionStore>());
+        services.TryAddSingleton<IGameModerationStore>(sp =>
+            sp.GetRequiredService<InMemoryGameSubmissionStore>());
+        services.TryAddSingleton<IStartGameAttemptStore>(sp =>
+            sp.GetRequiredService<InMemoryGameSubmissionStore>());
+        services.TryAddSingleton<ISubmitGameStageProofStore>(sp =>
+            sp.GetRequiredService<InMemoryGameSubmissionStore>());
+        services.TryAddSingleton<IGameStageProofDecisionStore>(sp =>
+            sp.GetRequiredService<InMemoryGameSubmissionStore>());
+        services.TryAddSingleton<IGamePendingStageProofQueryStore>(sp =>
+            sp.GetRequiredService<InMemoryGameSubmissionStore>());
+        services.TryAddSingleton<IAvailableGamesQueryStore>(sp =>
+            sp.GetRequiredService<InMemoryGameSubmissionStore>());
+        services.TryAddSingleton<ICurrentGameStageQueryStore>(sp =>
+            sp.GetRequiredService<InMemoryGameSubmissionStore>());
+        services.TryAddSingleton<IExpiredGameArchiveStore>(sp =>
+            sp.GetRequiredService<InMemoryGameSubmissionStore>());
+
+        services.TryAddScoped<GameService>();
+        services.TryAddScoped<GameDraftDeletionService>();
+        services.TryAddScoped<GameSubmissionService>();
+        services.TryAddScoped<GameApprovalService>();
+        services.TryAddScoped<GameModerationService>();
+        services.TryAddScoped<GetPendingGameStageProofsService>();
+        services.TryAddScoped<ArchiveExpiredGamesService>();
+
+        // Draft creation can proceed for text-only clues. Until
+        // an approved private-media ownership provider exists,
+        // media-bearing drafts are rejected by this fail-closed
+        // default instead of trusting a client-supplied media ID.
+        services.TryAddScoped<
+            IGameClueMediaAccessVerifier,
+            UnavailableGameClueMediaAccessVerifier>();
+        services.TryAddScoped<GameClueMediaOwnershipService>();
+        services.TryAddScoped<VerifiedGameDraftService>();
+
+        return services;
+    }
 
     // Register only the M5 SQL CRUD repository contracts.
     // Other Game workflows are not SQL-ready yet.
@@ -35,11 +97,14 @@ public static class GamesServiceCollectionExtensions
         // SqlGameRepository actually implements.
         services.RemoveAll<IGameRepository>();
         services.RemoveAll<IGameDraftDeletionRepository>();
+        services.RemoveAll<IExpiredGameArchiveStore>();
 
         services.AddScoped<IGameRepository>(
             sp => sp.GetRequiredService<SqlGameRepository>());
 
         services.AddScoped<IGameDraftDeletionRepository>(
+            sp => sp.GetRequiredService<SqlGameRepository>());
+        services.AddScoped<IExpiredGameArchiveStore>(
             sp => sp.GetRequiredService<SqlGameRepository>());
 
         return services;
@@ -60,6 +125,29 @@ public static class GamesServiceCollectionExtensions
         if (enableSql)
         {
             services.AddGamesSqlPersistence(configuration);
+
+            if (configuration.GetValue<bool>(
+                    "Games:EnableExpiryWorker"))
+            {
+                var intervalSeconds = Math.Clamp(
+                    configuration.GetValue<int?>(
+                        "Games:ExpiryWorkerIntervalSeconds") ?? 30,
+                    5,
+                    3600);
+                var batchSize = Math.Clamp(
+                    configuration.GetValue<int?>(
+                        "Games:ExpiryArchiveBatchSize") ?? 100,
+                    1,
+                    1000);
+
+                services.AddSingleton<IHostedService>(sp =>
+                    new GameExpiryHostedService(
+                        sp.GetRequiredService<IServiceScopeFactory>(),
+                        sp.GetRequiredService<
+                            Microsoft.Extensions.Logging.ILogger<GameExpiryHostedService>>(),
+                        TimeSpan.FromSeconds(intervalSeconds),
+                        batchSize));
+            }
         }
 
         return services;

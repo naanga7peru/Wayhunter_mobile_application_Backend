@@ -75,6 +75,16 @@ public sealed class IdentityPersistenceRegistrationTests
                 .GetRequiredService<
                     IAuthenticatedSessionReader>());
 
+        Assert.IsType<SqlTrustedIdentityAccountReader>(
+            scope.ServiceProvider
+                .GetRequiredService<
+                    ITrustedIdentityAccountReader>());
+
+        Assert.NotNull(
+            scope.ServiceProvider
+                .GetRequiredService<
+                    TrustedIdentityResolutionService>());
+
         Assert.IsType<SqlIdentitySessionRevocationStore>(
             scope.ServiceProvider
                 .GetRequiredService<
@@ -106,5 +116,38 @@ public sealed class IdentityPersistenceRegistrationTests
             .GetRequiredService<WayhunterSharedDbContext>();
 
         Assert.True(db.Database.IsSqlServer());
+    }
+
+    [Fact]
+    public void TrustedIdentityReader_IsScopedWithSharedDbContext()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddWayhunterIdentityPersistence(
+            CreateConfiguration(
+                "Server=localhost;" +
+                "Database=WayhunterIdentityTest;" +
+                "Trusted_Connection=True;" +
+                "TrustServerCertificate=True"));
+
+        using var provider = services.BuildServiceProvider();
+        using var firstScope = provider.CreateScope();
+        using var secondScope = provider.CreateScope();
+
+        var firstReader = firstScope.ServiceProvider
+            .GetRequiredService<ITrustedIdentityAccountReader>();
+        Assert.IsType<SqlTrustedIdentityAccountReader>(firstReader);
+        Assert.Equal(
+            ServiceLifetime.Scoped,
+            services.Single(descriptor => descriptor.ServiceType ==
+                typeof(ITrustedIdentityAccountReader)).Lifetime);
+        Assert.Same(
+            firstReader,
+            firstScope.ServiceProvider
+                .GetRequiredService<ITrustedIdentityAccountReader>());
+        Assert.NotSame(
+            firstReader,
+            secondScope.ServiceProvider
+                .GetRequiredService<ITrustedIdentityAccountReader>());
     }
 }

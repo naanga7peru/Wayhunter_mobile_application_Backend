@@ -14,7 +14,7 @@ using Wayhunter.Infrastructure.Persistence.Models.Games;
 namespace Wayhunter.Infrastructure.Persistence.Repositories.Games;
 
 public sealed class SqlGameRepository
-    : IGameDraftDeletionRepository
+    : IGameDraftDeletionRepository, IExpiredGameArchiveStore
 {
     private const int RowVersionLength = 8;
 
@@ -335,6 +335,45 @@ public sealed class SqlGameRepository
         await _db.SaveChangesAsync(cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task<int> ArchiveExpiredGamesAsync(
+        DateTimeOffset nowUtc,
+        int maxCount,
+        CancellationToken cancellationToken = default)
+    {
+        if (nowUtc == default || nowUtc.Offset != TimeSpan.Zero)
+            throw new ArgumentException(
+                "A valid UTC timestamp is required.", nameof(nowUtc));
+
+        if (maxCount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maxCount));
+
+        var expiredIds = await _db.Games
+            .AsNoTracking()
+            .Where(row => row.Status == GameStatus.Published
+                && row.ExpiresAtUtc.HasValue
+                && row.ExpiresAtUtc.Value <= nowUtc)
+            .OrderBy(row => row.ExpiresAtUtc)
+            .ThenBy(row => row.Id)
+            .Select(row => row.Id)
+            .Take(maxCount)
+            .ToArrayAsync(cancellationToken);
+
+        var archivedCount = 0;
+        foreach (var gameId in expiredIds)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var game = await GetByIdAsync(gameId, cancellationToken);
+            if (game is null || !game.ArchiveIfExpired(nowUtc))
+                continue;
+
+            await UpdateAsync(game, cancellationToken);
+            archivedCount++;
+        }
+
+        return archivedCount;
     }
 
     private static void CopyGameProperties(

@@ -31,6 +31,11 @@ public static class IdentityPersistenceServiceCollectionExtensions
         services.TryAddScoped<IdentitySignInService>();
         services.TryAddScoped<PasswordRecoveryService>();
         services.TryAddScoped<ILoginAccountReader, SqlLoginAccountReader>();
+        services.TryAddScoped<
+            ITrustedIdentityAccountReader,
+            SqlTrustedIdentityAccountReader>();
+        services.TryAddScoped<
+            TrustedIdentityResolutionService>();
         services.TryAddSingleton<
             IIdentityOtpCodeGenerator,
             CryptographicIdentityOtpCodeGenerator>();
