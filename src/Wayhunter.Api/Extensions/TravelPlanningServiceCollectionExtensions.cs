@@ -44,8 +44,14 @@ public static class TravelPlanningServiceCollectionExtensions
 
         // M2-MS08: Google Nearby Places - server-side
         services.AddHttpClient<
-            INearbyPlacesProvider,
-            GoogleNearbyPlacesProvider>();
+                INearbyPlacesProvider,
+                GoogleNearbyPlacesProvider>()
+            .ConfigurePrimaryHttpMessageHandler(() => new System.Net.Http.HttpClientHandler
+            {
+                // Nearby requests carry the server-only Maps key. Never
+                // forward it automatically to a redirect destination.
+                AllowAutoRedirect = false
+            });
 
         services.AddScoped<NearbyPlaceSearchService>();
 
@@ -64,7 +70,13 @@ public static class TravelPlanningServiceCollectionExtensions
 
         services.AddHttpClient<
             IAiTripGenerationProvider,
-            GeminiTripGenerationProvider>();
+            GeminiTripGenerationProvider>()
+            .ConfigurePrimaryHttpMessageHandler(() => new System.Net.Http.HttpClientHandler
+            {
+                // Gemini requests carry the server-only API key in a header.
+                // Do not forward it automatically to a redirect destination.
+                AllowAutoRedirect = false
+            });
 
         services.AddScoped<GenerateAiTripPlanService>();
 
