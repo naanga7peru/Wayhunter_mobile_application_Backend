@@ -59,7 +59,7 @@ public sealed class M5GamesRuntimeDiStartupTests
     }
 
     [Fact]
-    public void ActualProgram_SqlDisabled_DoesNotRegisterGameSql()
+    public void ActualProgram_SqlDisabled_UsesInMemoryStoreWithoutSqlRepository()
     {
         using var factory = new GamesStartupFactory(false);
         using var scope = factory.Services.CreateScope();
@@ -70,8 +70,9 @@ public sealed class M5GamesRuntimeDiStartupTests
         var deletionRepository = scope.ServiceProvider
             .GetService<IGameDraftDeletionRepository>();
 
-        Assert.Null(gameRepository);
-        Assert.Null(deletionRepository);
+        Assert.IsType<InMemoryGameSubmissionStore>(gameRepository);
+        Assert.Same(gameRepository, deletionRepository);
+        Assert.Null(scope.ServiceProvider.GetService<SqlGameRepository>());
     }
 
     [Fact]
