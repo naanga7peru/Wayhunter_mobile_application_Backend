@@ -23,13 +23,16 @@ public sealed class HunterSubmissionStatusTransitionService
 {
     private readonly IHunterSubmissionStatusTransitionStore
         _transitionStore;
+    private readonly TimeProvider _timeProvider;
 
     public HunterSubmissionStatusTransitionService(
-        IHunterSubmissionStatusTransitionStore transitionStore)
+        IHunterSubmissionStatusTransitionStore transitionStore,
+        TimeProvider? timeProvider = null)
     {
         _transitionStore = transitionStore
             ?? throw new ArgumentNullException(
                 nameof(transitionStore));
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>
@@ -41,11 +44,18 @@ public sealed class HunterSubmissionStatusTransitionService
     {
         ValidateRequest(submissionId, cancellationToken);
 
+        var submittedAtUtc = _timeProvider.GetUtcNow();
+        if (submittedAtUtc == default ||
+            submittedAtUtc.Offset != TimeSpan.Zero)
+        {
+            throw new InvalidOperationException(
+                "The server clock must provide a UTC submission time.");
+        }
+
         return _transitionStore
-            .TryTransitionAndRevokeCaptureSessionsAsync(
+            .TrySubmitDraftAndRevokeCaptureSessionsAsync(
                 submissionId,
-                HunterSubmissionStatus.Draft,
-                HunterSubmissionStatus.PendingReview,
+                submittedAtUtc,
                 cancellationToken);
     }
 

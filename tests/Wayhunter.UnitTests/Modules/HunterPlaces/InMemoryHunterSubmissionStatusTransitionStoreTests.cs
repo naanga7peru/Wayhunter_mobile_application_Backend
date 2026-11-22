@@ -103,6 +103,8 @@ public sealed class InMemoryHunterSubmissionStatusTransitionStoreTests
         Assert.Equal(
             HunterSubmissionStatus.PendingReview,
             snapshot.Status);
+        Assert.NotNull(snapshot.SubmittedAtUtc);
+        Assert.Equal(TimeSpan.Zero, snapshot.SubmittedAtUtc.Value.Offset);
 
         Assert.False(await ConsumeAsync(
             store, first, hunterId, submissionId));
@@ -384,10 +386,9 @@ public sealed class InMemoryHunterSubmissionStatusTransitionStoreTests
             Guid.NewGuid(), Guid.NewGuid());
 
         var result =
-            await store.TryTransitionAndRevokeCaptureSessionsAsync(
+            await store.TrySubmitDraftAndRevokeCaptureSessionsAsync(
                 Guid.NewGuid(),
-                HunterSubmissionStatus.Draft,
-                HunterSubmissionStatus.PendingReview);
+                DateTimeOffset.UtcNow);
 
         Assert.False(result);
     }

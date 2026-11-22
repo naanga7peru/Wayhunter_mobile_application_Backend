@@ -348,10 +348,9 @@ public sealed class HunterConsumeAuthorizedCaptureSessionHandlerTests
         var sessionId = await fixture.IssueAsync();
 
         var transitioned =
-            await fixture.Store.TryTransitionAndRevokeCaptureSessionsAsync(
+            await fixture.Store.TrySubmitDraftAndRevokeCaptureSessionsAsync(
                 fixture.SubmissionId,
-                HunterSubmissionStatus.Draft,
-                HunterSubmissionStatus.PendingReview);
+                DateTimeOffset.UtcNow);
 
         Assert.True(transitioned);
 
