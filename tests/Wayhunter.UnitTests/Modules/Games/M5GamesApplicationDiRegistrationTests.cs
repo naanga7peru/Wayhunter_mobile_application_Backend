@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Wayhunter.Api.Extensions;
+using Wayhunter.Api.Services.Games;
 using Wayhunter.Application.Modules.Games.Dtos;
 using Wayhunter.Application.Modules.Games.Interfaces;
 using Wayhunter.Application.Modules.Games.Services;
@@ -34,7 +35,7 @@ public sealed class M5GamesApplicationDiRegistrationTests
             .GetRequiredService<IGameApprovalStore>());
         Assert.Same(store, scope.ServiceProvider
             .GetRequiredService<IGameModerationStore>());
-        Assert.Same(store, scope.ServiceProvider
+        Assert.IsType<UnavailableGameAttemptStore>(scope.ServiceProvider
             .GetRequiredService<IStartGameAttemptStore>());
         Assert.Same(store, scope.ServiceProvider
             .GetRequiredService<ISubmitGameStageProofStore>());
