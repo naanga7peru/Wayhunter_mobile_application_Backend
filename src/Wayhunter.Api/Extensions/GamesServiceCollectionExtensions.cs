@@ -59,6 +59,7 @@ public static class GamesServiceCollectionExtensions
         services.TryAddScoped<GameSubmissionService>();
         services.TryAddScoped<GameApprovalService>();
         services.TryAddScoped<GameModerationService>();
+        services.TryAddScoped<StartGameAttemptService>();
         services.TryAddScoped<GetPendingGameStageProofsService>();
         services.TryAddScoped<ArchiveExpiredGamesService>();
 
