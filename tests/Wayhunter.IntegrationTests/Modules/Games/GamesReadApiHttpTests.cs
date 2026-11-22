@@ -148,6 +148,95 @@ public sealed class GamesReadApiHttpTests
             path.Name.Contains("recovery", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public async Task StartAttempt_MapsTrustedIdentityAndLifecycleResults_AndPublishesPostRoute()
+    {
+        using var factory = new GamesReadFactory();
+        using var client = factory.CreateClient();
+        var path = $"/api/mobile/games/{factory.PublicGameId:D}/attempts";
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", factory.Bearer(0));
+        using (var created = await client.PostAsync(path, content: null))
+        {
+            Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+            using var body = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+            Assert.False(body.RootElement.TryGetProperty("playerUserId", out _));
+            Assert.Equal(factory.Account(0).UserId, factory.StartAttempts.LastPlayerUserId);
+        }
+
+        factory.StartAttempts.Resume = true;
+        using (var resumed = await client.PostAsync(path, content: null))
+            Assert.Equal(HttpStatusCode.OK, resumed.StatusCode);
+
+        client.DefaultRequestHeaders.Authorization = null;
+        using (var anonymous = await client.PostAsync(path, content: null))
+            Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", factory.Bearer(2));
+        using (var inactive = await client.PostAsync(path, content: null))
+            Assert.Equal(HttpStatusCode.Unauthorized, inactive.StatusCode);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "invalid-identity");
+        using (var invalid = await client.PostAsync(path, content: null))
+            Assert.Equal(HttpStatusCode.Unauthorized, invalid.StatusCode);
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", factory.Bearer(0));
+        factory.StartAttempts.Missing = true;
+        using (var missing = await client.PostAsync(path, content: null))
+            Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        factory.StartAttempts.Missing = false;
+        factory.StartAttempts.Ineligible = true;
+        using (var ineligible = await client.PostAsync(path, content: null))
+            Assert.Equal(HttpStatusCode.Conflict, ineligible.StatusCode);
+        factory.StartAttempts.Ineligible = false;
+        factory.StartAttempts.Unavailable = true;
+        using (var unavailable = await client.PostAsync(path, content: null))
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, unavailable.StatusCode);
+
+        using var swagger = await client.GetAsync("/swagger/v1/swagger.json");
+        Assert.Equal(HttpStatusCode.OK, swagger.StatusCode);
+        using var doc = JsonDocument.Parse(await swagger.Content.ReadAsStringAsync());
+        Assert.True(doc.RootElement.GetProperty("paths")
+            .GetProperty("/api/mobile/games/{gameId}/attempts").TryGetProperty("post", out _));
+    }
+
+    [Fact]
+    public async Task ConcurrentStartRetries_ReturnOneCreatedAttemptAndResumeTheSameAttempt()
+    {
+        using var factory = new GamesReadFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", factory.Bearer(0));
+        var path = $"/api/mobile/games/{factory.PublicGameId:D}/attempts";
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 12)
+            .Select(_ => client.PostAsync(path, content: null)));
+        try
+        {
+            Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Created);
+            Assert.Equal(11, responses.Count(response => response.StatusCode == HttpStatusCode.OK));
+            var attemptIds = await Task.WhenAll(responses.Select(async response =>
+            {
+                using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                return body.RootElement.GetProperty("attemptId").GetGuid();
+            }));
+            Assert.Single(attemptIds.Distinct());
+        }
+        finally
+        {
+            foreach (var response in responses) response.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task DefaultRuntimeAttemptProvider_FailsClosedWith503()
+    {
+        using var factory = new GamesReadFactory { UseFakeAttemptStore = false };
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", factory.Bearer(0));
+
+        using var response = await client.PostAsync($"/api/mobile/games/{factory.PublicGameId:D}/attempts", content: null);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+    }
+
     private sealed class GamesReadFactory : WebApplicationFactory<Program>
     {
         private const string Secret = "games-read-api-test-signing-secret-32-bytes-minimum";
@@ -156,6 +245,8 @@ public sealed class GamesReadApiHttpTests
         public readonly FakeAvailableGamesStore Available = new();
         public readonly FakeGameDetailsStore Details = new();
         public readonly FakeAttemptsStore Attempts = new();
+        public readonly FakeStartAttemptStore StartAttempts = new();
+        public bool UseFakeAttemptStore { get; set; } = true;
         public Guid PublicGameId { get; } = Guid.NewGuid();
         private readonly TestAccountIds _testAccountIds;
 
@@ -211,6 +302,11 @@ public sealed class GamesReadApiHttpTests
                 services.AddSingleton<IPublicGameDetailsQueryStore>(Details);
                 services.RemoveAll<IMyGameAttemptsQueryStore>();
                 services.AddSingleton<IMyGameAttemptsQueryStore>(Attempts);
+                if (UseFakeAttemptStore)
+                {
+                    services.RemoveAll<IStartGameAttemptStore>();
+                    services.AddSingleton<IStartGameAttemptStore>(StartAttempts);
+                }
             });
         }
 
@@ -321,6 +417,29 @@ public sealed class GamesReadApiHttpTests
                 ? [new(Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1), GameProgressStatus.InProgress, 1, 3)]
                 : [];
             return Task.FromResult(rows);
+        }
+    }
+
+    private sealed class FakeStartAttemptStore : IStartGameAttemptStore
+    {
+        public bool Resume { get; set; }
+        public bool Missing { get; set; }
+        public bool Ineligible { get; set; }
+        public bool Unavailable { get; set; }
+        public string? LastPlayerUserId { get; private set; }
+        private readonly Guid _attemptId = Guid.NewGuid();
+        private int _created;
+
+        public Task<StartGameAttemptResultDto> StartOrResumeAsync(Guid gameId, string playerUserId,
+            DateTimeOffset nowUtc, CancellationToken cancellationToken = default)
+        {
+            LastPlayerUserId = playerUserId;
+            if (Missing) return Task.FromException<StartGameAttemptResultDto>(new KeyNotFoundException());
+            if (Ineligible) return Task.FromException<StartGameAttemptResultDto>(new InvalidOperationException());
+            if (Unavailable) return Task.FromException<StartGameAttemptResultDto>(new GameAttemptPersistenceUnavailableException("test"));
+            var resumed = Resume || Interlocked.CompareExchange(ref _created, 1, 0) != 0;
+            return Task.FromResult(new StartGameAttemptResultDto(_attemptId, gameId, playerUserId,
+                nowUtc, nowUtc.AddHours(1), 1, resumed));
         }
     }
 }

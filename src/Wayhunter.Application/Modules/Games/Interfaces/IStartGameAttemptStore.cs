@@ -6,6 +6,9 @@ using Wayhunter.Application.Modules.Games.Dtos;
 
 namespace Wayhunter.Application.Modules.Games.Interfaces;
 
+public sealed class GameAttemptPersistenceUnavailableException(string message, Exception? innerException = null)
+    : Exception(message, innerException);
+
 /// <summary>
 /// M5-MS04-T05
 /// Contract for starting or resuming

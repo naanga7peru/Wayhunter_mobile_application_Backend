@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Wayhunter.Api.BackgroundServices;
+using Wayhunter.Api.Services.Games;
 using Wayhunter.Application.Modules.Games.Interfaces;
 using Wayhunter.Application.Modules.Games.Services;
 using Wayhunter.Infrastructure.Integrations.Games;
@@ -39,8 +40,9 @@ public static class GamesServiceCollectionExtensions
             sp.GetRequiredService<InMemoryGameSubmissionStore>());
         services.TryAddSingleton<IGameModerationStore>(sp =>
             sp.GetRequiredService<InMemoryGameSubmissionStore>());
-        services.TryAddSingleton<IStartGameAttemptStore>(sp =>
-            sp.GetRequiredService<InMemoryGameSubmissionStore>());
+        // The in-memory workflow remains available to unit tests and draft workflows,
+        // but must never acknowledge a mobile attempt as durably created.
+        services.TryAddSingleton<IStartGameAttemptStore, UnavailableGameAttemptStore>();
         services.TryAddSingleton<ISubmitGameStageProofStore>(sp =>
             sp.GetRequiredService<InMemoryGameSubmissionStore>());
         services.TryAddSingleton<IGameStageProofDecisionStore>(sp =>
