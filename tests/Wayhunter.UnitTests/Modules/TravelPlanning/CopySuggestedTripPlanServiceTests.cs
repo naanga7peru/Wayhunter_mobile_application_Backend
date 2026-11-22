@@ -39,12 +39,24 @@ public sealed class CopySuggestedTripPlanServiceTests
     {
         var source = MakeSource();
         var clone = TripPlan.CreateCopyFrom(source, "viewer-2");
-        clone.UpdateDetails("Changed trip", clone.StartDate, clone.EndDate,
+        var originalDates = (source.StartDate, source.EndDate);
+        var originalStops = source.Stops.Select(stop =>
+            (stop.Id, stop.OrderIndex, stop.Name, stop.PlaceId, stop.Latitude, stop.Longitude)).ToArray();
+
+        clone.UpdateDetails("Changed trip", clone.StartDate.AddDays(2), clone.EndDate.AddDays(2),
             500m, clone.VehicleType, 1);
         clone.RemoveStop(clone.Stops.First().Id);
+        var added = clone.AddStop("New draft stop");
+        Assert.True(clone.ReorderStops(clone.Stops.Select(stop => stop.Id).Reverse().ToArray()));
+
+        Assert.Equal(added.Id, clone.Stops.OrderBy(stop => stop.OrderIndex).First().Id);
         Assert.Equal("Original trip", source.TripName);
         Assert.Equal(1000m, source.BudgetLkr);
-        Assert.Equal(2, source.Stops.Count);
+        Assert.Equal(originalDates, (source.StartDate, source.EndDate));
+        Assert.Equal(originalStops, source.Stops.Select(stop =>
+            (stop.Id, stop.OrderIndex, stop.Name, stop.PlaceId, stop.Latitude, stop.Longitude)));
+        Assert.Equal(source.Id, clone.SourceTripPlanId);
+        Assert.Equal(source.OwnerUserId, clone.SourceOwnerUserId);
     }
 
     [Fact]
@@ -114,6 +126,17 @@ public sealed class CopySuggestedTripPlanServiceTests
         var service = new CopySuggestedTripPlanService(store);
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.CopyAsync(source.Id, "not-the-viewer"));
+    }
+
+    [Fact]
+    public async Task StoreReturningCopyOfDifferentSource_IsRejected()
+    {
+        var requestedSource = MakeSource();
+        var store = new FakeStore { Result = TripPlan.CreateCopyFrom(MakeSource(), "viewer-2") };
+        var service = new CopySuggestedTripPlanService(store);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.CopyAsync(requestedSource.Id, "viewer-2"));
     }
 
     private static TripPlan MakeSource()
