@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.WebSockets;
+using System.Diagnostics;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -28,6 +29,7 @@ public sealed class M3FinalBackendFlowTests
     [Fact]
     public async Task InvitationToFinishRequiresExplicitConsentAndRejectsRevokedListeners()
     {
+        var elapsed = Stopwatch.StartNew();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         var ct = timeout.Token;
         var owner = Guid.NewGuid().ToString("D");
@@ -87,7 +89,7 @@ public sealed class M3FinalBackendFlowTests
         using var peerSocket = await ConnectAsync(host, peer, ct);
         using var outsiderSocket = await ConnectAsync(host, stranger, ct);
         object[] join = [trip.Id, sessionId];
-        Assert.True((await InvokeAsync(memberSocket, "1", "JoinTrip", join, ct)).TryGetProperty("error", out _));
+        Assert.True((await InvokeAsync(memberSocket, "1", "JoinTrip", join, ct, elapsed)).TryGetProperty("error", out _));
         Assert.True((await InvokeAsync(outsiderSocket, "1", "JoinTrip", join, ct)).TryGetProperty("error", out _));
         Assert.Equal(HttpStatusCode.Forbidden, (await outsiderClient.PutAsJsonAsync(consentPath, new { isGranted = true }, ct)).StatusCode);
 
@@ -130,7 +132,8 @@ public sealed class M3FinalBackendFlowTests
         client.ConfigureRequest = request => request.Headers["X-Test-User"] = user;
         var socket = await client.ConnectAsync(new Uri("ws://localhost/hubs/trip-location"), ct);
         await SendAsync(socket, new { protocol = "json", version = 1 }, ct);
-        await ReceiveAsync(socket, _ => true, ct);
+        await ReceiveAsync(socket, item => item.ValueKind == JsonValueKind.Object &&
+            !item.EnumerateObject().Any(), ct);
         return socket;
     }
 
@@ -138,29 +141,39 @@ public sealed class M3FinalBackendFlowTests
         socket.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message) + '\u001e')),
             WebSocketMessageType.Text, true, ct);
 
-    private static async Task<JsonElement> InvokeAsync(WebSocket socket, string id, string target, object[] arguments, CancellationToken ct)
+    private static async Task<JsonElement> InvokeAsync(WebSocket socket, string id, string target, object[] arguments, CancellationToken ct, Stopwatch? elapsed = null)
     {
         await SendAsync(socket, new { type = 1, invocationId = id, target, arguments }, ct);
         return await ReceiveAsync(socket, item => item.TryGetProperty("invocationId", out var invocation) &&
-            invocation.GetString() == id, ct);
+            invocation.GetString() == id, ct, elapsed);
     }
 
-    private static async Task<JsonElement> ReceiveAsync(WebSocket socket, Func<JsonElement, bool> match, CancellationToken ct)
+    private static async Task<JsonElement> ReceiveAsync(WebSocket socket, Func<JsonElement, bool> match, CancellationToken ct, Stopwatch? elapsed = null)
     {
         var buffer = new byte[4096];
+        var observed = new List<string>();
         while (true)
         {
             using var message = new MemoryStream();
             WebSocketReceiveResult received;
             do
             {
-                received = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
+                try
+                {
+                    received = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw new Xunit.Sdk.XunitException(
+                        $"Timed out waiting for a SignalR frame after {elapsed?.Elapsed}. Token canceled: {ct.IsCancellationRequested}. Observed: {string.Join(" | ", observed)}");
+                }
                 Assert.Equal(WebSocketMessageType.Text, received.MessageType);
                 message.Write(buffer, 0, received.Count);
             } while (!received.EndOfMessage);
 
             foreach (var frame in Encoding.UTF8.GetString(message.ToArray()).Split('\u001e', StringSplitOptions.RemoveEmptyEntries))
             {
+                observed.Add(frame);
                 using var json = JsonDocument.Parse(frame);
                 if (match(json.RootElement))
                     return json.RootElement.Clone();
@@ -170,14 +183,28 @@ public sealed class M3FinalBackendFlowTests
 
     private sealed class Host(string owner, string friend, string peer) : WebApplicationFactory<Program>
     {
-        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.ConfigureTestServices(services =>
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
-            services.AddAuthentication("M3Flow").AddScheme<AuthenticationSchemeOptions, TestAuth>("M3Flow", _ => { });
-            services.RemoveAll<ITripInviteEligibilityAccess>();
-            services.AddSingleton<ITripInviteEligibilityAccess>(new Friends(owner, friend, peer));
-            services.RemoveAll<ITripLiveLocationAccessReader>();
-            services.AddSingleton<ITripLiveLocationAccessReader, TestAccess>();
-        });
+            builder.ConfigureLogging(logging =>
+            {
+                // Windows EventLog writes can fail in the test runner when it
+                // lacks source permissions. A logging failure inside SignalR
+                // would otherwise prevent the invocation completion frame.
+                logging.ClearProviders();
+                logging.AddConsole();
+                // Keep warnings and exceptions visible without verbose request
+                // diagnostics that could expose test identity or payload data.
+                logging.SetMinimumLevel(LogLevel.Warning);
+            });
+            builder.ConfigureTestServices(services =>
+            {
+                services.AddAuthentication("M3Flow").AddScheme<AuthenticationSchemeOptions, TestAuth>("M3Flow", _ => { });
+                services.RemoveAll<ITripInviteEligibilityAccess>();
+                services.AddSingleton<ITripInviteEligibilityAccess>(new Friends(owner, friend, peer));
+                services.RemoveAll<ITripLiveLocationAccessReader>();
+                services.AddSingleton<ITripLiveLocationAccessReader, TestAccess>();
+            });
+        }
     }
 
     private sealed class Friends(string owner, string friend, string peer) : ITripInviteEligibilityAccess
