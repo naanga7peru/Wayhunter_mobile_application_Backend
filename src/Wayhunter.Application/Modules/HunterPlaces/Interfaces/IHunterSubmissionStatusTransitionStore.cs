@@ -11,7 +11,7 @@ namespace Wayhunter.Application.Modules.HunterPlaces.Interfaces;
 ///
 /// Production implementations MUST atomically:
 /// 1. Check the expected current submission status.
-/// 2. Update the submission to the next status.
+/// 2. Update the submission status (and SubmittedAtUtc for submission).
 /// 3. Revoke its unconsumed capture sessions.
 ///
 /// These operations must use a consistent transaction
@@ -26,6 +26,11 @@ namespace Wayhunter.Application.Modules.HunterPlaces.Interfaces;
 /// </summary>
 public interface IHunterSubmissionStatusTransitionStore
 {
+    Task<bool> TrySubmitDraftAndRevokeCaptureSessionsAsync(
+        Guid submissionId,
+        DateTimeOffset submittedAtUtc,
+        CancellationToken cancellationToken = default);
+
     Task<bool> TryTransitionAndRevokeCaptureSessionsAsync(
         Guid submissionId,
         HunterSubmissionStatus expectedStatus,

@@ -7,6 +7,10 @@ namespace Wayhunter.Application.Modules.HunterPlaces.Validation;
 
 public static class HunterSubmitRequestValidator
 {
+    private const int PlaceNameMaxLength = 200;
+    private const int DescriptionMaxLength = 2000;
+    private const int DistrictMaxLength = 100;
+
     public static IReadOnlyList<string> Validate(
         HunterSubmitRequestDto request)
     {
@@ -19,12 +23,25 @@ public static class HunterSubmitRequestValidator
         {
             errors.Add("Place name is required.");
         }
+        else if (request.PlaceName.Length > PlaceNameMaxLength)
+        {
+            errors.Add("Place name exceeds the supported length.");
+        }
+
+        if (request.Description?.Length > DescriptionMaxLength)
+        {
+            errors.Add("Description exceeds the supported length.");
+        }
 
         // Claimed district must be supplied.
         // The server must independently verify the district.
         if (string.IsNullOrWhiteSpace(request.ClaimedDistrict))
         {
             errors.Add("District is required.");
+        }
+        else if (request.ClaimedDistrict.Length > DistrictMaxLength)
+        {
+            errors.Add("District exceeds the supported length.");
         }
 
         // Latitude must be between -90 and 90.

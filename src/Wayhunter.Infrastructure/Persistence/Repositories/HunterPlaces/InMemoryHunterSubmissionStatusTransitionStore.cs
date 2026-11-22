@@ -65,7 +65,8 @@ public sealed class InMemoryHunterSubmissionStatusTransitionStore :
                 {
                     SubmissionId = submission.Id,
                     OwnerUserId = submission.UserId,
-                    Status = submission.Status
+                    Status = submission.Status,
+                    SubmittedAtUtc = submission.SubmittedAtUtc
                 }))
             {
                 throw new ArgumentException(
@@ -92,6 +93,41 @@ public sealed class InMemoryHunterSubmissionStatusTransitionStore :
         }
     }
 
+    public Task<bool> TrySubmitDraftAndRevokeCaptureSessionsAsync(
+        Guid submissionId,
+        DateTimeOffset submittedAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (submissionId == Guid.Empty ||
+            submittedAtUtc == default ||
+            submittedAtUtc.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentException(
+                "A submission ID and UTC submission time are required.");
+        }
+
+        lock (_gate)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!_submissions.TryGetValue(submissionId, out var snapshot) ||
+                snapshot.Status != HunterSubmissionStatus.Draft)
+            {
+                return Task.FromResult(false);
+            }
+
+            _submissions[submissionId] = snapshot with
+            {
+                Status = HunterSubmissionStatus.PendingReview,
+                SubmittedAtUtc = submittedAtUtc
+            };
+            RevokeSubmissionCore(submissionId);
+            return Task.FromResult(true);
+        }
+    }
+
     public Task<bool> TryTransitionAndRevokeCaptureSessionsAsync(
         Guid submissionId,
         HunterSubmissionStatus expectedStatus,
@@ -111,6 +147,14 @@ public sealed class InMemoryHunterSubmissionStatusTransitionStore :
         {
             throw new ArgumentException(
                 "Unsupported Hunter status transition.",
+                nameof(nextStatus));
+        }
+
+        if (expectedStatus == HunterSubmissionStatus.Draft &&
+            nextStatus == HunterSubmissionStatus.PendingReview)
+        {
+            throw new ArgumentException(
+                "Use the submission transition so SubmittedAtUtc is recorded.",
                 nameof(nextStatus));
         }
 

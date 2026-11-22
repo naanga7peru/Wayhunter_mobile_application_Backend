@@ -36,9 +36,30 @@ public sealed class HunterSubmissionStatusTransitionServiceTests
             private set;
         }
 
+        public DateTimeOffset? LastSubmittedAtUtc { get; private set; }
+
         public bool Result { get; set; } = true;
 
         public Exception? Failure { get; set; }
+
+        public Task<bool> TrySubmitDraftAndRevokeCaptureSessionsAsync(
+            Guid submissionId,
+            DateTimeOffset submittedAtUtc,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CallCount++;
+            LastSubmissionId = submissionId;
+            LastExpectedStatus = HunterSubmissionStatus.Draft;
+            LastNextStatus = HunterSubmissionStatus.PendingReview;
+            LastSubmittedAtUtc = submittedAtUtc;
+            LastCancellationToken = cancellationToken;
+
+            if (Failure is not null)
+                return Task.FromException<bool>(Failure);
+
+            return Task.FromResult(Result);
+        }
 
         public Task<bool> TryTransitionAndRevokeCaptureSessionsAsync(
             Guid submissionId,
@@ -67,9 +88,13 @@ public sealed class HunterSubmissionStatusTransitionServiceTests
     public async Task SubmitDraft_ShouldRequestAtomicTransition()
     {
         var store = new RecordingTransitionStore();
+        var submittedAt = new DateTimeOffset(
+            2026, 11, 22, 10, 0, 0, TimeSpan.Zero);
 
         var service =
-            new HunterSubmissionStatusTransitionService(store);
+            new HunterSubmissionStatusTransitionService(
+                store,
+                new FixedTimeProvider(submittedAt));
 
         var submissionId = Guid.NewGuid();
 
@@ -87,6 +112,12 @@ public sealed class HunterSubmissionStatusTransitionServiceTests
         Assert.Equal(
             HunterSubmissionStatus.PendingReview,
             store.LastNextStatus);
+        Assert.Equal(submittedAt, store.LastSubmittedAtUtc);
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 
     [Theory]

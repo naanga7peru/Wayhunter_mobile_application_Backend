@@ -259,6 +259,27 @@ public sealed class M4SqlIntegrationVerificationTests
             session.Id);
     }
 
+    private static async Task MarkPendingReviewAsync(
+        Guid submissionId,
+        DateTimeOffset submittedAtUtc)
+    {
+        await using var db = CreateContext();
+        var updated = await db.HunterSubmissions
+            .Where(x => x.Id == submissionId &&
+                        x.Status == HunterSubmissionStatus.Draft)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(
+                    x => x.Status,
+                    HunterSubmissionStatus.PendingReview)
+                .SetProperty(x => x.SubmittedAtUtc, submittedAtUtc));
+
+        if (updated != 1)
+        {
+            throw new InvalidOperationException(
+                "Could not prepare the isolated pending-review fixture.");
+        }
+    }
+
     // =================================================
     // Cleanup Test Data
     // =================================================
@@ -348,6 +369,7 @@ public sealed class M4SqlIntegrationVerificationTests
     public async Task StatusTransition_ShouldRevokeUnusedSessions()
     {
         var seed = await SeedAsync();
+        var submittedAtUtc = DateTimeOffset.UtcNow;
 
         try
         {
@@ -357,10 +379,9 @@ public sealed class M4SqlIntegrationVerificationTests
                     new SqlHunterSubmissionStatusTransitionStore(db);
 
                 var changed = await store
-                    .TryTransitionAndRevokeCaptureSessionsAsync(
+                    .TrySubmitDraftAndRevokeCaptureSessionsAsync(
                         seed.SubmissionId,
-                        HunterSubmissionStatus.Draft,
-                        HunterSubmissionStatus.PendingReview);
+                        submittedAtUtc);
 
                 Assert.True(changed);
             }
@@ -372,6 +393,11 @@ public sealed class M4SqlIntegrationVerificationTests
                 .Where(x => x.Id == seed.SubmissionId)
                 .Select(x => x.Status)
                 .SingleAsync();
+            var persistedSubmittedAtUtc = await verifyDb.HunterSubmissions
+                .AsNoTracking()
+                .Where(x => x.Id == seed.SubmissionId)
+                .Select(x => x.SubmittedAtUtc)
+                .SingleAsync();
 
             var revoked = await verifyDb.HunterCaptureSessions
                 .AsNoTracking()
@@ -382,6 +408,7 @@ public sealed class M4SqlIntegrationVerificationTests
             Assert.Equal(
                 HunterSubmissionStatus.PendingReview,
                 status);
+            Assert.Equal(submittedAtUtc, persistedSubmittedAtUtc);
 
             Assert.True(revoked);
         }
@@ -413,11 +440,9 @@ public sealed class M4SqlIntegrationVerificationTests
                     new SqlHunterSubmissionStatusTransitionStore(db);
 
                 await Assert.ThrowsAsync<InvalidOperationException>(
-                    () => store
-                        .TryTransitionAndRevokeCaptureSessionsAsync(
-                            seed.SubmissionId,
-                            HunterSubmissionStatus.Draft,
-                            HunterSubmissionStatus.PendingReview));
+                    () => store.TrySubmitDraftAndRevokeCaptureSessionsAsync(
+                        seed.SubmissionId,
+                        DateTimeOffset.UtcNow));
             }
 
             Assert.True(interceptor.StatusUpdateObserved);
@@ -450,6 +475,124 @@ public sealed class M4SqlIntegrationVerificationTests
             await CleanupAsync(
                 seed.SubmissionId,
                 seed.UserId);
+        }
+    }
+
+    // =================================================
+    // TEST 04 - Atomic Admin Review and Retry Protection
+    // =================================================
+
+    [M4SqlIntegrationFact]
+    public async Task Review_ShouldCommitDecisionStatusAndSessionRevocationOnce()
+    {
+        var seed = await SeedAsync();
+        var reviewedAtUtc = DateTimeOffset.UtcNow;
+        var submittedAtUtc = reviewedAtUtc.AddMinutes(-1);
+        var decision = new HunterReviewDecision
+        {
+            Id = Guid.NewGuid(),
+            HunterSubmissionId = seed.SubmissionId,
+            ReviewerUserId = Guid.NewGuid().ToString("D"),
+            ResultingStatus = HunterSubmissionStatus.Approved,
+            ReviewedAtUtc = reviewedAtUtc
+        };
+
+        try
+        {
+            await MarkPendingReviewAsync(
+                seed.SubmissionId,
+                submittedAtUtc);
+
+            await using (var db = CreateContext())
+            {
+                var store = new SqlHunterReviewStore(db);
+                var response = await store.TryReviewPendingAsync(decision);
+
+                Assert.NotNull(response);
+                Assert.Equal(
+                    HunterSubmissionStatus.Approved,
+                    response.Status);
+            }
+
+            await using var verifyDb = CreateContext();
+            var submission = await verifyDb.HunterSubmissions
+                .AsNoTracking()
+                .SingleAsync(x => x.Id == seed.SubmissionId);
+            var reviewCount = await verifyDb.HunterReviewDecisions
+                .AsNoTracking()
+                .CountAsync(x => x.HunterSubmissionId == seed.SubmissionId);
+            var session = await verifyDb.HunterCaptureSessions
+                .AsNoTracking()
+                .SingleAsync(x => x.Id == seed.SessionId);
+
+            Assert.Equal(HunterSubmissionStatus.Approved, submission.Status);
+            Assert.Equal(1, reviewCount);
+            Assert.True(session.IsRevoked);
+
+            await using var retryDb = CreateContext();
+            var retryStore = new SqlHunterReviewStore(retryDb);
+            Assert.Null(await retryStore.TryReviewPendingAsync(decision));
+            Assert.Equal(1, await retryDb.HunterReviewDecisions
+                .CountAsync(x => x.HunterSubmissionId == seed.SubmissionId));
+        }
+        finally
+        {
+            await CleanupAsync(seed.SubmissionId, seed.UserId);
+        }
+    }
+
+    // =================================================
+    // TEST 05 - Review Rollback on Session Revocation Failure
+    // =================================================
+
+    [M4SqlIntegrationFact]
+    public async Task ReviewRevocationFailure_ShouldRollbackDecisionAndStatus()
+    {
+        var seed = await SeedAsync();
+        var reviewedAtUtc = DateTimeOffset.UtcNow;
+
+        try
+        {
+            await MarkPendingReviewAsync(
+                seed.SubmissionId,
+                reviewedAtUtc.AddMinutes(-1));
+
+            var interceptor = new FailHunterReviewRevocationInterceptor();
+            await using (var db = CreateContext(interceptor))
+            {
+                var store = new SqlHunterReviewStore(db);
+                await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    store.TryReviewPendingAsync(new HunterReviewDecision
+                    {
+                        Id = Guid.NewGuid(),
+                        HunterSubmissionId = seed.SubmissionId,
+                        ReviewerUserId = Guid.NewGuid().ToString("D"),
+                        ResultingStatus = HunterSubmissionStatus.Approved,
+                        ReviewedAtUtc = reviewedAtUtc
+                    }));
+            }
+
+            Assert.True(interceptor.StatusUpdateObserved);
+            Assert.True(interceptor.RevocationBlocked);
+
+            await using var verifyDb = CreateContext();
+            Assert.Equal(
+                HunterSubmissionStatus.PendingReview,
+                await verifyDb.HunterSubmissions
+                    .Where(x => x.Id == seed.SubmissionId)
+                    .Select(x => x.Status)
+                    .SingleAsync());
+            Assert.Empty(await verifyDb.HunterReviewDecisions
+                .Where(x => x.HunterSubmissionId == seed.SubmissionId)
+                .ToArrayAsync());
+            Assert.False(await verifyDb.HunterCaptureSessions
+                .Where(x => x.Id == seed.SessionId)
+                .Select(x => x.IsRevoked)
+                .SingleAsync());
+        }
+        finally
+        {
+            await CleanupAsync(seed.SubmissionId, seed.UserId);
         }
     }
 
@@ -501,6 +644,41 @@ public sealed class M4SqlIntegrationVerificationTests
 
                 throw new InvalidOperationException(
                     "Injected M4 capture-session revocation failure.");
+            }
+
+            return new ValueTask<InterceptionResult<int>>(result);
+        }
+    }
+
+    private sealed class FailHunterReviewRevocationInterceptor
+        : DbCommandInterceptor
+    {
+        public bool StatusUpdateObserved { get; private set; }
+        public bool RevocationBlocked { get; private set; }
+
+        public override ValueTask<InterceptionResult<int>>
+            NonQueryExecutingAsync(
+                DbCommand command,
+                CommandEventData eventData,
+                InterceptionResult<int> result,
+                CancellationToken cancellationToken = default)
+        {
+            var sql = command.CommandText;
+            if (sql.Contains("UPDATE", StringComparison.OrdinalIgnoreCase) &&
+                sql.Contains("Hunter_Submissions", StringComparison.OrdinalIgnoreCase) &&
+                sql.Contains("Status", StringComparison.OrdinalIgnoreCase))
+            {
+                StatusUpdateObserved = true;
+            }
+
+            if (StatusUpdateObserved &&
+                sql.Contains("UPDATE", StringComparison.OrdinalIgnoreCase) &&
+                sql.Contains("Hunter_CaptureSessions", StringComparison.OrdinalIgnoreCase) &&
+                sql.Contains("IsRevoked", StringComparison.OrdinalIgnoreCase))
+            {
+                RevocationBlocked = true;
+                throw new InvalidOperationException(
+                    "Injected M4 review session-revocation failure.");
             }
 
             return new ValueTask<InterceptionResult<int>>(result);

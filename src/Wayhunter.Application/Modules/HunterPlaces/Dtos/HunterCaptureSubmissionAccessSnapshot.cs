@@ -17,4 +17,6 @@ public sealed record HunterCaptureSubmissionAccessSnapshot
     public string OwnerUserId { get; init; } = string.Empty;
 
     public HunterSubmissionStatus Status { get; init; }
+
+    public DateTimeOffset? SubmittedAtUtc { get; init; }
 }

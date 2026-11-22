@@ -39,6 +39,42 @@ public sealed class SqlHunterSubmissionStatusTransitionStore
             HunterSubmissionStatus nextStatus,
             CancellationToken cancellationToken = default)
     {
+        return await TransitionAndRevokeAsync(
+            submissionId,
+            expectedStatus,
+            nextStatus,
+            submittedAtUtc: null,
+            cancellationToken);
+    }
+
+    public Task<bool> TrySubmitDraftAndRevokeCaptureSessionsAsync(
+        Guid submissionId,
+        DateTimeOffset submittedAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        if (submittedAtUtc == default ||
+            submittedAtUtc.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentException(
+                "A UTC submission time is required.",
+                nameof(submittedAtUtc));
+        }
+
+        return TransitionAndRevokeAsync(
+            submissionId,
+            HunterSubmissionStatus.Draft,
+            HunterSubmissionStatus.PendingReview,
+            submittedAtUtc,
+            cancellationToken);
+    }
+
+    private async Task<bool> TransitionAndRevokeAsync(
+        Guid submissionId,
+        HunterSubmissionStatus expectedStatus,
+        HunterSubmissionStatus nextStatus,
+        DateTimeOffset? submittedAtUtc,
+        CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
 
         if (submissionId == Guid.Empty)
@@ -54,6 +90,15 @@ public sealed class SqlHunterSubmissionStatusTransitionStore
         {
             throw new ArgumentException(
                 "Unsupported Hunter status transition.",
+                nameof(nextStatus));
+        }
+
+        if (expectedStatus == HunterSubmissionStatus.Draft &&
+            nextStatus == HunterSubmissionStatus.PendingReview &&
+            !submittedAtUtc.HasValue)
+        {
+            throw new ArgumentException(
+                "Use the submission transition so SubmittedAtUtc is recorded.",
                 nameof(nextStatus));
         }
 
@@ -78,12 +123,21 @@ public sealed class SqlHunterSubmissionStatusTransitionStore
         }
 
         // Update only when the expected status matches.
-        var updated = await _db
+        var update = _db
             .Set<HunterSubmission>()
             .Where(x =>
                 x.Id == submissionId &&
-                x.Status == expectedStatus)
-            .ExecuteUpdateAsync(
+                x.Status == expectedStatus);
+
+        var updated = submittedAtUtc.HasValue
+            ? await update.ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(x => x.Status, nextStatus)
+                    .SetProperty(
+                        x => x.SubmittedAtUtc,
+                        submittedAtUtc.Value),
+                cancellationToken)
+            : await update.ExecuteUpdateAsync(
                 setters => setters.SetProperty(
                     x => x.Status,
                     nextStatus),

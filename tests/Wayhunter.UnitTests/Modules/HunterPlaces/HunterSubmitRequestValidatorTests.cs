@@ -35,6 +35,36 @@ public sealed class HunterSubmitRequestValidatorTests
         Assert.Empty(errors);
     }
 
+    [Theory]
+    [InlineData(201, null, null)]
+    [InlineData(1, 2001, null)]
+    [InlineData(1, null, 101)]
+    public void TextLengthsBeyondPersistedColumnLimits_ShouldFail(
+        int placeNameLength,
+        int? descriptionLength,
+        int? districtLength)
+    {
+        var request = CreateValidRequest();
+        request.PlaceName = new string('p', placeNameLength);
+        if (descriptionLength.HasValue)
+            request.Description = new string('d', descriptionLength.Value);
+        if (districtLength.HasValue)
+            request.ClaimedDistrict = new string('x', districtLength.Value);
+
+        Assert.NotEmpty(HunterSubmitRequestValidator.Validate(request));
+    }
+
+    [Fact]
+    public void TextLengthsAtPersistedColumnLimits_ShouldPass()
+    {
+        var request = CreateValidRequest();
+        request.PlaceName = new string('p', 200);
+        request.Description = new string('d', 2000);
+        request.ClaimedDistrict = new string('x', 100);
+
+        Assert.Empty(HunterSubmitRequestValidator.Validate(request));
+    }
+
     [Fact]
     public void EmptyPlaceName_ShouldFail()
     {
