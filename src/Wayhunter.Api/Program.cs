@@ -16,6 +16,8 @@ using Wayhunter.Api.Services.TripSafety;
 using Wayhunter.Application.Modules.HunterPlaces.Interfaces;
 using Wayhunter.Application.Modules.HunterPlaces.Services;
 using Wayhunter.Infrastructure.Persistence.Repositories.HunterPlaces;
+using Wayhunter.Api.Services.HunterPlaces;
+using Wayhunter.Application.Modules.HunterPlaces.Commands;
 
 using Wayhunter.Application.Modules.TravelPlanning.Interfaces;
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
@@ -100,6 +102,22 @@ if (enableSharedAuthentication)
         IHunterSubmissionStatusReader,
         SqlHunterSubmissionStatusReader>();
     builder.Services.AddScoped<HunterSubmissionStatusService>();
+
+    // M4 Batch 2 authenticated capture-session runtime.
+    builder.Services.AddScoped<
+        IHunterCaptureSubmissionAccessReader,
+        SqlHunterCaptureSubmissionAccessReader>();
+    builder.Services.AddScoped<
+        IHunterCaptureSessionStore,
+        SqlHunterCaptureSessionStore>();
+    builder.Services.AddScoped<HunterCaptureSubmissionOwnershipService>();
+    builder.Services.AddScoped<HunterCaptureSessionIdentityResolutionService>();
+    builder.Services.AddScoped<HunterCaptureSessionService>();
+    builder.Services.AddScoped<HunterStartCaptureSessionHandler>();
+    builder.Services.AddScoped<HunterStartAuthorizedCaptureSessionHandler>();
+    builder.Services.AddScoped<
+        IHunterCaptureSessionIdentityResolver,
+        TrustedHunterCaptureSessionIdentityResolver>();
 
     builder.Services.AddWayhunterSessionAuthentication(
         builder.Configuration);

@@ -10,9 +10,12 @@ using Swashbuckle.AspNetCore.Swagger;
 using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Controllers.Mobile.HunterPlaces;
 using Wayhunter.Api.Extensions;
+using Wayhunter.Api.Services.HunterPlaces;
 using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Application.Modules.HunterPlaces.Dtos;
 using Wayhunter.Application.Modules.HunterPlaces.Interfaces;
+using Wayhunter.Application.Modules.HunterPlaces.Commands;
+using Wayhunter.Application.Modules.HunterPlaces.Services;
 using Wayhunter.Domain.Modules.HunterPlaces.Entities;
 using Wayhunter.Domain.Modules.HunterPlaces.Enums;
 using Wayhunter.Domain.Modules.IdentitySocial.Entities;
@@ -60,6 +63,18 @@ public sealed class HunterSubmissionsHttpTests
                 "Sensitive database exception details.");
     }
 
+    private sealed class FailingCaptureSessionStore : IHunterCaptureSessionStore
+    {
+        public Task<Guid> CreateAsync(Guid hunterId, Guid hunterSubmissionId,
+            DateTimeOffset issuedAtUtc, DateTimeOffset expiresAtUtc,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Capture provider unavailable.");
+
+        public Task<bool> TryConsumeAsync(Guid captureSessionId, Guid authenticatedHunterId,
+            Guid hunterSubmissionId, DateTimeOffset serverReceivedAtUtc,
+            CancellationToken cancellationToken = default) => Task.FromResult(false);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         private const string Route = "/api/mobile/hunter/submissions/";
@@ -72,7 +87,9 @@ public sealed class HunterSubmissionsHttpTests
 
         public Fixture(
             bool invalidateSessionAccount = false,
-            bool failStatusRead = false)
+            bool failStatusRead = false,
+            bool failCapture = false,
+            HunterSubmissionStatus submissionStatus = HunterSubmissionStatus.Draft)
         {
             var now = DateTimeOffset.UtcNow;
             Owner = UserAccount.RegisterPending(
@@ -107,6 +124,21 @@ public sealed class HunterSubmissionsHttpTests
                         provider.GetRequiredService<WayhunterSharedDbContext>()));
             builder.Services.AddScoped<
                 Wayhunter.Application.Modules.HunterPlaces.Services.HunterSubmissionStatusService>();
+            builder.Services.AddScoped<IHunterCaptureSubmissionAccessReader,
+                SqlHunterCaptureSubmissionAccessReader>();
+            if (failCapture)
+                builder.Services.AddScoped<IHunterCaptureSessionStore, FailingCaptureSessionStore>();
+            else
+                builder.Services.AddSingleton<IHunterCaptureSessionStore,
+                    InMemoryHunterCaptureSessionStore>();
+            builder.Services.AddSingleton(TimeProvider.System);
+            builder.Services.AddScoped<HunterCaptureSubmissionOwnershipService>();
+            builder.Services.AddScoped<HunterCaptureSessionIdentityResolutionService>();
+            builder.Services.AddScoped<HunterCaptureSessionService>();
+            builder.Services.AddScoped<HunterStartCaptureSessionHandler>();
+            builder.Services.AddScoped<HunterStartAuthorizedCaptureSessionHandler>();
+            builder.Services.AddScoped<IHunterCaptureSessionIdentityResolver,
+                TrustedHunterCaptureSessionIdentityResolver>();
             builder.Services.AddWayhunterSessionAuthentication(builder.Configuration);
 
             _app = builder.Build();
@@ -128,7 +160,7 @@ public sealed class HunterSubmissionsHttpTests
                 District = "Jaffna",
                 Latitude = 9.66845,
                 Longitude = 80.0074,
-                Status = HunterSubmissionStatus.Draft,
+                Status = submissionStatus,
                 CreatedAtUtc = now
             };
             db.Users.Add(Owner);
@@ -170,6 +202,20 @@ public sealed class HunterSubmissionsHttpTests
             .GetSwagger("v1")
             .Paths.Keys;
 
+        public bool HasOpenApiPost(string path)
+        {
+            var paths = _app.Services
+                .GetRequiredService<ISwaggerProvider>()
+                .GetSwagger("v1")
+                .Paths;
+            return paths.TryGetValue(path, out var pathItem) &&
+                pathItem?.Operations?.Keys.Any(operation =>
+                    string.Equals(operation.ToString(), "Post", StringComparison.OrdinalIgnoreCase)) == true;
+        }
+
+        public T GetService<T>() where T : notnull =>
+            _app.Services.GetRequiredService<T>();
+
         public async ValueTask DisposeAsync()
         {
             _client.Dispose();
@@ -202,6 +248,16 @@ public sealed class HunterSubmissionsHttpTests
         Assert.Contains(
             "/api/mobile/hunter/submissions/{submissionId}",
             fixture.OpenApiPaths);
+    }
+
+    [Fact]
+    public async Task ApprovedPostRoute_IsPublishedToOpenApiDiscovery()
+    {
+        await using var fixture = new Fixture();
+
+        const string path = "/api/mobile/hunter/submissions/{submissionId}/capture-sessions";
+        Assert.Contains(path, fixture.OpenApiPaths);
+        Assert.True(fixture.HasOpenApiPost(path));
     }
 
     [Fact]
@@ -262,5 +318,120 @@ public sealed class HunterSubmissionsHttpTests
         Assert.DoesNotContain("Sensitive database", error.Message);
         Assert.DoesNotContain("Sensitive database",
             await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Owner_CreatesCaptureSessionAndReturns201()
+    {
+        await using var fixture = new Fixture();
+
+        var response = await fixture.Client.PostAsync(
+            fixture.Url() + "/capture-sessions", content: null);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var result = await response.Content
+            .ReadFromJsonAsync<HunterStartCaptureSessionResponseDto>();
+        Assert.NotNull(result);
+        Assert.NotEqual(Guid.Empty, result.CaptureSessionId);
+        Assert.Equal(fixture.SubmissionId, result.HunterSubmissionId);
+    }
+
+    [Fact]
+    public async Task AnonymousCaptureCaller_Returns401()
+    {
+        await using var fixture = new Fixture();
+        fixture.Client.DefaultRequestHeaders.Authorization = null;
+
+        var response = await fixture.Client.PostAsync(
+            fixture.Url() + "/capture-sessions", content: null);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MissingAndForeignCaptureSubmissions_ReturnIdentical404()
+    {
+        await using var fixture = new Fixture();
+        var missing = await fixture.Client.PostAsync(
+            fixture.Url(Guid.NewGuid()) + "/capture-sessions", null);
+        var foreign = await fixture.Client.PostAsync(
+            fixture.Url(fixture.ForeignSubmissionId) + "/capture-sessions", null);
+
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, foreign.StatusCode);
+        var missingError = await missing.Content.ReadFromJsonAsync<ApiErrorResponse>();
+        var foreignError = await foreign.Content.ReadFromJsonAsync<ApiErrorResponse>();
+        Assert.Equal(missingError?.Code, foreignError?.Code);
+        Assert.Equal(missingError?.Message, foreignError?.Message);
+    }
+
+    [Theory]
+    [InlineData(HunterSubmissionStatus.PendingReview)]
+    [InlineData(HunterSubmissionStatus.Held)]
+    [InlineData(HunterSubmissionStatus.Approved)]
+    [InlineData(HunterSubmissionStatus.Rejected)]
+    public async Task NonDraftOwnedSubmission_Returns409(
+        HunterSubmissionStatus submissionStatus)
+    {
+        await using var fixture = new Fixture(submissionStatus: submissionStatus);
+
+        var response = await fixture.Client.PostAsync(
+            fixture.Url() + "/capture-sessions", null);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UnavailableCaptureProvider_ReturnsSafe503()
+    {
+        await using var fixture = new Fixture(failCapture: true);
+
+        var response = await fixture.Client.PostAsync(
+            fixture.Url() + "/capture-sessions", null);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<ApiErrorResponse>();
+        Assert.Equal("hunter_capture_unavailable", error?.Code);
+        Assert.DoesNotContain("provider", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task InactiveTrustedAccount_IsDeniedForCaptureSession()
+    {
+        await using var fixture = new Fixture(invalidateSessionAccount: true);
+
+        var response = await fixture.Client.PostAsync(
+            fixture.Url() + "/capture-sessions", null);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreatedSessionRetainsTenMinuteExpiryAndSingleUse()
+    {
+        await using var fixture = new Fixture();
+        var response = await fixture.Client.PostAsync(
+            fixture.Url() + "/capture-sessions", null);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var session = await response.Content
+            .ReadFromJsonAsync<HunterStartCaptureSessionResponseDto>();
+        Assert.NotNull(session);
+
+        var store = fixture.GetService<IHunterCaptureSessionStore>();
+        var hunterId = Guid.Parse(fixture.Owner.UserId);
+        var acceptedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+        Assert.True(await store.TryConsumeAsync(
+            session.CaptureSessionId, hunterId, fixture.SubmissionId, acceptedAt));
+        Assert.False(await store.TryConsumeAsync(
+            session.CaptureSessionId, hunterId, fixture.SubmissionId, acceptedAt));
+
+        var expiredResponse = await fixture.Client.PostAsync(
+            fixture.Url() + "/capture-sessions", null);
+        var expiredSession = await expiredResponse.Content
+            .ReadFromJsonAsync<HunterStartCaptureSessionResponseDto>();
+        Assert.NotNull(expiredSession);
+        Assert.False(await store.TryConsumeAsync(
+            expiredSession.CaptureSessionId, hunterId, fixture.SubmissionId,
+            DateTimeOffset.UtcNow.AddMinutes(11)));
     }
 }
