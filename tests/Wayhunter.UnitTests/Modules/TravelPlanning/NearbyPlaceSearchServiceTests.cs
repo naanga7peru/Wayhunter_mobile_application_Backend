@@ -52,33 +52,32 @@ public sealed class NearbyPlaceSearchServiceTests
         }
     }
 
-    [Fact]
-    public async Task NearbyPlaces_ShouldReturnOnlyWithinOneKm()
+    [Theory]
+    [InlineData(999.9, true)]
+    [InlineData(1000.0, true)]
+    [InlineData(1000.1, false)]
+    public async Task NearbyPlaces_FiltersAtInclusiveOneKmBoundary(double meters, bool included)
     {
+        // At the equator, convert arc length to longitude using the spherical radius.
+        var longitude = meters / 6_371_000 * (180 / Math.PI);
         var fake = new FakeNearbyPlacesProvider
         {
             Response = new PlacesProviderResult(
                 true,
-                new[]
-                {
-                    Place("place-001", "Nearby Restaurant",
-                        9.664, 80.02),
-
-                    Place("place-002", "Far Restaurant",
-                        9.68, 80.02)
-                },
+                [Place("boundary-place", "Restaurant", 0, longitude)],
                 null)
         };
 
         var service = new NearbyPlaceSearchService(fake);
 
-        var result = await service.SearchAsync(ValidRequest());
+        var result = await service.SearchAsync(new(0, 0, NearbyPlaceCategory.Food));
 
         Assert.True(result.IsSuccess);
 
-        var place = Assert.Single(result.Places);
-
-        Assert.Equal("place-001", place.ProviderPlaceId);
+        if (included)
+            Assert.Equal("boundary-place", Assert.Single(result.Places).ProviderPlaceId);
+        else
+            Assert.Empty(result.Places);
     }
 
     [Fact]
