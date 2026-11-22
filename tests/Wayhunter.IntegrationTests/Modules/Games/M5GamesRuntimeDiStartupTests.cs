@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Wayhunter.Application.Modules.Games.Interfaces;
+using Wayhunter.Application.Modules.Games.Services;
 using Wayhunter.Infrastructure.Persistence.DbContexts;
 using Wayhunter.Infrastructure.Persistence.Repositories.Games;
 using Microsoft.EntityFrameworkCore;
@@ -69,9 +70,12 @@ public sealed class M5GamesRuntimeDiStartupTests
 
         var deletionRepository = scope.ServiceProvider
             .GetService<IGameDraftDeletionRepository>();
+        var publicGamesQuery = scope.ServiceProvider
+            .GetRequiredService<IAvailableGamesQueryStore>();
 
         Assert.IsType<InMemoryGameSubmissionStore>(gameRepository);
         Assert.Same(gameRepository, deletionRepository);
+        Assert.IsType<UnavailableGamesReadQueryStores>(publicGamesQuery);
         Assert.Null(scope.ServiceProvider.GetService<SqlGameRepository>());
     }
 
@@ -89,9 +93,12 @@ public sealed class M5GamesRuntimeDiStartupTests
 
         var sqlRepository = scope.ServiceProvider
             .GetRequiredService<SqlGameRepository>();
+        var publicGamesQuery = scope.ServiceProvider
+            .GetRequiredService<IAvailableGamesQueryStore>();
 
         Assert.Same(sqlRepository, gameRepository);
         Assert.Same(sqlRepository, deletionRepository);
+        Assert.IsType<SqlGamesReadRepository>(publicGamesQuery);
     }
 
     [Fact]
