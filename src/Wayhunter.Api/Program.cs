@@ -13,6 +13,9 @@ using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Api.Services.HomeAdsAnalytics;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Interfaces;
 using Wayhunter.Api.Services.TripSafety;
+using Wayhunter.Application.Modules.HunterPlaces.Interfaces;
+using Wayhunter.Application.Modules.HunterPlaces.Services;
+using Wayhunter.Infrastructure.Persistence.Repositories.HunterPlaces;
 
 using Wayhunter.Application.Modules.TravelPlanning.Interfaces;
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
@@ -90,6 +93,13 @@ if (enableSharedAuthentication)
 {
     builder.Services.AddWayhunterIdentityPersistence(
         builder.Configuration);
+
+    // The M4 status route uses the authoritative shared SQL store.
+    // No in-memory fallback is registered for runtime requests.
+    builder.Services.AddScoped<
+        IHunterSubmissionStatusReader,
+        SqlHunterSubmissionStatusReader>();
+    builder.Services.AddScoped<HunterSubmissionStatusService>();
 
     builder.Services.AddWayhunterSessionAuthentication(
         builder.Configuration);
