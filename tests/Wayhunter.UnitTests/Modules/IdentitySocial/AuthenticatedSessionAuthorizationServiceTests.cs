@@ -134,6 +134,16 @@ public sealed class AuthenticatedSessionAuthorizationServiceTests
     }
 
     [Fact]
+    public async Task DeletionRequestedAccount_IsRejected()
+    {
+        var data = Setup();
+        data.Account.RequestDeletion(DateTimeOffset.UtcNow);
+
+        Assert.Null(
+            await data.Service.AuthorizeAsync(data.Token));
+    }
+
+    [Fact]
     public async Task MissingAccount_IsRejected()
     {
         var data = Setup();

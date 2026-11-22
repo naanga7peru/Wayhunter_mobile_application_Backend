@@ -160,6 +160,20 @@ public sealed class TrustedIdentityResolutionServiceTests
     }
 
     [Fact]
+    public async Task DeletionRequestedAccount_IsRejected()
+    {
+        var account = CreateAccount();
+        account.RequestDeletion(Now.AddMinutes(10));
+        var reader = new FakeReader { Account = account };
+        var service = new TrustedIdentityResolutionService(reader);
+
+        var result = await service.ResolveActiveAccountAsync(
+            Principal(account.UserId));
+
+        Assert.Null(result);
+    }
+
+    [Fact]
     public async Task ConflictingClaims_AreRejectedWithoutLookup()
     {
         var reader = new FakeReader();
