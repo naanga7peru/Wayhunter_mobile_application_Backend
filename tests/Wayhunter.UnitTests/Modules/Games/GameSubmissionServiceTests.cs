@@ -2,11 +2,14 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Wayhunter.Application.Modules.Games.Dtos;
 using Wayhunter.Application.Modules.Games.Interfaces;
 using Wayhunter.Application.Modules.Games.Services;
 using Wayhunter.Application.Modules.IdentitySocial.Dtos;
 using Wayhunter.Domain.Modules.IdentitySocial.Entities;
+using Wayhunter.Domain.Modules.IdentitySocial.Enums;
+using Wayhunter.Infrastructure.Persistence.DbContexts;
 using Xunit;
 
 namespace Wayhunter.UnitTests.Modules.Games;
@@ -199,6 +202,58 @@ public sealed class GameSubmissionServiceTests
         Assert.Equal(0, store.CallCount);
     }
 
+    [Fact]
+    public async Task PersistedActiveButUnverifiedCreator_ShouldBeRejected()
+    {
+        var creator = UserAccount.RegisterPending(
+            "Inconsistent account",
+            "inconsistent@example.test",
+            "test-password-hash",
+            CreatedAt);
+
+        await using var db = CreateDb();
+        db.Users.Add(creator);
+        await db.SaveChangesAsync();
+        // Model a malformed/legacy persisted row. Domain constructors do not
+        // create this state, but a materialized database record can be stale.
+        db.Entry(creator).Property(x => x.Status).CurrentValue =
+            UserAccountStatus.Active;
+        await db.SaveChangesAsync();
+
+        var store = new FakeSubmissionStore();
+        var service = new GameSubmissionService(store);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.SubmitAsync(
+                Guid.NewGuid(), creator, SubmittedAt));
+
+        Assert.Equal(0, store.CallCount);
+    }
+
+    [Fact]
+    public async Task ActiveCreatorWithDeletionRequest_ShouldBeRejected()
+    {
+        var creator = NewActiveUser();
+
+        await using var db = CreateDb();
+        db.Users.Add(creator);
+        await db.SaveChangesAsync();
+        // Preserve Active to cover an inconsistent persisted snapshot where
+        // the deletion timestamp is present but status has not caught up.
+        db.Entry(creator).Property(x => x.DeletionRequestedAtUtc).CurrentValue =
+            SubmittedAt;
+        await db.SaveChangesAsync();
+
+        var store = new FakeSubmissionStore();
+        var service = new GameSubmissionService(store);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.SubmitAsync(
+                Guid.NewGuid(), creator, SubmittedAt));
+
+        Assert.Equal(0, store.CallCount);
+    }
+
     // =====================================
     // TEST 05 - INVALID GAME ID
     // =====================================
@@ -363,5 +418,13 @@ public sealed class GameSubmissionServiceTests
                 SubmittedAt));
 
         Assert.Equal(1, store.CallCount);
+    }
+
+    private static WayhunterSharedDbContext CreateDb()
+    {
+        var options = new DbContextOptionsBuilder<WayhunterSharedDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
+            .Options;
+        return new WayhunterSharedDbContext(options);
     }
 }
