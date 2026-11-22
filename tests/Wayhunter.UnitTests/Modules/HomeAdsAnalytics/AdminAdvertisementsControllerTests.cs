@@ -30,6 +30,15 @@ public sealed class AdminAdvertisementsControllerTests
 
         public int WriteCount { get; private set; }
 
+        public Task<IReadOnlyList<AdvertisementDto>> GetActiveAsync(
+            DateTimeOffset nowUtc,
+            AdvertisementPlacement? placement = null,
+            CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<AdvertisementDto> result = [];
+            return Task.FromResult(result);
+        }
+
         public Task<IReadOnlyList<AdvertisementDto>> GetAllAsync(
             CancellationToken cancellationToken = default)
         {

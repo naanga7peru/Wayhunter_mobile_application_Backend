@@ -27,6 +27,56 @@ public sealed class AdvertisementRepository
     // READ - All advertisements
     // ==========================================
 
+    public async Task<IReadOnlyList<AdvertisementDto>> GetActiveAsync(
+        DateTimeOffset nowUtc,
+        AdvertisementPlacement? placement = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (nowUtc.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentException(
+                "Advertisement query time must be UTC.",
+                nameof(nowUtc));
+        }
+
+        if (placement.HasValue &&
+            placement.Value != AdvertisementPlacement.HomeBanner &&
+            placement.Value != AdvertisementPlacement.SponsoredPoi)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(placement),
+                "Unsupported advertisement placement.");
+        }
+
+        var query = _dbContext.Advertisements
+            .AsNoTracking()
+            .Where(ad =>
+                ad.IsEnabled &&
+                ad.Status == AdvertisementStatus.Active &&
+                ad.StartAtUtc <= nowUtc &&
+                nowUtc < ad.EndAtUtc);
+
+        if (placement.HasValue)
+        {
+            query = query.Where(ad => ad.Placement == placement.Value);
+        }
+
+        return await query
+            .Select(ad => new AdvertisementDto
+            {
+                Id = ad.Id,
+                Title = ad.Title,
+                ImageUrl = ad.ImageUrl,
+                DestinationUrl = ad.DestinationUrl,
+                StartAtUtc = ad.StartAtUtc,
+                EndAtUtc = ad.EndAtUtc,
+                IsEnabled = ad.IsEnabled,
+                Placement = ad.Placement,
+                Status = ad.Status
+            })
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<AdvertisementDto>> GetAllAsync(
         CancellationToken cancellationToken = default)
     {

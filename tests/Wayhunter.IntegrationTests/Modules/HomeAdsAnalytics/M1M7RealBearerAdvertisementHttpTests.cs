@@ -63,6 +63,13 @@ public sealed class M1M7RealBearerAdvertisementHttpTests
         IAdvertisementRepository,
         IAdvertisementWriteRepository
     {
+        public Task<IReadOnlyList<AdvertisementDto>> GetActiveAsync(
+            DateTimeOffset nowUtc,
+            AdvertisementPlacement? placement = null,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException(
+                "Unauthorized request reached advertisement repository.");
+
         public Task<IReadOnlyList<AdvertisementDto>> GetAllAsync(
             CancellationToken cancellationToken = default)
             => throw new InvalidOperationException(

@@ -18,6 +18,22 @@ public sealed class ActiveAdvertisementsControllerTests
         public IReadOnlyList<AdvertisementDto> Advertisements
         { get; set; } = [];
 
+        public Task<IReadOnlyList<AdvertisementDto>> GetActiveAsync(
+            DateTimeOffset nowUtc,
+            AdvertisementPlacement? placement = null,
+            CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<AdvertisementDto> active = Advertisements
+                .Where(ad =>
+                    ad.IsEnabled &&
+                    ad.Status == AdvertisementStatus.Active &&
+                    ad.StartAtUtc <= nowUtc &&
+                    nowUtc < ad.EndAtUtc &&
+                    (!placement.HasValue || ad.Placement == placement.Value))
+                .ToArray();
+            return Task.FromResult(active);
+        }
+
         public Task<IReadOnlyList<AdvertisementDto>> GetAllAsync(
             CancellationToken cancellationToken = default)
         {
