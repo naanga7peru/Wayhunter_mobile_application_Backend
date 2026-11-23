@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -17,6 +18,7 @@ using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Application.Modules.Games.Services;
 using Wayhunter.Application.Modules.HunterPlaces.Interfaces;
 using Wayhunter.Application.Modules.HunterPlaces.Services;
+using Wayhunter.Application.Modules.HunterPlaces.Dtos;
 using Wayhunter.Domain.Modules.Games.Enums;
 using Wayhunter.Domain.Modules.HunterPlaces.Entities;
 using Wayhunter.Domain.Modules.HunterPlaces.Enums;
@@ -49,7 +51,7 @@ public sealed class M4M5OwnerReadSqlHttpTests
         var connection = Environment.GetEnvironmentVariable(ConnectionVariable);
         Assert.False(string.IsNullOrWhiteSpace(connection));
         var sql = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(connection);
-        Assert.StartsWith("Wayhunter_Test_", sql.InitialCatalog, StringComparison.OrdinalIgnoreCase);
+        Assert.Matches(@"^Wayhunter_Test_[A-Za-z0-9_-]+_[0-9a-fA-F]{32}$", sql.InitialCatalog);
         Assert.Equal(@"(localdb)\MSSQLLocalDB", sql.DataSource, ignoreCase: true);
 
         var now = DateTimeOffset.UtcNow;
@@ -69,6 +71,10 @@ public sealed class M4M5OwnerReadSqlHttpTests
         builder.Services.AddSingleton<ITrustedIdentityAccountReader>(new TestAccountReader(owner));
         builder.Services.AddScoped<IHunterSubmissionStatusReader, SqlHunterSubmissionStatusReader>();
         builder.Services.AddScoped<HunterSubmissionStatusService>();
+        builder.Services.AddScoped<IHunterDraftStore, SqlHunterDraftStore>();
+        builder.Services.AddScoped<HunterDraftService>();
+        builder.Services.AddScoped<IHunterReviewStore, SqlHunterReviewStore>();
+        builder.Services.AddScoped<IHunterReviewService, HunterReviewService>();
         builder.Services.AddScoped<IHunterCaptureSubmissionAccessReader, SqlHunterCaptureSubmissionAccessReader>();
         builder.Services.AddScoped<IHunterCaptureSessionStore, SqlHunterCaptureSessionStore>();
         builder.Services.AddScoped<HunterCaptureSubmissionOwnershipService>();
@@ -144,8 +150,51 @@ public sealed class M4M5OwnerReadSqlHttpTests
         Assert.Contains(pendingJson.RootElement.EnumerateArray(), item =>
             item.GetProperty("submissionId").GetGuid() == pendingSubmissionId);
         client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "user");
+
+        var draftBody = new HunterDraftRequestDto
+        {
+            PlaceName = "SQL created draft", ClaimedDistrict = "Jaffna",
+            Latitude = 9.66, Longitude = 80.00
+        };
+        client.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString("N"));
+        using var created = await client.PostAsJsonAsync("/api/mobile/hunter/submissions", draftBody);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var createdDto = await created.Content.ReadFromJsonAsync<Wayhunter.Application.Modules.HunterPlaces.Dtos.HunterSubmissionResponseDto>();
+        Assert.NotNull(createdDto);
+        using var replay = await client.PostAsJsonAsync("/api/mobile/hunter/submissions", draftBody);
+        Assert.Equal(HttpStatusCode.Created, replay.StatusCode);
+        var replayDto = await replay.Content.ReadFromJsonAsync<Wayhunter.Application.Modules.HunterPlaces.Dtos.HunterSubmissionResponseDto>();
+        Assert.Equal(createdDto.SubmissionId, replayDto?.SubmissionId);
+
+        draftBody.PlaceName = "SQL updated draft";
+        using var updated = await client.PutAsJsonAsync($"/api/mobile/hunter/submissions/{createdDto.SubmissionId:D}", draftBody);
+        Assert.Equal(HttpStatusCode.NoContent, updated.StatusCode);
+        await using (var verifyScope = app.Services.CreateAsyncScope())
+        {
+            var verifyDb = verifyScope.ServiceProvider.GetRequiredService<WayhunterSharedDbContext>();
+            var persisted = await verifyDb.HunterSubmissions.AsNoTracking().SingleAsync(x => x.Id == createdDto.SubmissionId);
+            Assert.Equal("SQL updated draft", persisted.PlaceName);
+            Assert.Equal(owner.UserId, persisted.UserId);
+            Assert.Equal("SQL API owner", persisted.UserNameSnapshot);
+            Assert.Single(await verifyDb.HunterRequestIdempotency.Where(x => x.ResourceId == createdDto.SubmissionId).ToArrayAsync());
+        }
+
         using var deniedPending = await client.GetAsync("/api/admin/hunter/submissions");
         Assert.Equal(HttpStatusCode.Forbidden, deniedPending.StatusCode);
+
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "admin");
+        using var rejected = await client.PostAsJsonAsync(
+            $"/api/admin/hunter/submissions/{pendingSubmissionId:D}/reject",
+            new Wayhunter.Api.Controllers.Mobile.HunterPlaces.HunterReviewActionRequest("Evidence does not meet the capture requirements."));
+        Assert.Equal(HttpStatusCode.OK, rejected.StatusCode);
+        await using (var verifyReviewScope = app.Services.CreateAsyncScope())
+        {
+            var verifyDb = verifyReviewScope.ServiceProvider.GetRequiredService<WayhunterSharedDbContext>();
+            var decision = await verifyDb.HunterReviewDecisions.AsNoTracking()
+                .SingleAsync(x => x.HunterSubmissionId == pendingSubmissionId);
+            Assert.Equal(HunterSubmissionStatus.Rejected, decision.ResultingStatus);
+            Assert.Equal("Evidence does not meet the capture requirements.", decision.Reason);
+        }
         await app.StopAsync();
     }
 

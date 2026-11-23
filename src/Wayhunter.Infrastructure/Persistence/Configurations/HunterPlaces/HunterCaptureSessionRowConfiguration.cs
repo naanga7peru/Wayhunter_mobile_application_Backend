@@ -21,6 +21,9 @@ public sealed class HunterCaptureSessionRowConfiguration
 
         builder.HasKey(x => x.Id);
 
+        builder.HasAlternateKey(x => new { x.Id, x.HunterSubmissionId })
+            .HasName("AK_Hunter_CaptureSessions_Id_Submission");
+
         builder.Property(x => x.Id)
             .ValueGeneratedNever();
 

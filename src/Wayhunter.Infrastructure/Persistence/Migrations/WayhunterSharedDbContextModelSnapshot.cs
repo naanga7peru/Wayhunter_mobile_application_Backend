@@ -93,6 +93,9 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                     b.Property<double?>("CaptureLongitude")
                         .HasColumnType("float");
 
+                    b.Property<Guid?>("CaptureSessionId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTimeOffset>("CapturedAtUtc")
                         .HasColumnType("datetimeoffset");
 
@@ -105,18 +108,52 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("HunterSubmissionId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("OwnerUserId")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
                     b.Property<string>("PrivateMediaReference")
                         .IsRequired()
                         .HasMaxLength(2048)
                         .HasColumnType("nvarchar(2048)");
+
+                    b.Property<string>("ProviderAssetIdHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("ProviderReceiptDigest")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTimeOffset?>("ProviderVerifiedAtUtc")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<DateTimeOffset>("UploadedAtUtc")
                         .HasColumnType("datetimeoffset");
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CaptureSessionId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Hunter_Evidence_CaptureSession")
+                        .HasFilter("[CaptureSessionId] IS NOT NULL");
+
+                    b.HasIndex("ProviderAssetIdHash")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Hunter_Evidence_ProviderAsset")
+                        .HasFilter("[ProviderAssetIdHash] IS NOT NULL");
+
+                    b.HasIndex("CaptureSessionId", "HunterSubmissionId");
+
                     b.HasIndex("HunterSubmissionId", "EvidenceType")
                         .HasDatabaseName("IX_Hunter_Evidence_Submission_Type");
+
+                    b.HasIndex("HunterSubmissionId", "OwnerUserId");
+
+                    b.HasIndex(new[] { "HunterSubmissionId", "EvidenceType" }, "VerifiedEvidencePerSubmissionType")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Hunter_Evidence_Verified_Submission_Type")
+                        .HasFilter("[ProviderVerifiedAtUtc] IS NOT NULL");
 
                     b.ToTable("Hunter_Evidence", null, t =>
                         {
@@ -124,7 +161,11 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_Hunter_Evidence_Duration", "[DurationSeconds] IS NULL OR [DurationSeconds] > 0");
 
+                            t.HasCheckConstraint("CK_Hunter_Evidence_ProviderHashLengths", "([ProviderAssetIdHash] IS NULL OR LEN([ProviderAssetIdHash]) = 64) AND ([ProviderReceiptDigest] IS NULL OR LEN([ProviderReceiptDigest]) = 64)");
+
                             t.HasCheckConstraint("CK_Hunter_Evidence_Type", "[EvidenceType] IN (1, 2)");
+
+                            t.HasCheckConstraint("CK_Hunter_Evidence_VerifiedBinding", "[ProviderVerifiedAtUtc] IS NULL OR ([CaptureSessionId] IS NOT NULL AND [OwnerUserId] IS NOT NULL AND [ProviderAssetIdHash] IS NOT NULL AND [ProviderReceiptDigest] IS NOT NULL)");
                         });
                 });
 
@@ -225,7 +266,7 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
 
                     b.ToTable("Hunter_Submissions", null, t =>
                         {
-                            t.HasCheckConstraint("CK_Hunter_Submissions_GpsAccuracy", "[GpsAccuracyMeters] IS NULL OR [GpsAccuracyMeters] >= 0");
+                            t.HasCheckConstraint("CK_Hunter_Submissions_GpsAccuracy", "[GpsAccuracyMeters] IS NULL OR [GpsAccuracyMeters] > 0");
 
                             t.HasCheckConstraint("CK_Hunter_Submissions_Latitude", "[Latitude] BETWEEN -90 AND 90");
 
@@ -1972,6 +2013,9 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasAlternateKey("Id", "HunterSubmissionId")
+                        .HasName("AK_Hunter_CaptureSessions_Id_Submission");
+
                     b.HasIndex("HunterSubmissionId", "OwnerUserId");
 
                     b.HasIndex("HunterId", "IsRevoked", "IsConsumed")
@@ -1983,6 +2027,49 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                     b.ToTable("Hunter_CaptureSessions", null, t =>
                         {
                             t.HasCheckConstraint("CK_Hunter_CaptureSessions_TimeWindow", "[ExpiresAtUtc] > [IssuedAtUtc]");
+                        });
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.HunterPlaces.HunterRequestIdempotencyRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("KeyHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("OwnerUserId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("RequestDigest")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("ResourceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerUserId", "Operation", "KeyHash")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Hunter_RequestIdempotency_Owner_Operation_Key");
+
+                    b.ToTable("Hunter_RequestIdempotency", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Hunter_RequestIdempotency_DigestLengths", "LEN([KeyHash]) = 64 AND LEN([RequestDigest]) = 64");
                         });
                 });
 
@@ -2774,6 +2861,20 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired()
                         .HasConstraintName("FK_Hunter_Evidence_Submissions");
+
+                    b.HasOne("Wayhunter.Infrastructure.Persistence.Models.HunterPlaces.HunterCaptureSessionRow", null)
+                        .WithMany()
+                        .HasForeignKey("CaptureSessionId", "HunterSubmissionId")
+                        .HasPrincipalKey("Id", "HunterSubmissionId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_Hunter_Evidence_CaptureSession_Owner");
+
+                    b.HasOne("Wayhunter.Domain.Modules.HunterPlaces.Entities.HunterSubmission", null)
+                        .WithMany()
+                        .HasForeignKey("HunterSubmissionId", "OwnerUserId")
+                        .HasPrincipalKey("Id", "UserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_Hunter_Evidence_Submission_Owner");
                 });
 
             modelBuilder.Entity("Wayhunter.Domain.Modules.HunterPlaces.Entities.HunterReviewDecision", b =>
@@ -3289,6 +3390,16 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired()
                         .HasConstraintName("FK_Hunter_CaptureSessions_Submission_Owner");
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.HunterPlaces.HunterRequestIdempotencyRow", b =>
+                {
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerUserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_Hunter_RequestIdempotency_Users");
                 });
 
             modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.IdentitySocial.UserRoleAssignmentRow", b =>

@@ -9,14 +9,15 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Swashbuckle.AspNetCore.Swagger;
 using Wayhunter.Api.Contracts.Responses;
+using Wayhunter.Api.Authorization;
 using Wayhunter.Api.Controllers.Mobile.HunterPlaces;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Api.Services.HunterPlaces;
 using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Application.Modules.HunterPlaces.Dtos;
 using Wayhunter.Application.Modules.HunterPlaces.Interfaces;
-using Wayhunter.Application.Modules.HunterPlaces.Commands;
 using Wayhunter.Application.Modules.HunterPlaces.Services;
+using Wayhunter.Application.Modules.HunterPlaces.Commands;
 using Wayhunter.Domain.Modules.HunterPlaces.Entities;
 using Wayhunter.Domain.Modules.HunterPlaces.Enums;
 using Wayhunter.Domain.Modules.IdentitySocial.Entities;
@@ -89,6 +90,36 @@ public sealed class HunterSubmissionsHttpTests
             CancellationToken cancellationToken = default) => Task.FromResult(false);
     }
 
+    private sealed class DraftStore : IHunterDraftStore
+    {
+        public HunterSubmission? Created { get; private set; }
+        public Task<HunterSubmission> CreateAsync(HunterSubmission submission, string keyHash, string requestDigest,
+            CancellationToken cancellationToken = default)
+        { Created = submission; return Task.FromResult(submission); }
+        public Task<HunterDraftUpdateResult> UpdateDraftAsync(Guid submissionId, string ownerUserId,
+            HunterDraftRequestDto request, CancellationToken cancellationToken = default) => Task.FromResult(HunterDraftUpdateResult.Updated);
+        public Task<HunterDraftDeleteResult> DeleteDraftAsync(Guid submissionId, string ownerUserId,
+            CancellationToken cancellationToken = default) => Task.FromResult(HunterDraftDeleteResult.Deleted);
+    }
+
+    private sealed class EvidenceStore : IHunterEvidenceStore
+    {
+        public Task<HunterEvidenceBindResult> BindAsync(Guid submissionId, Guid sessionId, string ownerUserId,
+            Guid hunterId, VerifiedHunterMediaReceipt receipt, DateTimeOffset receivedAtUtc,
+            CancellationToken cancellationToken = default) => Task.FromResult(new HunterEvidenceBindResult(false, false, Guid.Empty));
+        public Task<bool> HasCompleteVerifiedEvidenceAsync(Guid submissionId, string ownerUserId,
+            CancellationToken cancellationToken = default) => Task.FromResult(false);
+    }
+
+    private sealed class TransitionStore : IHunterSubmissionStatusTransitionStore
+    {
+        public Task<bool> TrySubmitDraftAndRevokeCaptureSessionsAsync(Guid submissionId, DateTimeOffset submittedAtUtc,
+            CancellationToken cancellationToken = default) => Task.FromResult(true);
+        public Task<bool> TryTransitionAndRevokeCaptureSessionsAsync(Guid submissionId,
+            HunterSubmissionStatus expectedStatus, HunterSubmissionStatus nextStatus,
+            CancellationToken cancellationToken = default) => Task.FromResult(true);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         private const string Route = "/api/mobile/hunter/submissions/";
@@ -122,9 +153,11 @@ public sealed class HunterSubmissionsHttpTests
             builder.Configuration["Authentication:Jwt:Issuer"] = "m4-http-test";
             builder.Configuration["Authentication:Jwt:Audience"] = "mobile-test";
             builder.Configuration["Authentication:Jwt:SigningSecret"] = SigningSecret;
+            builder.Configuration["Identity:AdministratorRole"] = "Admin";
             builder.Services.AddControllers()
                 .AddApplicationPart(typeof(HunterSubmissionsController).Assembly);
             builder.Services.AddSwaggerGen();
+            builder.Services.AddCoinsWalletAdministratorPolicy(builder.Configuration);
             builder.Services.AddDbContext<WayhunterSharedDbContext>(options =>
                 options.UseInMemoryDatabase(database));
             builder.Services.AddSingleton<IAuthenticatedSessionReader>(
@@ -138,6 +171,15 @@ public sealed class HunterSubmissionsHttpTests
                         provider.GetRequiredService<WayhunterSharedDbContext>()));
             builder.Services.AddScoped<
                 Wayhunter.Application.Modules.HunterPlaces.Services.HunterSubmissionStatusService>();
+            var draftStore = new DraftStore();
+            builder.Services.AddSingleton<IHunterDraftStore>(draftStore);
+            builder.Services.AddScoped<HunterDraftService>();
+            builder.Services.AddSingleton<IHunterEvidenceStore, EvidenceStore>();
+            builder.Services.AddSingleton<Wayhunter.Application.Modules.HunterPlaces.Interfaces.IHunterMediaReceiptVerifier,
+                Wayhunter.Infrastructure.Integrations.HunterPlaces.DisabledHunterMediaReceiptVerifier>();
+            builder.Services.AddScoped<HunterEvidenceService>();
+            builder.Services.AddSingleton<IHunterSubmissionStatusTransitionStore, TransitionStore>();
+            builder.Services.AddScoped<HunterSubmissionStatusTransitionService>();
             builder.Services.AddScoped<IHunterCaptureSubmissionAccessReader,
                 SqlHunterCaptureSubmissionAccessReader>();
             if (failCapture)
@@ -237,6 +279,11 @@ public sealed class HunterSubmissionsHttpTests
                     string.Equals(operation.ToString(), "Post", StringComparison.OrdinalIgnoreCase)) == true;
         }
 
+    public int HunterOpenApiOperationCount => _app.Services
+            .GetRequiredService<ISwaggerProvider>().GetSwagger("v1")
+            .Paths.Where(x => x.Key.Contains("/hunter/", StringComparison.OrdinalIgnoreCase))
+            .Sum(x => x.Value is { Operations: { } operations } ? operations.Count : 0);
+
         public T GetService<T>() where T : notnull =>
             _app.Services.GetRequiredService<T>();
 
@@ -282,6 +329,90 @@ public sealed class HunterSubmissionsHttpTests
         const string path = "/api/mobile/hunter/submissions/{submissionId}/capture-sessions";
         Assert.Contains(path, fixture.OpenApiPaths);
         Assert.True(fixture.HasOpenApiPost(path));
+    }
+
+    [Fact]
+    public async Task M4OpenApiDocumentsAllTwelveOperations()
+    {
+        await using var fixture = new Fixture();
+        var paths = fixture.OpenApiPaths.ToArray();
+        Assert.Contains("/api/mobile/hunter/submissions", paths);
+        Assert.Contains("/api/mobile/hunter/submissions/{submissionId}/evidence", paths);
+        Assert.Contains("/api/mobile/hunter/submissions/{submissionId}/submit", paths);
+        Assert.Contains("/api/admin/hunter/submissions/{submissionId}/approve", paths);
+        Assert.Contains("/api/admin/hunter/submissions/{submissionId}/reject", paths);
+        Assert.Equal(12, fixture.HunterOpenApiOperationCount);
+    }
+
+    [Fact]
+    public async Task AdminHunterQueue_RequiresCentralAdminRole()
+    {
+        await using var fixture = new Fixture();
+        using var regularUserResponse = await fixture.Client.GetAsync("/api/admin/hunter/submissions");
+        Assert.Equal(HttpStatusCode.Forbidden, regularUserResponse.StatusCode);
+        using var regularApprove = await fixture.Client.PostAsync(
+            $"/api/admin/hunter/submissions/{fixture.SubmissionId:D}/approve",
+            new StringContent("{}", System.Text.Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.Forbidden, regularApprove.StatusCode);
+
+        fixture.Client.DefaultRequestHeaders.Authorization = null;
+        using var anonymousResponse = await fixture.Client.GetAsync("/api/admin/hunter/submissions");
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousResponse.StatusCode);
+        using var anonymousReject = await fixture.Client.PostAsync(
+            $"/api/admin/hunter/submissions/{fixture.SubmissionId:D}/reject",
+            new StringContent("{}", System.Text.Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymousReject.StatusCode);
+    }
+
+    [Fact]
+    public async Task DraftCreateRequiresIdempotencyKeyAndPersistsTrustedOwner()
+    {
+        await using var fixture = new Fixture();
+        var body = new HunterDraftRequestDto
+        {
+            PlaceName = "Test waterfall", ClaimedDistrict = "Jaffna",
+            Latitude = 9.66, Longitude = 80.00
+        };
+        var missingKey = await fixture.Client.PostAsJsonAsync(
+            "/api/mobile/hunter/submissions", body);
+        Assert.Equal(HttpStatusCode.BadRequest, missingKey.StatusCode);
+
+        fixture.Client.DefaultRequestHeaders.Add("Idempotency-Key", "draft-create-1");
+        var response = await fixture.Client.PostAsJsonAsync(
+            "/api/mobile/hunter/submissions", body);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<HunterSubmissionResponseDto>();
+        Assert.NotNull(result);
+        Assert.Equal(HunterSubmissionStatus.Draft, result.Status);
+        var stored = Assert.IsType<DraftStore>(fixture.GetService<IHunterDraftStore>()).Created;
+        Assert.NotNull(stored);
+        Assert.Equal(fixture.Owner.UserId, stored.UserId);
+        Assert.Equal("M4 HTTP Owner", stored.UserNameSnapshot);
+        Assert.NotEqual(Guid.Empty, stored.Id);
+    }
+
+    [Fact]
+    public async Task EvidenceBindRemainsUnavailableWithoutTrustedProvider()
+    {
+        await using var fixture = new Fixture();
+        var response = await fixture.Client.PostAsJsonAsync(
+            fixture.Url() + "/evidence", new HunterEvidenceBindRequestDto
+            {
+                CaptureSessionId = Guid.NewGuid(),
+                EvidenceType = HunterEvidenceType.Guided360Video,
+                ProviderReceipt = "unverified client input"
+            });
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Contains("hunter_media_unavailable", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task SubmissionRemainsUnavailableUntilTrustedEvidenceProviderExists()
+    {
+        await using var fixture = new Fixture();
+        var response = await fixture.Client.PostAsync(fixture.Url() + "/submit", null);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Contains("hunter_media_unavailable", await response.Content.ReadAsStringAsync());
     }
 
     [Fact]

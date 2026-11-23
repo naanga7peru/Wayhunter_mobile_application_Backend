@@ -48,7 +48,6 @@ public sealed class M4SqlIntegrationFactAttribute : FactAttribute
 
 public sealed class M4SqlIntegrationVerificationTests
 {
-    private const string AllowedDatabasePrefix = "Wayhunter_Test_";
     private const string AllowedServer = @"(localdb)\MSSQLLocalDB";
 
     private static readonly SemaphoreSlim SchemaGate = new(1, 1);
@@ -74,12 +73,13 @@ public sealed class M4SqlIntegrationVerificationTests
         var builder =
             new SqlConnectionStringBuilder(connectionString);
 
-        if (!builder.InitialCatalog.StartsWith(
-                AllowedDatabasePrefix,
-                StringComparison.OrdinalIgnoreCase))
+        if (!System.Text.RegularExpressions.Regex.IsMatch(
+                builder.InitialCatalog,
+                @"^Wayhunter_Test_[A-Za-z0-9_-]+_[0-9a-fA-F]{32}$",
+                System.Text.RegularExpressions.RegexOptions.CultureInvariant))
         {
             throw new InvalidOperationException(
-                "Only the dedicated M4 test database is allowed.");
+                "Only a uniquely named disposable Wayhunter_Test_ database is allowed.");
         }
 
         if (!string.Equals(builder.DataSource, AllowedServer, StringComparison.OrdinalIgnoreCase))
@@ -284,6 +284,43 @@ public sealed class M4SqlIntegrationVerificationTests
         }
     }
 
+    private static async Task SeedVerifiedEvidenceAsync(
+        Guid submissionId, Guid hunterId, string userId, DateTimeOffset now)
+    {
+        await using var db = CreateContext();
+        var videoSession = Guid.NewGuid();
+        var photoSession = Guid.NewGuid();
+        db.HunterCaptureSessions.AddRange(
+            new HunterCaptureSessionRow
+            {
+                Id = videoSession, HunterId = hunterId, HunterSubmissionId = submissionId,
+                IssuedAtUtc = now.AddMinutes(-5), ExpiresAtUtc = now.AddMinutes(5), IsConsumed = true
+            },
+            new HunterCaptureSessionRow
+            {
+                Id = photoSession, HunterId = hunterId, HunterSubmissionId = submissionId,
+                IssuedAtUtc = now.AddMinutes(-2), ExpiresAtUtc = now.AddMinutes(5), IsConsumed = true
+            });
+        db.HunterEvidence.AddRange(
+            new HunterEvidence
+            {
+                Id = Guid.NewGuid(), HunterSubmissionId = submissionId, CaptureSessionId = videoSession,
+                OwnerUserId = userId, ProviderAssetIdHash = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"),
+                ProviderReceiptDigest = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"), ProviderVerifiedAtUtc = now.AddMinutes(-3),
+                EvidenceType = HunterEvidenceType.Guided360Video, PrivateMediaReference = "private:test-video",
+                CapturedAtUtc = now.AddMinutes(-4), UploadedAtUtc = now.AddMinutes(-3)
+            },
+            new HunterEvidence
+            {
+                Id = Guid.NewGuid(), HunterSubmissionId = submissionId, CaptureSessionId = photoSession,
+                OwnerUserId = userId, ProviderAssetIdHash = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"),
+                ProviderReceiptDigest = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"), ProviderVerifiedAtUtc = now.AddSeconds(-1),
+                EvidenceType = HunterEvidenceType.LivePhoto, PrivateMediaReference = "private:test-photo",
+                CapturedAtUtc = now.AddSeconds(-2), UploadedAtUtc = now.AddSeconds(-1)
+            });
+        await db.SaveChangesAsync();
+    }
+
     // =================================================
     // Cleanup Test Data
     // =================================================
@@ -294,15 +331,15 @@ public sealed class M4SqlIntegrationVerificationTests
     {
         await using var db = CreateContext();
 
+        await db.HunterEvidence
+            .Where(x => x.HunterSubmissionId == submissionId)
+            .ExecuteDeleteAsync();
+
         await db.HunterCaptureSessions
             .Where(x => x.HunterSubmissionId == submissionId)
             .ExecuteDeleteAsync();
 
         await db.HunterReviewDecisions
-            .Where(x => x.HunterSubmissionId == submissionId)
-            .ExecuteDeleteAsync();
-
-        await db.HunterEvidence
             .Where(x => x.HunterSubmissionId == submissionId)
             .ExecuteDeleteAsync();
 
@@ -506,6 +543,7 @@ public sealed class M4SqlIntegrationVerificationTests
             await MarkPendingReviewAsync(
                 seed.SubmissionId,
                 submittedAtUtc);
+            await SeedVerifiedEvidenceAsync(seed.SubmissionId, seed.HunterId, seed.UserId, reviewedAtUtc);
 
             await using (var db = CreateContext())
             {
@@ -560,6 +598,7 @@ public sealed class M4SqlIntegrationVerificationTests
             await MarkPendingReviewAsync(
                 seed.SubmissionId,
                 reviewedAtUtc.AddMinutes(-1));
+            await SeedVerifiedEvidenceAsync(seed.SubmissionId, seed.HunterId, seed.UserId, reviewedAtUtc);
 
             var interceptor = new FailHunterReviewRevocationInterceptor();
             await using (var db = CreateContext(interceptor))

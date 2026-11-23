@@ -123,9 +123,8 @@ public sealed class HunterReviewServiceTests
     }
 
     [Theory]
-    [InlineData(HunterSubmissionStatus.Rejected)]
     [InlineData(HunterSubmissionStatus.Held)]
-    public async Task UnapprovedDecisionSemanticsAreNotApplied(
+    public async Task HeldDecisionRemainsDisabled(
         HunterSubmissionStatus status)
     {
         var store = new Store();
@@ -140,6 +139,25 @@ public sealed class HunterReviewServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.ReviewAsync(Guid.NewGuid().ToString("D"), request));
         Assert.Null(store.Decision);
+    }
+
+    [Fact]
+    public async Task RejectionRequiresReasonAndPersistsAuditDecision()
+    {
+        var store = new Store();
+        var service = new HunterReviewService(store, TimeProvider.System);
+        var id = Guid.NewGuid();
+        var admin = Guid.NewGuid();
+        var result = await service.ReviewAsync(admin.ToString("D"), new HunterReviewRequestDto
+        {
+            HunterSubmissionId = id,
+            ResultingStatus = HunterSubmissionStatus.Rejected,
+            Reason = "Evidence is not a valid capture."
+        });
+        Assert.Equal(HunterSubmissionStatus.Rejected, result.Status);
+        Assert.Equal(id, store.Decision!.HunterSubmissionId);
+        Assert.Equal(admin.ToString("D"), store.Decision.ReviewerUserId);
+        Assert.Equal("Evidence is not a valid capture.", store.Decision.Reason);
     }
 
     [Fact]

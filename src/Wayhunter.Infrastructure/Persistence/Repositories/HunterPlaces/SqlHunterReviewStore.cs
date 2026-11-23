@@ -59,6 +59,40 @@ public sealed class SqlHunterReviewStore : IHunterReviewStore
                 "Hunter submission timestamps are invalid for review.");
         }
 
+        if (decision.ResultingStatus == HunterSubmissionStatus.Approved)
+        {
+            var verified = await _db.HunterEvidence.AsNoTracking()
+                .Where(x => x.HunterSubmissionId == decision.HunterSubmissionId &&
+                            x.OwnerUserId == submission.UserId &&
+                            x.ProviderVerifiedAtUtc != null &&
+                            x.CaptureSessionId != null &&
+                            x.ProviderAssetIdHash != null &&
+                            x.ProviderReceiptDigest != null)
+                .OrderBy(x => x.UploadedAtUtc)
+                .ToListAsync(cancellationToken);
+            var sessionIds = verified.Where(x => x.CaptureSessionId.HasValue)
+                .Select(x => x.CaptureSessionId!.Value).ToArray();
+            var boundSessions = await _db.HunterCaptureSessions.AsNoTracking()
+                .Where(x => sessionIds.Contains(x.Id))
+                .ToDictionaryAsync(x => x.Id, cancellationToken);
+            bool ownerIdentityValid = Guid.TryParseExact(submission.UserId, "D", out var ownerHunterId);
+            if (verified.Count != 2 ||
+                verified[0].EvidenceType != HunterEvidenceType.Guided360Video ||
+                verified[1].EvidenceType != HunterEvidenceType.LivePhoto ||
+                verified[0].UploadedAtUtc >= verified[1].CapturedAtUtc ||
+                verified.Any(x => x.CapturedAtUtc > x.UploadedAtUtc) ||
+                !ownerIdentityValid || boundSessions.Count != 2 ||
+                verified.Any(e => !boundSessions.TryGetValue(e.CaptureSessionId!.Value, out var session) ||
+                    session.HunterSubmissionId != decision.HunterSubmissionId ||
+                    session.HunterId != ownerHunterId || session.OwnerUserId != submission.UserId ||
+                    !session.IsConsumed || session.IsRevoked ||
+                    e.CapturedAtUtc < session.IssuedAtUtc || e.CapturedAtUtc >= session.ExpiresAtUtc))
+            {
+                throw new InvalidOperationException(
+                    "A Hunter submission cannot be approved without complete verified evidence.");
+            }
+        }
+
         var updated = await _db.HunterSubmissions
             .Where(x => x.Id == decision.HunterSubmissionId &&
                         x.Status == HunterSubmissionStatus.PendingReview)
@@ -99,7 +133,9 @@ public sealed class SqlHunterReviewStore : IHunterReviewStore
             decision.ReviewedAtUtc == default ||
             decision.ReviewedAtUtc.Offset != TimeSpan.Zero ||
             decision.Reason?.Length > 2000 ||
-            decision.ResultingStatus != HunterSubmissionStatus.Approved)
+            decision.ResultingStatus is not (HunterSubmissionStatus.Approved or HunterSubmissionStatus.Rejected) ||
+            (decision.ResultingStatus == HunterSubmissionStatus.Rejected &&
+             string.IsNullOrWhiteSpace(decision.Reason)))
         {
             throw new ArgumentException(
                 "Hunter review decision is invalid.",

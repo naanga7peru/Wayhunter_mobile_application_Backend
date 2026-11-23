@@ -10,6 +10,14 @@ public sealed class HunterEvidence
     // Related Hunter submission
     public Guid HunterSubmissionId { get; set; }
 
+    // Null only for legacy, unverified records. Verified rows require a
+    // unique session and trusted provider receipt in SQL.
+    public Guid? CaptureSessionId { get; set; }
+    public string? OwnerUserId { get; set; }
+    public string? ProviderAssetIdHash { get; set; }
+    public string? ProviderReceiptDigest { get; set; }
+    public DateTimeOffset? ProviderVerifiedAtUtc { get; set; }
+
     // Guided 360 video or live camera photo
     public HunterEvidenceType EvidenceType { get; set; }
 
