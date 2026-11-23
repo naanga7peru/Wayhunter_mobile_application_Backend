@@ -59,6 +59,52 @@ public sealed class HunterSubmissionStatusService
         };
     }
 
+    public async Task<IReadOnlyList<HunterSubmissionResponseDto>> GetMySubmissionsAsync(
+        string? authenticatedUserId,
+        bool approvedOnly = false,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!TryGetCanonicalId(authenticatedUserId, out var actorId))
+            return Array.Empty<HunterSubmissionResponseDto>();
+
+        var rows = await _reader.FindMineAsync(authenticatedUserId!, approvedOnly, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return rows
+            .Where(row => row.SubmissionId != Guid.Empty &&
+                TryGetCanonicalId(row.OwnerUserId, out var ownerId) && ownerId == actorId)
+            .OrderByDescending(row => row.CreatedAtUtc)
+            .Select(row => new HunterSubmissionResponseDto
+            {
+                SubmissionId = row.SubmissionId,
+                PlaceName = row.PlaceName,
+                District = row.District,
+                Status = row.Status,
+                CreatedAtUtc = row.CreatedAtUtc,
+                SubmittedAtUtc = row.SubmittedAtUtc
+            })
+            .ToArray();
+    }
+
+    public Task<IReadOnlyList<ApprovedHunterPlaceDto>> GetApprovedPlacesAsync(
+        CancellationToken cancellationToken = default) =>
+        _reader.FindApprovedPlacesAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<HunterSubmissionResponseDto>> GetPendingReviewAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var rows = await _reader.FindPendingReviewAsync(cancellationToken);
+        return rows.Select(row => new HunterSubmissionResponseDto
+        {
+            SubmissionId = row.SubmissionId,
+            PlaceName = row.PlaceName,
+            District = row.District,
+            Status = row.Status,
+            CreatedAtUtc = row.CreatedAtUtc,
+            SubmittedAtUtc = row.SubmittedAtUtc
+        }).ToArray();
+    }
+
     private static bool TryGetCanonicalId(
         string? value,
         out Guid id)

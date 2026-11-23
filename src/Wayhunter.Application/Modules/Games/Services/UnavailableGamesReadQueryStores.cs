@@ -6,7 +6,8 @@ namespace Wayhunter.Application.Modules.Games.Services;
 public sealed class UnavailableGamesReadQueryStores :
     IAvailableGamesQueryStore,
     IPublicGameDetailsQueryStore,
-    IMyGameAttemptsQueryStore
+    IMyGameAttemptsQueryStore,
+    IMyGamesQueryStore
 {
     private static GamesReadDependencyUnavailableException Unavailable() => new();
 
@@ -25,4 +26,9 @@ public sealed class UnavailableGamesReadQueryStores :
         string playerUserId,
         CancellationToken cancellationToken = default) =>
         Task.FromException<IReadOnlyList<MyGameAttemptDto>>(Unavailable());
+
+    public Task<IReadOnlyList<MyGameDto>> GetMyGamesAsync(
+        string creatorUserId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromException<IReadOnlyList<MyGameDto>>(Unavailable());
 }

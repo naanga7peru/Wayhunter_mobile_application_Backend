@@ -91,3 +91,21 @@ public sealed class GetMyGameAttemptsQueryService
             cancellationToken);
     }
 }
+
+public sealed class GetMyGamesQueryService
+{
+    private readonly IMyGamesQueryStore _store;
+
+    public GetMyGamesQueryService(IMyGamesQueryStore store) =>
+        _store = store ?? throw new ArgumentNullException(nameof(store));
+
+    public Task<IReadOnlyList<MyGameDto>> ExecuteAsync(
+        string creatorUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(creatorUserId))
+            throw new ArgumentException("Creator ID is required.", nameof(creatorUserId));
+        return GetAvailableGamesQueryService.ExecuteStoreAsync(
+            () => _store.GetMyGamesAsync(creatorUserId, cancellationToken), cancellationToken);
+    }
+}

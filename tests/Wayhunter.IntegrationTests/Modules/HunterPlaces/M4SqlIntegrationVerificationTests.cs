@@ -48,8 +48,8 @@ public sealed class M4SqlIntegrationFactAttribute : FactAttribute
 
 public sealed class M4SqlIntegrationVerificationTests
 {
-    private const string AllowedDatabaseName =
-        "Wayhunter_M4_IntegrationTest";
+    private const string AllowedDatabasePrefix = "Wayhunter_Test_";
+    private const string AllowedServer = @"(localdb)\MSSQLLocalDB";
 
     private static readonly SemaphoreSlim SchemaGate = new(1, 1);
 
@@ -74,14 +74,16 @@ public sealed class M4SqlIntegrationVerificationTests
         var builder =
             new SqlConnectionStringBuilder(connectionString);
 
-        if (!string.Equals(
-                builder.InitialCatalog,
-                AllowedDatabaseName,
+        if (!builder.InitialCatalog.StartsWith(
+                AllowedDatabasePrefix,
                 StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
                 "Only the dedicated M4 test database is allowed.");
         }
+
+        if (!string.Equals(builder.DataSource, AllowedServer, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Only the dedicated LocalDB instance is allowed.");
 
         return connectionString;
     }

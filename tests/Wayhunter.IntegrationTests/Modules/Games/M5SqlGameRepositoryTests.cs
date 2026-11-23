@@ -29,8 +29,7 @@ public sealed class M5SqlIntegrationFactAttribute : FactAttribute
 
 public sealed class M5SqlGameRepositoryTests
 {
-    private const string AllowedDatabase =
-        "Wayhunter_M5_IntegrationTest";
+    private const string AllowedDatabasePrefix = "Wayhunter_Test_";
 
     private const string AllowedServer =
         @"(localdb)\MSSQLLocalDB";
@@ -52,9 +51,8 @@ public sealed class M5SqlGameRepositoryTests
         var builder =
             new SqlConnectionStringBuilder(connectionString);
 
-        if (!string.Equals(
-                builder.InitialCatalog,
-                AllowedDatabase,
+        if (!builder.InitialCatalog.StartsWith(
+                AllowedDatabasePrefix,
                 StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(

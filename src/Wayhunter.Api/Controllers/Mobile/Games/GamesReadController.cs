@@ -16,17 +16,20 @@ public sealed class GamesReadController : ControllerBase
     private readonly GetAvailableGamesQueryService _availableGames;
     private readonly GetPublicGameDetailsQueryService _gameDetails;
     private readonly GetMyGameAttemptsQueryService _myAttempts;
+    private readonly GetMyGamesQueryService _myGames;
 
     public GamesReadController(
         TrustedIdentityResolutionService identity,
         GetAvailableGamesQueryService availableGames,
         GetPublicGameDetailsQueryService gameDetails,
-        GetMyGameAttemptsQueryService myAttempts)
+        GetMyGameAttemptsQueryService myAttempts,
+        GetMyGamesQueryService myGames)
     {
         _identity = identity ?? throw new ArgumentNullException(nameof(identity));
         _availableGames = availableGames ?? throw new ArgumentNullException(nameof(availableGames));
         _gameDetails = gameDetails ?? throw new ArgumentNullException(nameof(gameDetails));
         _myAttempts = myAttempts ?? throw new ArgumentNullException(nameof(myAttempts));
+        _myGames = myGames ?? throw new ArgumentNullException(nameof(myGames));
     }
 
     [HttpGet]
@@ -84,6 +87,25 @@ public sealed class GamesReadController : ControllerBase
         try
         {
             return Ok(await _myAttempts.ExecuteAsync(account.UserId, cancellationToken));
+        }
+        catch (GamesReadDependencyUnavailableException)
+        {
+            return Unavailable();
+        }
+    }
+
+    [HttpGet("me")]
+    [ProducesResponseType(typeof(IReadOnlyList<MyGameDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> MyGames(CancellationToken cancellationToken)
+    {
+        var account = await _identity.ResolveActiveAccountAsync(User, cancellationToken);
+        if (account is null)
+            return Error(StatusCodes.Status401Unauthorized, "AUTHENTICATION_REQUIRED", "A valid active account is required.");
+        try
+        {
+            return Ok(await _myGames.ExecuteAsync(account.UserId, cancellationToken));
         }
         catch (GamesReadDependencyUnavailableException)
         {

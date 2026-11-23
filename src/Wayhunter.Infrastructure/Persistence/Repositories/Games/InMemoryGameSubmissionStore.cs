@@ -18,11 +18,28 @@ using Wayhunter.Domain.Modules.Games.Enums;
 namespace Wayhunter.Infrastructure.Persistence.Repositories.Games;
 
 public sealed partial class InMemoryGameSubmissionStore
-    : IGameSubmissionStore, IGameApprovalStore
+    : IGameSubmissionStore, IGameApprovalStore, IMyGamesQueryStore
 {
     private readonly object _gate = new();
 
     private readonly Dictionary<Guid, Game> _games = new();
+
+    public Task<IReadOnlyList<MyGameDto>> GetMyGamesAsync(
+        string creatorUserId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        IReadOnlyList<MyGameDto> result;
+        lock (_gate)
+        {
+            result = _games.Values
+                .Where(game => string.Equals(game.CreatorUserId, creatorUserId, StringComparison.Ordinal))
+                .OrderByDescending(game => game.ApprovedAtUtc)
+                .ThenBy(game => game.Id)
+                .Select(game => new MyGameDto(game.Id, game.Title, game.Status, game.ApprovedAtUtc, game.ExpiresAtUtc))
+                .ToArray();
+        }
+        return Task.FromResult(result);
+    }
 
     private readonly Dictionary<Guid, GameAdminQueueItemDto>
         _pendingQueue = new();
