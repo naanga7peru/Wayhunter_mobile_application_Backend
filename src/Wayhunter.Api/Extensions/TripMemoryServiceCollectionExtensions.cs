@@ -1,15 +1,31 @@
 using Wayhunter.Application.Modules.TripSafety.Memories;
+using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Wayhunter.Api.Extensions;
 
 public static class TripMemoryServiceCollectionExtensions
 {
-    public static IServiceCollection AddTripMemoryServices(this IServiceCollection services)
+    public static IServiceCollection AddTripMemoryServices(this IServiceCollection services, IConfiguration? configuration = null)
     {
         services.AddScoped<TripMemoryService>();
         services.AddScoped<TripMemoryMediaService>();
-        services.AddSingleton<ITripMemoryStore, UnavailableTripMemoryDependencies>();
-        services.AddSingleton<ITripMemoryMediaProvider, UnavailableTripMemoryDependencies>();
+        services.TryAddSingleton(TimeProvider.System);
+        if (configuration?.GetValue<bool>("TripSafety:EnableSqlTripMemories") == true)
+        {
+            // The host's shared SQL context is already configured by the independently
+            // gated TripSafety persistence registration. This flag only swaps the
+            // memory store; it never runs migrations or enables media storage.
+            services.AddWayhunterSharedPersistence(configuration);
+            services.RemoveAll<ITripMemoryStore>();
+            services.AddScoped<ITripMemoryStore, EfTripMemoryStore>();
+        }
+        else
+        {
+            services.TryAddSingleton<ITripMemoryStore, UnavailableTripMemoryDependencies>();
+        }
+        services.TryAddSingleton<ITripMemoryMediaProvider, UnavailableTripMemoryDependencies>();
         return services;
     }
 

@@ -73,6 +73,7 @@ public sealed class RealSqlHttpE2EFixture : IAsyncLifetime
             builder.UseSetting("Identity:EnableSharedAuthentication", "true");
             builder.UseSetting("TravelPlanning:EnableSqlPersistence", "true");
             builder.UseSetting("TripSafety:EnableSqlPersistence", "true");
+            builder.UseSetting("TripSafety:EnableSqlTripMemories", "true");
             builder.UseSetting("Games:EnableSqlPersistence", "true");
             builder.UseSetting("Games:EnableSqlAttemptWriter", "true");
             builder.UseSetting("Advertisements:EnableSqlPersistence", "true");
@@ -91,6 +92,7 @@ public sealed class RealSqlHttpE2EFixture : IAsyncLifetime
                     ["Identity:EnableSharedAuthentication"] = "true",
                     ["TravelPlanning:EnableSqlPersistence"] = "true",
                     ["TripSafety:EnableSqlPersistence"] = "true",
+                    ["TripSafety:EnableSqlTripMemories"] = "true",
                     ["TripSafety:EnableSafeCheckIn"] = "true",
                     ["Games:EnableSqlPersistence"] = "true",
                     ["Games:EnableSqlAttemptWriter"] = "true",
@@ -218,6 +220,44 @@ public sealed class RealSqlHttpE2EFixture : IAsyncLifetime
         Assert.Equal(9.661, persistedStops[0].Latitude);
         Assert.Equal(80.021, persistedStops[0].Longitude);
         Assert.Equal("place-destination", persistedStops[1].PlaceId);
+    }
+
+    [SqlE2EFact]
+    public async Task M3_AuthenticatedTripMemoriesPersistAndSoftDeleteInSql()
+    {
+        await RegisterAndLoginAsync("memory-sql-e2e@wayhunter.invalid");
+        var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        using var tripResponse = await Client.PostAsJsonAsync("/api/mobile/trip-plans",
+            new CreateTripPlanDto("Memory HTTP SQL trip", today.AddDays(1), today.AddDays(3), 25000m, "Car", 2)
+            {
+                InitialStops = [new InitialTripStopDto("Memory stop", "memory-stop", 9.661, 80.021)]
+            });
+        Assert.Equal(HttpStatusCode.Created, tripResponse.StatusCode);
+        var trip = await tripResponse.Content.ReadFromJsonAsync<TripPlanResponseDto>();
+        Assert.NotNull(trip);
+        var operationId = Guid.NewGuid();
+        using var create = await Client.PostAsJsonAsync($"/api/mobile/trips/{trip.TripPlanId}/memories",
+            new { operationId, tripStopId = trip.Stops[0].StopId, caption = "private memory", visibility = 0 });
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        using var createdPayload = JsonDocument.Parse(await create.Content.ReadAsStringAsync());
+        var memoryId = createdPayload.RootElement.GetProperty("memoryId").GetGuid();
+
+        using var list = await Client.GetAsync($"/api/mobile/trips/{trip.TripPlanId}/memories");
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        using var listPayload = JsonDocument.Parse(await list.Content.ReadAsStringAsync());
+        Assert.Single(listPayload.RootElement.EnumerateArray());
+        using var detail = await Client.GetAsync($"/api/mobile/trips/{trip.TripPlanId}/memories/{memoryId}");
+        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+        using var delete = await Client.DeleteAsync($"/api/mobile/trips/{trip.TripPlanId}/memories/{memoryId}");
+        Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
+        using var afterDelete = await Client.GetAsync($"/api/mobile/trips/{trip.TripPlanId}/memories/{memoryId}");
+        Assert.Equal(HttpStatusCode.NotFound, afterDelete.StatusCode);
+
+        await using var db = CreateVerificationContext();
+        var tombstone = await db.TripMemories.SingleAsync(row => row.MemoryId == memoryId);
+        Assert.NotNull(tombstone.DeletedAtUtc);
+        Assert.Equal(trip.TripPlanId, tombstone.TripPlanId);
+        Assert.Equal(trip.Stops[0].StopId, tombstone.TripStopId);
     }
 
     [SqlE2EFact]
