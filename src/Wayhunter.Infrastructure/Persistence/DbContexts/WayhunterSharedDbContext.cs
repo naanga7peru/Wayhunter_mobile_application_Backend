@@ -181,6 +181,9 @@ public sealed class WayhunterSharedDbContext : DbContext
     public DbSet<GameProofEvidenceRow> GameProofEvidence
         => Set<GameProofEvidenceRow>();
 
+    public DbSet<GameProofSubmissionOperationRow> GameProofSubmissionOperations
+        => Set<GameProofSubmissionOperationRow>();
+
     public DbSet<GameCompletionResultRow> GameCompletionResults
         => Set<GameCompletionResultRow>();
 
@@ -389,6 +392,9 @@ public sealed class WayhunterSharedDbContext : DbContext
 
         modelBuilder.ApplyConfiguration(
             new GameProofEvidenceRowConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new GameProofSubmissionOperationRowConfiguration());
 
         modelBuilder.ApplyConfiguration(
             new GameCompletionResultRowConfiguration());

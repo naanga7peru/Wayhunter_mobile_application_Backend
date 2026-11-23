@@ -1790,6 +1790,107 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                     b.ToTable("GameProofReviewDecisions", (string)null);
                 });
 
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.Games.GameProofSubmissionOperationRow", b =>
+                {
+                    b.Property<Guid>("SubmissionOperationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AttemptId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AuthenticatedPlayerUserId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("CanonicalMediaId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("CaptureSessionId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("ClaimToken")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("EvidenceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("GameId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("LastErrorCode")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTimeOffset?>("LeaseExpiresAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("MediaProviderNamespace")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTimeOffset?>("NextReconciliationAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("ProviderConsumptionConfirmedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ProviderReceiptId")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<int>("RecoveryAttemptCount")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<int>("State")
+                        .HasColumnType("int");
+
+                    b.Property<int>("StepNumber")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("SubmissionOperationId");
+
+                    b.HasIndex("MediaProviderNamespace", "CanonicalMediaId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_GameProofOperations_Provider_Media");
+
+                    b.HasIndex("MediaProviderNamespace", "CaptureSessionId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_GameProofOperations_Provider_Capture");
+
+                    b.HasIndex("State", "NextReconciliationAtUtc")
+                        .HasDatabaseName("IX_GameProofOperations_Reconciliation");
+
+                    b.HasIndex("AttemptId", "GameId", "AuthenticatedPlayerUserId");
+
+                    b.ToTable("GameProofSubmissionOperations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_GameProofOperations_RecoveryAttempts", "[RecoveryAttemptCount] >= 0");
+
+                            t.HasCheckConstraint("CK_GameProofOperations_State", "[State] IN (0,1,2,3,4,5,6)");
+
+                            t.HasCheckConstraint("CK_GameProofOperations_Step", "[StepNumber] >= 1");
+                        });
+                });
+
             modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.Games.GameResultDecisionRow", b =>
                 {
                     b.Property<Guid>("DecisionId")
@@ -3309,6 +3410,16 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                     b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
                         .WithMany()
                         .HasForeignKey("ReviewerUserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.Games.GameProofSubmissionOperationRow", b =>
+                {
+                    b.HasOne("Wayhunter.Infrastructure.Persistence.Models.Games.GameAttemptRow", null)
+                        .WithMany()
+                        .HasForeignKey("AttemptId", "GameId", "AuthenticatedPlayerUserId")
+                        .HasPrincipalKey("Id", "GameId", "PlayerUserId")
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
                 });
