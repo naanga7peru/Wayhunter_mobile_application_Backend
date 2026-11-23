@@ -245,8 +245,10 @@ public sealed class M4SqlIntegrationVerificationTests
         await using var db = CreateContext();
 
         db.Users.Add(user);
+        await db.SaveChangesAsync();
 
         db.HunterSubmissions.Add(submission);
+        await db.SaveChangesAsync();
 
         db.HunterCaptureSessions.Add(session);
 

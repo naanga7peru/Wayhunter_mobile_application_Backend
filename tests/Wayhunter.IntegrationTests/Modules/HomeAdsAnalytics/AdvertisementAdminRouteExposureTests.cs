@@ -4,6 +4,8 @@ using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Logging;
 using Wayhunter.Api.Contracts;
 using Wayhunter.Api.Contracts.HomeAdsAnalytics;
 using Xunit;
@@ -36,7 +38,9 @@ public sealed class AdvertisementAdminRouteExposureTests
             TestAdvertisementId,
             StringComparison.Ordinal);
 
-        using var factory = new WebApplicationFactory<Program>();
+        using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+                builder.ConfigureLogging(logging => logging.ClearProviders()));
         using var client = factory.CreateClient();
 
         using var request = new HttpRequestMessage(
@@ -67,7 +71,9 @@ public sealed class AdvertisementAdminRouteExposureTests
             TestAdvertisementId,
             StringComparison.Ordinal);
 
-        using var factory = new WebApplicationFactory<Program>();
+        using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+                builder.ConfigureLogging(logging => logging.ClearProviders()));
         using var client = factory.CreateClient();
 
         using var request = new HttpRequestMessage(

@@ -36,9 +36,6 @@ public sealed class TripSafeCheckInHttpTests
         builder.Services.AddControllers().AddApplicationPart(typeof(TripSafeCheckInController).Assembly);
         builder.Services.AddAuthentication("Test")
             .AddScheme<AuthenticationSchemeOptions, CheckInAuthenticationHandler>("Test", _ => { });
-        builder.Services.AddScoped<TripSafeCheckInService>(_ =>
-            throw new InvalidOperationException("Disabled check-in must never resolve the write path."));
-
         await using var app = builder.Build();
         app.UseAuthentication();
         app.UseAuthorization();

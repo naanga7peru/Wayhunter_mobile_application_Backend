@@ -10,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Wayhunter.Api.Hubs.TripSafety;
 using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Application.Modules.CoinsWallet.Dtos;
@@ -204,6 +205,7 @@ public sealed class ValidJwtCrossModuleHttpTests
             IWebHostBuilder builder)
         {
             base.ConfigureWebHost(builder);
+            builder.ConfigureLogging(logging => logging.ClearProviders());
 
             builder.ConfigureTestServices(services =>
             {
