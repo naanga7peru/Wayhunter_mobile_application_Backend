@@ -116,7 +116,8 @@ public sealed class ConcurrentTripInvitationDecisionTests
     {
         return new TripInvitationDecisionService(
             repository,
-            new FixedTimeProvider());
+            new FixedTimeProvider(),
+            new TripInviteBlockReaderStub());
     }
 
     [Fact]

@@ -134,7 +134,8 @@ public sealed class M3MobileApiCompletionTests
 
                     new TripInvitationDecisionService(
                         Invitations,
-                        clock),
+                        clock,
+                        new TripInviteBlockReaderStub()),
 
                     new TripMembershipRevocationService(
                         Members,

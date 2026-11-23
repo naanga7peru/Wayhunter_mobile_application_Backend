@@ -113,7 +113,7 @@ public sealed class RealSqlHttpE2EFixture : IAsyncLifetime
             });
         });
 
-        // Apply the three checked-in migrations to this fixture-owned catalog.
+        // Apply checked-in migrations only to this fixture-owned catalog.
         var options = new DbContextOptionsBuilder<WayhunterSharedDbContext>()
             .UseSqlServer(ConnectionString).Options;
         await using (var db = new WayhunterSharedDbContext(options))
@@ -141,23 +141,132 @@ public sealed class RealSqlHttpE2EFixture : IAsyncLifetime
     }
 
     public async Task<string> RegisterAndLoginAsync(string email = "sql-e2e@wayhunter.invalid")
+        => await RegisterAndLoginAsync(Client, email);
+
+    public async Task<string> RegisterAndLoginAsync(HttpClient client, string email)
     {
         const string password = "E2e-Password-2026!";
-        using var register = await Client.PostAsJsonAsync("/api/mobile/identity/register",
+        using var register = await client.PostAsJsonAsync("/api/mobile/identity/register",
             new { displayName = "SQL E2E", email, password, confirmPassword = password });
         Assert.True(register.StatusCode == HttpStatusCode.Created,
             $"Registration returned {(int)register.StatusCode}: {await register.Content.ReadAsStringAsync()}");
         Assert.False(string.IsNullOrWhiteSpace(OtpCode));
-        using var verify = await Client.PostAsJsonAsync("/api/mobile/identity/verify-otp", new { email, code = OtpCode });
+        using var verify = await client.PostAsJsonAsync("/api/mobile/identity/verify-otp", new { email, code = OtpCode });
         Assert.True(verify.IsSuccessStatusCode, await verify.Content.ReadAsStringAsync());
-        using var login = await Client.PostAsJsonAsync("/api/mobile/identity/login", new { email, password });
+        using var login = await client.PostAsJsonAsync("/api/mobile/identity/login", new { email, password });
         Assert.True(login.StatusCode == HttpStatusCode.OK,
             $"Login returned {(int)login.StatusCode}: {await login.Content.ReadAsStringAsync()}");
         using var payload = JsonDocument.Parse(await login.Content.ReadAsStringAsync());
         var token = payload.RootElement.GetProperty("accessToken").GetString();
         Assert.False(string.IsNullOrWhiteSpace(token));
-        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return token!;
+    }
+
+    [SqlE2EFact]
+    public async Task M1BlocksAndM3InvitationsUseAuthenticatedSqlEndToEnd()
+    {
+        await RegisterAndLoginAsync();
+        var recipientClient = _factory!.CreateClient();
+        await RegisterAndLoginAsync(recipientClient, "sql-e2e-recipient@wayhunter.invalid");
+
+        await using var db = CreateVerificationContext();
+        var ownerId = await db.Users.Where(x => x.NormalizedEmail == "sql-e2e@wayhunter.invalid")
+            .Select(x => x.UserId).SingleAsync();
+        var recipientId = await db.Users.Where(x => x.NormalizedEmail == "sql-e2e-recipient@wayhunter.invalid")
+            .Select(x => x.UserId).SingleAsync();
+
+        using var block = await Client.PostAsync($"/api/mobile/identity/blocks/{recipientId}", null);
+        Assert.Equal(HttpStatusCode.NoContent, block.StatusCode);
+        using var repeatBlock = await Client.PostAsync($"/api/mobile/identity/blocks/{recipientId}", null);
+        Assert.Equal(HttpStatusCode.NoContent, repeatBlock.StatusCode);
+        Assert.Equal(1, await db.BlockedUserRelationships.CountAsync());
+
+        var blockedTripId = await CreateSqlTripAsync();
+        using var blockedInvite = await Client.PostAsJsonAsync(
+            $"/api/mobile/trips/{blockedTripId}/invitations", new { recipientUserId = recipientId });
+        Assert.Equal(HttpStatusCode.Forbidden, blockedInvite.StatusCode);
+        Assert.Empty(await db.TripInvitations.ToListAsync());
+
+        // A block in the reverse direction is also authoritative.
+        using var recipientBlocksOwner = await recipientClient.PostAsync($"/api/mobile/identity/blocks/{ownerId}", null);
+        Assert.Equal(HttpStatusCode.NoContent, recipientBlocksOwner.StatusCode);
+        using var blockedFromOtherDirection = await Client.PostAsJsonAsync(
+            $"/api/mobile/trips/{blockedTripId}/invitations", new { recipientUserId = recipientId });
+        Assert.Equal(HttpStatusCode.Forbidden, blockedFromOtherDirection.StatusCode);
+        using var recipientUnblock = await recipientClient.DeleteAsync($"/api/mobile/identity/blocks/{ownerId}");
+        Assert.Equal(HttpStatusCode.NoContent, recipientUnblock.StatusCode);
+        using var ownerUnblock = await Client.DeleteAsync($"/api/mobile/identity/blocks/{recipientId}");
+        Assert.Equal(HttpStatusCode.NoContent, ownerUnblock.StatusCode);
+        using var repeatUnblock = await Client.DeleteAsync($"/api/mobile/identity/blocks/{recipientId}");
+        Assert.Equal(HttpStatusCode.NoContent, repeatUnblock.StatusCode);
+        Assert.Empty(await db.BlockedUserRelationships.ToListAsync());
+
+        var acceptedTripId = await CreateSqlTripAsync();
+        using var createAccepted = await Client.PostAsJsonAsync(
+            $"/api/mobile/trips/{acceptedTripId}/invitations", new { recipientUserId = recipientId });
+        Assert.Equal(HttpStatusCode.Created, createAccepted.StatusCode);
+        using var acceptedPayload = JsonDocument.Parse(await createAccepted.Content.ReadAsStringAsync());
+        var acceptedId = acceptedPayload.RootElement.GetProperty("invitationId").GetGuid();
+        using var createRetry = await Client.PostAsJsonAsync(
+            $"/api/mobile/trips/{acceptedTripId}/invitations", new { recipientUserId = recipientId });
+        Assert.Equal(HttpStatusCode.Conflict, createRetry.StatusCode);
+
+        using var ownerCannotAccept = await Client.PostAsync($"/api/mobile/trip-invitations/{acceptedId}/accept", null);
+        Assert.Equal(HttpStatusCode.Forbidden, ownerCannotAccept.StatusCode);
+        using var lateBlock = await Client.PostAsync($"/api/mobile/identity/blocks/{recipientId}", null);
+        Assert.Equal(HttpStatusCode.NoContent, lateBlock.StatusCode);
+        using var blockedAcceptance = await recipientClient.PostAsync($"/api/mobile/trip-invitations/{acceptedId}/accept", null);
+        Assert.Equal(HttpStatusCode.Forbidden, blockedAcceptance.StatusCode);
+        using var lateUnblock = await Client.DeleteAsync($"/api/mobile/identity/blocks/{recipientId}");
+        Assert.Equal(HttpStatusCode.NoContent, lateUnblock.StatusCode);
+        using var accepted = await recipientClient.PostAsync($"/api/mobile/trip-invitations/{acceptedId}/accept", null);
+        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+        using var acceptRetry = await recipientClient.PostAsync($"/api/mobile/trip-invitations/{acceptedId}/accept", null);
+        Assert.Equal(HttpStatusCode.OK, acceptRetry.StatusCode);
+
+        var rejectedTripId = await CreateSqlTripAsync();
+        using var createRejected = await Client.PostAsJsonAsync(
+            $"/api/mobile/trips/{rejectedTripId}/invitations", new { recipientUserId = recipientId });
+        Assert.Equal(HttpStatusCode.Created, createRejected.StatusCode);
+        using var rejectedPayload = JsonDocument.Parse(await createRejected.Content.ReadAsStringAsync());
+        var rejectedId = rejectedPayload.RootElement.GetProperty("invitationId").GetGuid();
+        using var rejected = await recipientClient.PostAsync($"/api/mobile/trip-invitations/{rejectedId}/reject", null);
+        Assert.Equal(HttpStatusCode.OK, rejected.StatusCode);
+        using var rejectRetry = await recipientClient.PostAsync($"/api/mobile/trip-invitations/{rejectedId}/reject", null);
+        Assert.Equal(HttpStatusCode.OK, rejectRetry.StatusCode);
+
+        var cancelledTripId = await CreateSqlTripAsync();
+        using var createCancelled = await Client.PostAsJsonAsync(
+            $"/api/mobile/trips/{cancelledTripId}/invitations", new { recipientUserId = recipientId });
+        Assert.Equal(HttpStatusCode.Created, createCancelled.StatusCode);
+        using var cancelledPayload = JsonDocument.Parse(await createCancelled.Content.ReadAsStringAsync());
+        var cancelledId = cancelledPayload.RootElement.GetProperty("invitationId").GetGuid();
+        using var cancelled = await Client.PostAsync($"/api/mobile/trip-invitations/{cancelledId}/cancel", null);
+        Assert.Equal(HttpStatusCode.OK, cancelled.StatusCode);
+        using var cancelRetry = await Client.PostAsync($"/api/mobile/trip-invitations/{cancelledId}/cancel", null);
+        Assert.Equal(HttpStatusCode.OK, cancelRetry.StatusCode);
+
+        Assert.Equal(3, await db.TripInvitations.CountAsync());
+        Assert.Equal(1, await db.TripMembers.CountAsync(x => x.InvitationId == acceptedId));
+        Assert.Equal(Wayhunter.Domain.Modules.TripSafety.Enums.TripInvitationStatus.Accepted,
+            await db.TripInvitations.Where(x => x.Id == acceptedId).Select(x => x.Status).SingleAsync());
+        Assert.Equal(Wayhunter.Domain.Modules.TripSafety.Enums.TripInvitationStatus.Rejected,
+            await db.TripInvitations.Where(x => x.Id == rejectedId).Select(x => x.Status).SingleAsync());
+        Assert.Equal(Wayhunter.Domain.Modules.TripSafety.Enums.TripInvitationStatus.Cancelled,
+            await db.TripInvitations.Where(x => x.Id == cancelledId).Select(x => x.Status).SingleAsync());
+        recipientClient.Dispose();
+    }
+
+    private async Task<Guid> CreateSqlTripAsync()
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        using var response = await Client.PostAsJsonAsync("/api/mobile/trip-plans",
+            new CreateTripPlanDto("Invitation SQL trip", today.AddDays(1), today.AddDays(2), 10000m, "Car", 2));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var trip = await response.Content.ReadFromJsonAsync<TripPlanResponseDto>();
+        Assert.NotNull(trip);
+        return trip.TripPlanId;
     }
 
     [SqlE2EFact]

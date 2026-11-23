@@ -20,6 +20,7 @@ public static class IdentityPersistenceServiceCollectionExtensions
 
         // M1 uses the single shared database context.
         services.AddWayhunterSharedPersistence(configuration);
+        services.TryAddScoped<BlockedUserRelationshipService>();
 
         services.TryAddScoped<
             IPasswordHasher<object>, PasswordHasher<object>>();

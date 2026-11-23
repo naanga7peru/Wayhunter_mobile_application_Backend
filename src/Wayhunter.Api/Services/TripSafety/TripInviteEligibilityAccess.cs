@@ -58,6 +58,30 @@ public sealed class UnconfiguredTripInviteBlockRelationshipReader
     }
 }
 
+/// <summary>Reads the authoritative M1 block table in both directions.</summary>
+public sealed class SqlTripInviteBlockRelationshipReader
+    : ITripInviteBlockRelationshipReader
+{
+    private readonly WayhunterSharedDbContext _db;
+
+    public SqlTripInviteBlockRelationshipReader(WayhunterSharedDbContext db) =>
+        _db = db ?? throw new ArgumentNullException(nameof(db));
+
+    public Task<bool> IsBlockedEitherWayAsync(
+        string senderUserId,
+        string recipientUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(senderUserId) || string.IsNullOrWhiteSpace(recipientUserId))
+            throw new ArgumentException("Both user IDs are required.");
+
+        return _db.BlockedUserRelationships.AsNoTracking().AnyAsync(
+            x => (x.BlockerUserId == senderUserId && x.BlockedUserId == recipientUserId) ||
+                 (x.BlockerUserId == recipientUserId && x.BlockedUserId == senderUserId),
+            cancellationToken);
+    }
+}
+
 // =====================================================
 // SQL Trip Invitation Eligibility
 // =====================================================

@@ -235,6 +235,30 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Wayhunter.Domain.Modules.IdentitySocial.Entities.BlockedUserRelationship", b =>
+                {
+                    b.Property<string>("BlockerUserId")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("BlockedUserId")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("BlockerUserId", "BlockedUserId");
+
+                    b.HasIndex("BlockedUserId", "BlockerUserId")
+                        .HasDatabaseName("IX_BlockedUserRelationships_BlockedUserId_BlockerUserId");
+
+                    b.ToTable("BlockedUserRelationships", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BlockedUserRelationships_NoSelfBlock", "[BlockerUserId] <> [BlockedUserId]");
+                        });
+                });
+
             modelBuilder.Entity("Wayhunter.Domain.Modules.IdentitySocial.Entities.IdentityConsent", b =>
                 {
                     b.Property<string>("ConsentId")
@@ -2770,6 +2794,23 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired()
                         .HasConstraintName("FK_Hunter_Submissions_Users_UserId");
+                });
+
+            modelBuilder.Entity("Wayhunter.Domain.Modules.IdentitySocial.Entities.BlockedUserRelationship", b =>
+                {
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("BlockedUserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_BlockedUserRelationships_Users_BlockedUserId");
+
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("BlockerUserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_BlockedUserRelationships_Users_BlockerUserId");
                 });
 
             modelBuilder.Entity("Wayhunter.Domain.Modules.IdentitySocial.Entities.IdentityConsent", b =>

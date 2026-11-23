@@ -221,6 +221,23 @@ public sealed class EfTripInvitationDecisionRepository
         TripMember? memberToAdd,
         CancellationToken cancellationToken)
     {
+        // Recheck under the same serializable transaction as the decision.
+        // This closes the race where a block is added after application-level
+        // eligibility validation but before membership is committed.
+        var blocked = await _dbContext.BlockedUserRelationships
+            .AsNoTracking()
+            .AnyAsync(x =>
+                (x.BlockerUserId == invitation.SenderUserId &&
+                 x.BlockedUserId == invitation.RecipientUserId) ||
+                (x.BlockerUserId == invitation.RecipientUserId &&
+                 x.BlockedUserId == invitation.SenderUserId),
+                cancellationToken);
+        if (blocked)
+        {
+            throw new UnauthorizedAccessException(
+                "Blocked users cannot accept invitations.");
+        }
+
         if (memberToAdd is null)
         {
             throw new InvalidOperationException(
