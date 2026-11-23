@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
@@ -61,6 +62,19 @@ public sealed class HunterSubmissionsHttpTests
             Guid submissionId, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException(
                 "Sensitive database exception details.");
+
+        public Task<IReadOnlyList<HunterSubmissionStatusSnapshot>> FindMineAsync(
+            string ownerUserId, bool approvedOnly = false,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Sensitive database exception details.");
+
+        public Task<IReadOnlyList<ApprovedHunterPlaceDto>> FindApprovedPlacesAsync(
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Sensitive database exception details.");
+
+        public Task<IReadOnlyList<HunterSubmissionStatusSnapshot>> FindPendingReviewAsync(
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Sensitive database exception details.");
     }
 
     private sealed class FailingCaptureSessionStore : IHunterCaptureSessionStore
@@ -178,6 +192,16 @@ public sealed class HunterSubmissionsHttpTests
                 Status = HunterSubmissionStatus.PendingReview,
                 CreatedAtUtc = now
             });
+            if (submissionStatus == HunterSubmissionStatus.Approved)
+            {
+                db.HunterReviewDecisions.Add(new HunterReviewDecision
+                {
+                    HunterSubmissionId = SubmissionId,
+                    ReviewerUserId = Owner.UserId,
+                    ResultingStatus = HunterSubmissionStatus.Approved,
+                    ReviewedAtUtc = now.AddMinutes(1)
+                });
+            }
             db.SaveChanges();
 
             var tokens = new SignedSessionTokenService(
@@ -290,6 +314,25 @@ public sealed class HunterSubmissionsHttpTests
         Assert.Equal(missingError.Code, foreignError.Code);
         Assert.Equal(missingError.Message, foreignError.Message);
         Assert.NotEqual(missingError.CorrelationId, foreignError.CorrelationId);
+    }
+
+    [Fact]
+    public async Task MySubmissionsAndApprovedPlaces_AreOwnerScoped()
+    {
+        await using var fixture = new Fixture(submissionStatus: HunterSubmissionStatus.Approved);
+        using var submissions = await fixture.Client.GetAsync("/api/mobile/hunter/submissions");
+        Assert.Equal(HttpStatusCode.OK, submissions.StatusCode);
+        using var rows = JsonDocument.Parse(await submissions.Content.ReadAsStringAsync());
+        Assert.Single(rows.RootElement.EnumerateArray());
+        Assert.Equal(fixture.SubmissionId, rows.RootElement[0].GetProperty("submissionId").GetGuid());
+        Assert.False(rows.RootElement[0].TryGetProperty("ownerUserId", out _));
+
+        using var places = await fixture.Client.GetAsync("/api/mobile/hunter/places");
+        Assert.Equal(HttpStatusCode.OK, places.StatusCode);
+        using var approved = JsonDocument.Parse(await places.Content.ReadAsStringAsync());
+        Assert.Single(approved.RootElement.EnumerateArray());
+        Assert.Equal("Public-facing place", approved.RootElement[0].GetProperty("placeName").GetString());
+        Assert.True(approved.RootElement[0].TryGetProperty("latitude", out _));
     }
 
     [Fact]

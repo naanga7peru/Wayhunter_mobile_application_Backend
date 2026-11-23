@@ -55,6 +55,13 @@ public sealed class GamesReadApiHttpTests
         }
 
         Assert.Equal(factory.Account(0).UserId, factory.Attempts.LastRequestedUserId);
+
+        using var mine = await client.GetAsync("/api/mobile/games/me");
+        Assert.Equal(HttpStatusCode.OK, mine.StatusCode);
+        using var myGames = JsonDocument.Parse(await mine.Content.ReadAsStringAsync());
+        Assert.Single(myGames.RootElement.EnumerateArray());
+        Assert.Equal(factory.Account(0).UserId, factory.MyGames.LastRequestedUserId);
+        Assert.False(myGames.RootElement[0].TryGetProperty("creatorUserId", out _));
     }
 
     [Fact]
@@ -266,6 +273,7 @@ public sealed class GamesReadApiHttpTests
         public readonly FakeAvailableGamesStore Available = new();
         public readonly FakeGameDetailsStore Details = new();
         public readonly FakeAttemptsStore Attempts = new();
+        public readonly FakeMyGamesStore MyGames = new();
         public readonly FakeStartAttemptStore StartAttempts = new();
         public bool UseFakeAttemptStore { get; set; } = true;
         public bool EnableSqlAttemptWriter { get; set; }
@@ -278,6 +286,7 @@ public sealed class GamesReadApiHttpTests
             Available.GameId = PublicGameId;
             Details.GameId = PublicGameId;
             Attempts.OwnerUserId = _accounts[0].UserId;
+            MyGames.OwnerUserId = _accounts[0].UserId;
         }
 
         public UserAccount Account(int index) => _accounts[index];
@@ -325,6 +334,8 @@ public sealed class GamesReadApiHttpTests
                 services.AddSingleton<IPublicGameDetailsQueryStore>(Details);
                 services.RemoveAll<IMyGameAttemptsQueryStore>();
                 services.AddSingleton<IMyGameAttemptsQueryStore>(Attempts);
+                services.RemoveAll<IMyGamesQueryStore>();
+                services.AddSingleton<IMyGamesQueryStore>(MyGames);
                 if (UseFakeAttemptStore)
                 {
                     services.RemoveAll<IStartGameAttemptStore>();
@@ -446,6 +457,20 @@ public sealed class GamesReadApiHttpTests
                 return Task.FromException<IReadOnlyList<MyGameAttemptDto>>(new InvalidOperationException());
             IReadOnlyList<MyGameAttemptDto> rows = playerUserId == OwnerUserId
                 ? [new(Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1), GameProgressStatus.InProgress, 1, 3)]
+                : [];
+            return Task.FromResult(rows);
+        }
+    }
+
+    private sealed class FakeMyGamesStore : IMyGamesQueryStore
+    {
+        public string? OwnerUserId { get; set; }
+        public string? LastRequestedUserId { get; private set; }
+        public Task<IReadOnlyList<MyGameDto>> GetMyGamesAsync(string creatorUserId, CancellationToken cancellationToken = default)
+        {
+            LastRequestedUserId = creatorUserId;
+            IReadOnlyList<MyGameDto> rows = creatorUserId == OwnerUserId
+                ? [new(Guid.NewGuid(), "Archived game", GameStatus.Expired, DateTimeOffset.UtcNow.AddDays(-30), DateTimeOffset.UtcNow.AddDays(-1))]
                 : [];
             return Task.FromResult(rows);
         }

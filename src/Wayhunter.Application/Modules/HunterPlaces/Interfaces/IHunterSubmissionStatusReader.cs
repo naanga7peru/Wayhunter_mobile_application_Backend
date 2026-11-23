@@ -13,4 +13,15 @@ public interface IHunterSubmissionStatusReader
     Task<HunterSubmissionStatusSnapshot?> FindByIdAsync(
         Guid submissionId,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<HunterSubmissionStatusSnapshot>> FindMineAsync(
+        string ownerUserId,
+        bool approvedOnly = false,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ApprovedHunterPlaceDto>> FindApprovedPlacesAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<HunterSubmissionStatusSnapshot>> FindPendingReviewAsync(
+        CancellationToken cancellationToken = default);
 }

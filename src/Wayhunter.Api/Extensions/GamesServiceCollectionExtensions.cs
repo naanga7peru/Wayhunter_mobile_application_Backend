@@ -53,6 +53,8 @@ public static class GamesServiceCollectionExtensions
             sp.GetRequiredService<InMemoryGameSubmissionStore>());
         services.TryAddSingleton<IAvailableGamesQueryStore>(sp =>
             sp.GetRequiredService<InMemoryGameSubmissionStore>());
+        services.TryAddSingleton<IMyGamesQueryStore>(sp =>
+            sp.GetRequiredService<InMemoryGameSubmissionStore>());
         services.TryAddSingleton<ICurrentGameStageQueryStore>(sp =>
             sp.GetRequiredService<InMemoryGameSubmissionStore>());
         services.TryAddSingleton<IExpiredGameArchiveStore>(sp =>
@@ -66,6 +68,7 @@ public static class GamesServiceCollectionExtensions
         services.TryAddScoped<StartGameAttemptService>();
         services.TryAddScoped<GetPendingGameStageProofsService>();
         services.TryAddScoped<ArchiveExpiredGamesService>();
+        services.TryAddScoped<GetMyGamesQueryService>();
 
         // Draft creation can proceed for text-only clues. Until
         // an approved private-media ownership provider exists,
@@ -184,6 +187,7 @@ public static class GamesServiceCollectionExtensions
         services.RemoveAll<IAvailableGamesQueryStore>();
         services.RemoveAll<IPublicGameDetailsQueryStore>();
         services.RemoveAll<IMyGameAttemptsQueryStore>();
+        services.RemoveAll<IMyGamesQueryStore>();
 
         if (configuration.GetValue<bool>(SqlPersistenceFlag))
         {
@@ -194,6 +198,8 @@ public static class GamesServiceCollectionExtensions
                 sp.GetRequiredService<SqlGamesReadRepository>());
             services.AddScoped<IMyGameAttemptsQueryStore>(sp =>
                 sp.GetRequiredService<SqlGamesReadRepository>());
+            services.AddScoped<IMyGamesQueryStore>(sp =>
+                sp.GetRequiredService<SqlGamesReadRepository>());
         }
         else
         {
@@ -203,6 +209,8 @@ public static class GamesServiceCollectionExtensions
             services.AddSingleton<IPublicGameDetailsQueryStore>(sp =>
                 sp.GetRequiredService<UnavailableGamesReadQueryStores>());
             services.AddSingleton<IMyGameAttemptsQueryStore>(sp =>
+                sp.GetRequiredService<UnavailableGamesReadQueryStores>());
+            services.AddSingleton<IMyGamesQueryStore>(sp =>
                 sp.GetRequiredService<UnavailableGamesReadQueryStores>());
         }
 

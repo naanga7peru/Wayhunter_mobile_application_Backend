@@ -200,6 +200,28 @@ public sealed class HunterSubmissionsController : ControllerBase
         }
     }
 
+    [HttpGet]
+    [ProducesResponseType(typeof(IReadOnlyList<HunterSubmissionResponseDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiErrorResponse>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiErrorResponse>(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetMySubmissions(CancellationToken cancellationToken)
+    {
+        if (!TrustedIdentityAccessContract.TryResolveUserId(User, out var userId))
+            return Error(StatusCodes.Status401Unauthorized, "authentication_required", "Authentication is required.");
+        try
+        {
+            var account = await _accounts.FindByUserIdAsync(userId, cancellationToken);
+            if (!TrustedIdentityAccessContract.IsActiveAccountOwner(userId, account))
+                return Error(StatusCodes.Status401Unauthorized, "authentication_required", "Authentication is required.");
+            return Ok(await _status.GetMySubmissionsAsync(userId, cancellationToken: cancellationToken));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception)
+        {
+            return Error(StatusCodes.Status503ServiceUnavailable, "hunter_submissions_unavailable", "Submissions could not be retrieved.");
+        }
+    }
+
     private ObjectResult Error(int status, string code, string message) =>
         StatusCode(status, ApiErrorResponse.Create(
             code, message, HttpContext.TraceIdentifier));

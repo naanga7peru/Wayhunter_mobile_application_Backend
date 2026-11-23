@@ -10,7 +10,8 @@ namespace Wayhunter.Infrastructure.Persistence.Repositories.Games;
 public sealed class SqlGamesReadRepository :
     IAvailableGamesQueryStore,
     IPublicGameDetailsQueryStore,
-    IMyGameAttemptsQueryStore
+    IMyGameAttemptsQueryStore,
+    IMyGamesQueryStore
 {
     private readonly WayhunterSharedDbContext _db;
 
@@ -104,6 +105,22 @@ public sealed class SqlGamesReadRepository :
             .ToArrayAsync(cancellationToken);
 
         return attempts;
+    }
+
+    public async Task<IReadOnlyList<MyGameDto>> GetMyGamesAsync(
+        string creatorUserId,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureSqlServer();
+        if (!Guid.TryParseExact(creatorUserId, "D", out var creatorId) || creatorId == Guid.Empty)
+            return Array.Empty<MyGameDto>();
+        return await _db.Games.AsNoTracking()
+            .Where(game => game.CreatorUserId == creatorId.ToString("D"))
+            .OrderByDescending(game => game.ApprovedAtUtc)
+            .ThenBy(game => game.Id)
+            .Select(game => new MyGameDto(
+                game.Id, game.Title, game.Status, game.ApprovedAtUtc, game.ExpiresAtUtc))
+            .ToArrayAsync(cancellationToken);
     }
 
     private void EnsureSqlServerAndUtc(DateTimeOffset nowUtc)
