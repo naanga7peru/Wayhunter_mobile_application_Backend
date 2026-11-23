@@ -58,10 +58,10 @@ public sealed class M3Ms07TripMemoryMetadataTests
 
         Assert.Contains(media.GetCheckConstraints(), x => x.Name == "CK_TripSafety_TripMemoryMedia_State");
         var snapshot = db.GetService<IMigrationsAssembly>().ModelSnapshot!.Model;
-        Assert.DoesNotContain(snapshot.GetEntityTypes(), t =>
-            t.GetTableName() is "TripSafety_TripMemories" or "TripSafety_TripMemoryMedia");
+        Assert.Contains(snapshot.GetEntityTypes(), t => t.GetTableName() == "TripSafety_TripMemories");
+        Assert.Contains(snapshot.GetEntityTypes(), t => t.GetTableName() == "TripSafety_TripMemoryMedia");
         var snapshotStop = snapshot.FindEntityType(typeof(TripStop).FullName!)!;
-        Assert.Single(snapshotStop.GetKeys());
+        Assert.Equal(2, snapshotStop.GetKeys().Count());
     }
     [Theory]
     [InlineData(false)]

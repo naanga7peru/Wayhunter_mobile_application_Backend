@@ -384,7 +384,7 @@ public sealed class M3Batch2SafetyTests
     }
 
     [Fact]
-    public void Sql_Mode_Registers_FailClosed_CheckIn_Store()
+    public void Sql_Mode_Registers_Durable_CheckIn_Store()
     {
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(
@@ -403,7 +403,7 @@ public sealed class M3Batch2SafetyTests
             x => x.ServiceType ==
                     typeof(ITripSafetyCheckInStore) &&
                  x.ImplementationType ==
-                    typeof(UnavailableTripSafetyCheckInStore));
+                    typeof(EfTripSafeCheckInStore));
 
         Assert.Contains(
             services,

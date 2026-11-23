@@ -545,11 +545,25 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<DateTimeOffset?>("ExpiredAtUtc")
                         .HasColumnType("datetimeoffset");
 
                     b.Property<DateTimeOffset>("ExpiresAtUtc")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<double?>("Latitude")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("Longitude")
+                        .HasColumnType("float");
+
+                    b.Property<string>("PhotoAssetReference")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
 
                     b.Property<DateTimeOffset>("PhotoCapturedAtUtc")
                         .HasColumnType("datetimeoffset");
@@ -573,6 +587,7 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                         .HasColumnType("nvarchar(256)");
 
                     b.Property<int>("Status")
+                        .IsConcurrencyToken()
                         .HasColumnType("int");
 
                     b.Property<DateTimeOffset?>("VerifiedAtUtc")
@@ -596,6 +611,8 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
 
                     b.ToTable("TripSafety_HazardReports", null, t =>
                         {
+                            t.HasCheckConstraint("CK_TripSafety_HazardReports_Coordinates", "([Latitude] IS NULL AND [Longitude] IS NULL) OR ([Latitude] BETWEEN -90 AND 90 AND [Longitude] BETWEEN -180 AND 180)");
+
                             t.HasCheckConstraint("CK_TripSafety_HazardReports_ExpiredStatus", "[Status] <> 4 OR [ExpiredAtUtc] IS NOT NULL");
 
                             t.HasCheckConstraint("CK_TripSafety_HazardReports_Expiry", "[ExpiresAtUtc] = DATEADD(hour, 24, [ReportedAtUtc])");
@@ -775,6 +792,10 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("ActorUserId")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
                     b.Property<Guid?>("CorrectionOfEntryId")
                         .HasColumnType("uniqueidentifier");
 
@@ -783,6 +804,10 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
 
                     b.Property<long>("DeltaCoins")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<DateTimeOffset>("RecordedAtUtc")
                         .HasColumnType("datetimeoffset");
@@ -805,12 +830,22 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CorrectionOfEntryId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_CoinLedgerEntries_CorrectionOf")
+                        .HasFilter("[CorrectionOfEntryId] IS NOT NULL");
+
                     b.HasIndex("WalletId");
 
                     b.HasIndex("RewardType", "SourceRecordId")
                         .IsUnique()
                         .HasDatabaseName("UX_CoinLedgerEntries_GameWinnerSource")
                         .HasFilter("[RewardType] = 4");
+
+                    b.HasIndex("WalletId", "SourceRecordId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_CoinLedgerEntries_Wallet_NonRewardSource")
+                        .HasFilter("[RewardType] IS NULL");
 
                     b.HasIndex("WalletId", "RewardType", "SourceRecordId")
                         .IsUnique()
@@ -1005,6 +1040,20 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedByUserId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTimeOffset>("EffectiveFromUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("EffectiveUntilUtc")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<string>("VersionCode")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -1073,6 +1122,14 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<DateTimeOffset>("AddedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("AddedByAdminUserId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
                     b.Property<Guid?>("AssignedRequestId")
                         .HasColumnType("uniqueidentifier");
 
@@ -1086,8 +1143,22 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<Guid>("OfferId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<string>("SampleImageReference")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)");
 
                     b.HasKey("Id");
 
@@ -1102,7 +1173,10 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("OfferId");
 
-                    b.ToTable("SampleVoucherInventory", (string)null);
+                    b.ToTable("SampleVoucherInventory", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_VoucherInventory_Expiry", "[ExpiresAtUtc] > [AddedAtUtc]");
+                        });
                 });
 
             modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.CoinsWallet.SampleVoucherIssuanceRow", b =>
@@ -1110,15 +1184,25 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("ExpiresAtUtc")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<string>("ImageReference")
                         .HasMaxLength(2048)
                         .HasColumnType("nvarchar(2048)");
 
-                    b.Property<Guid>("InventoryId")
+                    b.Property<Guid?>("InventoryId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTimeOffset?>("IssuedAtUtc")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("LastErrorCode")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
 
                     b.Property<string>("QrPayload")
                         .HasMaxLength(2048)
@@ -1127,14 +1211,32 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("RequestId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
                     b.Property<int>("Status")
                         .HasColumnType("int");
+
+                    b.Property<string>("UseReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTimeOffset?>("UsedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("UsedByActorUserId")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
 
                     b.HasKey("Id");
 
                     b.HasIndex("InventoryId")
                         .IsUnique()
-                        .HasDatabaseName("UX_VoucherIssuances_Inventory");
+                        .HasDatabaseName("UX_VoucherIssuances_Inventory")
+                        .HasFilter("[InventoryId] IS NOT NULL");
 
                     b.HasIndex("RequestId")
                         .IsUnique()
@@ -1142,7 +1244,9 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
 
                     b.ToTable("SampleVoucherIssuances", null, t =>
                         {
-                            t.HasCheckConstraint("CK_VoucherIssuances_Status", "[Status] IN (1, 2, 3)");
+                            t.HasCheckConstraint("CK_VoucherIssuances_Attempts", "[AttemptCount] >= 0");
+
+                            t.HasCheckConstraint("CK_VoucherIssuances_Status", "[Status] IN (1, 2, 3, 4, 5)");
                         });
                 });
 
@@ -1199,8 +1303,21 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("DecidedAtUtc")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<string>("DecisionActorUserId")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("DecisionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<Guid>("OfferId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OwnerNameSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("OwnerUserId")
                         .IsRequired()
@@ -1845,6 +1962,786 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.IdentitySocial.UserRoleAssignmentRow", b =>
+                {
+                    b.Property<Guid>("AssignmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("AssignedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("AssignedByUserId")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTimeOffset?>("RevokedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RevokedByUserId")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.HasKey("AssignmentId")
+                        .HasName("PK_UserRoleAssignments");
+
+                    b.HasIndex("AssignedAtUtc")
+                        .HasDatabaseName("IX_UserRoleAssignments_AssignedAtUtc");
+
+                    b.HasIndex("UserId", "Role")
+                        .IsUnique()
+                        .HasDatabaseName("UX_UserRoleAssignments_Active_UserId_Role")
+                        .HasFilter("[Status] = N'Active'");
+
+                    b.HasIndex("UserId", "Status")
+                        .HasDatabaseName("IX_UserRoleAssignments_UserId_Status");
+
+                    b.ToTable("UserRoleAssignments", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UserRoleAssignments_AssignmentTime", "[AssignedAtUtc] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UserRoleAssignments_Revocation", "(\r\n                    ([Status] = N'Active'\r\n                        AND [RevokedAtUtc] IS NULL\r\n                        AND [RevokedByUserId] IS NULL)\r\n                    OR\r\n                    ([Status] = N'Inactive'\r\n                        AND [RevokedAtUtc] IS NULL\r\n                        AND [RevokedByUserId] IS NULL)\r\n                    OR\r\n                    ([Status] = N'Revoked'\r\n                        AND [RevokedAtUtc] IS NOT NULL\r\n                        AND [RevokedAtUtc] >= [AssignedAtUtc])\r\n                )");
+
+                            t.HasCheckConstraint("CK_UserRoleAssignments_Role", "[Role] = N'Admin'");
+
+                            t.HasCheckConstraint("CK_UserRoleAssignments_Status", "[Status] IN (N'Active', N'Revoked', N'Inactive')");
+                        });
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TravelPlanning.TripPlanCopyAttributionRow", b =>
+                {
+                    b.Property<Guid>("TripPlanId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CopiedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("SourceOwnerUserId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid>("SourceTripPlanId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("TripPlanId");
+
+                    b.HasIndex("SourceTripPlanId");
+
+                    b.ToTable("TripPlanCopyAttributions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_TripPlanCopies_NotOwnSource", "[TripPlanId] <> [SourceTripPlanId]");
+                        });
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationAudienceReceiptRow", b =>
+                {
+                    b.Property<Guid>("ReceiptId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTimeOffset?>("ConsumedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("Count")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.HasKey("ReceiptId");
+
+                    b.HasIndex("ActorId");
+
+                    b.HasIndex("ExpiresAtUtc");
+
+                    b.ToTable("TripSafety_NotificationAudienceReceipts", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_MS08_NotificationAudience_Count", "[Count] BETWEEN 1 AND 100");
+                        });
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationDeliveryAuditRow", b =>
+                {
+                    b.Property<Guid>("AuditId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Attempt")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(48)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(48)");
+
+                    b.Property<DateTimeOffset>("RecordedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.HasKey("AuditId");
+
+                    b.HasIndex("EventId", "UserId");
+
+                    b.ToTable("TripSafety_NotificationDeliveryAudit", (string)null);
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationDeviceRow", b =>
+                {
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("ChangedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<byte[]>("ProtectedToken")
+                        .IsRequired()
+                        .HasMaxLength(8192)
+                        .HasColumnType("varbinary(max)");
+
+                    b.Property<bool>("PushAllowed")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTimeOffset?>("RevokedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<string>("TokenFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.HasKey("DeviceId");
+
+                    b.HasIndex("TokenFingerprint")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "RevokedAtUtc");
+
+                    b.ToTable("TripSafety_NotificationDevices", (string)null);
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationEventRow", b =>
+                {
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Category")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("JobId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("TargetId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Template")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TemplateVersion")
+                        .HasColumnType("int");
+
+                    b.HasKey("EventId");
+
+                    b.HasIndex("JobId")
+                        .IsUnique()
+                        .HasFilter("[JobId] IS NOT NULL");
+
+                    b.ToTable("TripSafety_NotificationEvents", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_MS08_NotificationEvent_Template", "[Category] BETWEEN 1 AND 7 AND [Template] BETWEEN 1 AND 7 AND [TemplateVersion] > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationJobRecipientRow", b =>
+                {
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("UserId")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.HasKey("JobId", "UserId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("TripSafety_NotificationJobRecipients", (string)null);
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationJobRow", b =>
+                {
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("AudienceDistrict")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("AudienceFingerprint")
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<int?>("AudienceRole")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("DueAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("int");
+
+                    b.Property<DateOnly?>("PlannedStartDate")
+                        .HasColumnType("date");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<Guid?>("SessionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("State")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("TargetId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Template")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TemplateVersion")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("TripPlanId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TripVersion")
+                        .HasMaxLength(16)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(16)");
+
+                    b.HasKey("JobId");
+
+                    b.HasIndex("ActorId");
+
+                    b.HasIndex("SessionId", "TripPlanId");
+
+                    b.HasIndex("State", "DueAtUtc");
+
+                    b.HasIndex("TripPlanId", "SessionId", "ActorId")
+                        .IsUnique()
+                        .HasFilter("[Kind] = 1");
+
+                    b.ToTable("TripSafety_NotificationJobs", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_MS08_NotificationJob_Kind", "([Kind] = 1 AND [TripPlanId] IS NOT NULL AND [SessionId] IS NOT NULL AND [TripVersion] IS NOT NULL AND [PlannedStartDate] IS NOT NULL) OR ([Kind] = 2 AND [TripPlanId] IS NULL AND [SessionId] IS NULL AND [TripVersion] IS NULL AND [PlannedStartDate] IS NULL AND [AudienceFingerprint] IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_MS08_NotificationJob_State", "[State] BETWEEN 0 AND 2 AND [Revision] > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationOperationRow", b =>
+                {
+                    b.Property<string>("ActorId")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<DateTimeOffset?>("DueAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<int?>("JobState")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("RecordedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("ResourceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("Revision")
+                        .HasColumnType("int");
+
+                    b.HasKey("ActorId", "OperationId");
+
+                    b.HasIndex("ResourceId", "RecordedAtUtc");
+
+                    b.ToTable("TripSafety_NotificationOperations", (string)null);
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationPreferenceRow", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<int>("Category")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("PushEnabled")
+                        .HasColumnType("bit");
+
+                    b.HasKey("UserId", "Category");
+
+                    b.ToTable("TripSafety_NotificationPreferences", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_MS08_NotificationPreference_Category", "[Category] BETWEEN 1 AND 7");
+                        });
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationRecipientRow", b =>
+                {
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("UserId")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("CompletedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("LastOutcome")
+                        .HasMaxLength(48)
+                        .HasColumnType("nvarchar(48)");
+
+                    b.Property<Guid?>("LeaseToken")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("LeaseUntilUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("ReadAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("State")
+                        .HasColumnType("int");
+
+                    b.HasKey("EventId", "UserId");
+
+                    b.HasIndex("NextAttemptAtUtc", "LeaseUntilUtc")
+                        .HasFilter("[State] = 0");
+
+                    b.HasIndex("UserId", "ReadAtUtc", "EventId");
+
+                    b.ToTable("TripSafety_NotificationRecipients", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_MS08_NotificationRecipient_Lease", "([LeaseToken] IS NULL AND [LeaseUntilUtc] IS NULL) OR ([State] = 0 AND [LeaseToken] IS NOT NULL AND [LeaseUntilUtc] IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_MS08_NotificationRecipient_State", "[Attempts] >= 0 AND (([State] = 0 AND [CompletedAtUtc] IS NULL) OR ([State] BETWEEN 1 AND 3 AND [CompletedAtUtc] IS NOT NULL AND [NextAttemptAtUtc] IS NULL))");
+                        });
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationTokenBindingRow", b =>
+                {
+                    b.Property<string>("Fingerprint")
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("RecordedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.HasKey("Fingerprint");
+
+                    b.HasIndex("DeviceId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("TripSafety_NotificationTokenBindings", (string)null);
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.TripMembershipRevocationOutboxRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("DeadLetteredAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("DeliveredAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("DeliveryAttempts")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
+                    b.Property<bool>("IsDelivered")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid?>("LeaseToken")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("LeaseUntilUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("MemberId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("MemberUserId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("RemovedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("TripPlanId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MemberId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_TripSafety_MemberRevocationOutbox_MemberId");
+
+                    b.HasIndex("IsDelivered", "CreatedAtUtc")
+                        .HasDatabaseName("IX_TripSafety_MemberRevocationOutbox_Pending");
+
+                    b.ToTable("TripSafety_MemberRevocationOutbox", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_TripSafety_MemberRevocationOutbox_Attempts", "[DeliveryAttempts] >= 0");
+
+                            t.HasCheckConstraint("CK_TripSafety_MemberRevocationOutbox_DeliveryState", "([IsDelivered] = 0 AND [DeliveredAtUtc] IS NULL) OR ([IsDelivered] = 1 AND [DeliveredAtUtc] IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.TripMemoryMediaRow", b =>
+                {
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("CleanedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("CleanupClaimId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("ContentLength")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("MemoryId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ObjectKey")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("ObjectVersion")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<int>("State")
+                        .HasColumnType("int");
+
+                    b.HasKey("OperationId");
+
+                    b.HasIndex("MemoryId")
+                        .IsUnique();
+
+                    b.HasIndex("ObjectKey")
+                        .IsUnique()
+                        .HasFilter("[ObjectKey] IS NOT NULL");
+
+                    b.HasIndex("State", "CreatedAtUtc");
+
+                    b.ToTable("TripSafety_TripMemoryMedia", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_TripSafety_TripMemoryMedia_Size", "[ContentLength] > 0");
+
+                            t.HasCheckConstraint("CK_TripSafety_TripMemoryMedia_State", "([State] = 0 AND [ObjectKey] IS NULL AND [ObjectVersion] IS NULL AND [CleanupClaimId] IS NULL AND [CleanedAtUtc] IS NULL) OR ([State] = 1 AND [ObjectKey] IS NOT NULL AND [ObjectVersion] IS NOT NULL AND [CleanupClaimId] IS NULL AND [CleanedAtUtc] IS NULL) OR ([State] IN (2, 3) AND [ObjectKey] IS NOT NULL AND [ObjectVersion] IS NOT NULL AND [CleanupClaimId] IS NOT NULL AND (([State] = 2 AND [CleanedAtUtc] IS NULL) OR ([State] = 3 AND [CleanedAtUtc] IS NOT NULL)))");
+                        });
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.TripMemoryRow", b =>
+                {
+                    b.Property<Guid>("MemoryId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Caption")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<Guid>("CreateOperationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("DeletedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("OwnerUserId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<Guid>("TripPlanId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("TripStopId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("Visibility")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
+                    b.HasKey("MemoryId");
+
+                    b.HasIndex("OwnerUserId");
+
+                    b.HasIndex("TripStopId", "TripPlanId");
+
+                    b.HasIndex("TripPlanId", "OwnerUserId", "CreateOperationId")
+                        .IsUnique();
+
+                    b.HasIndex("TripPlanId", "OwnerUserId", "CreatedAtUtc")
+                        .HasFilter("[DeletedAtUtc] IS NULL");
+
+                    b.ToTable("TripSafety_TripMemories", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_TripSafety_TripMemories_Timestamps", "[UpdatedAtUtc] >= [CreatedAtUtc] AND ([DeletedAtUtc] IS NULL OR [DeletedAtUtc] >= [CreatedAtUtc])");
+
+                            t.HasCheckConstraint("CK_TripSafety_TripMemories_Visibility", "[Visibility] IN (0, 1)");
+                        });
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.TripSafeCheckInOutboxRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CheckInId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset(7)");
+
+                    b.Property<DateTimeOffset?>("DeadLetteredAtUtc")
+                        .HasColumnType("datetimeoffset(7)");
+
+                    b.Property<DateTimeOffset?>("DeliveredAtUtc")
+                        .HasColumnType("datetimeoffset(7)");
+
+                    b.Property<int>("DeliveryAttempts")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
+                    b.Property<bool>("IsDelivered")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid?>("LeaseToken")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("LeaseUntilUtc")
+                        .HasColumnType("datetimeoffset(7)");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAtUtc")
+                        .HasColumnType("datetimeoffset(7)");
+
+                    b.Property<string>("RecipientUserId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.HasKey("Id")
+                        .HasName("PK_TripSafety_SafeCheckInOutbox");
+
+                    b.HasIndex("CheckInId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_TripSafety_SafeCheckInOutbox_CheckInId");
+
+                    b.HasIndex("RecipientUserId")
+                        .HasDatabaseName("IX_TripSafety_SafeCheckInOutbox_RecipientUserId");
+
+                    b.HasIndex("LeaseUntilUtc", "Id")
+                        .HasDatabaseName("IX_TripSafety_SafeCheckInOutbox_PendingLeaseExpiry")
+                        .HasFilter("[IsDelivered] = 0 AND [DeadLetteredAtUtc] IS NULL AND [LeaseUntilUtc] IS NOT NULL");
+
+                    b.HasIndex("NextAttemptAtUtc", "CreatedAtUtc", "Id")
+                        .HasDatabaseName("IX_TripSafety_SafeCheckInOutbox_PendingDue")
+                        .HasFilter("[IsDelivered] = 0 AND [DeadLetteredAtUtc] IS NULL");
+
+                    b.ToTable("TripSafety_SafeCheckInOutbox", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_TripSafety_SafeCheckInOutbox_Attempts", "[DeliveryAttempts] >= 0");
+
+                            t.HasCheckConstraint("CK_TripSafety_SafeCheckInOutbox_DeliveryState", "([IsDelivered] = 0 AND [DeliveredAtUtc] IS NULL) OR ([IsDelivered] = 1 AND [DeliveredAtUtc] IS NOT NULL AND [DeadLetteredAtUtc] IS NULL)");
+
+                            t.HasCheckConstraint("CK_TripSafety_SafeCheckInOutbox_LeasePair", "([LeaseToken] IS NULL AND [LeaseUntilUtc] IS NULL) OR ([LeaseToken] IS NOT NULL AND [LeaseUntilUtc] IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_TripSafety_SafeCheckInOutbox_TerminalState", "([IsDelivered] = 0 AND [DeadLetteredAtUtc] IS NULL) OR ([LeaseToken] IS NULL AND [LeaseUntilUtc] IS NULL AND [NextAttemptAtUtc] IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.TripSafeCheckInRow", b =>
+                {
+                    b.Property<Guid>("CheckInId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CheckedInAtUtc")
+                        .HasColumnType("datetimeoffset(7)");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("TripPlanId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.HasKey("CheckInId")
+                        .HasName("PK_TripSafety_SafeCheckIns");
+
+                    b.HasIndex("TripPlanId")
+                        .HasDatabaseName("IX_TripSafety_SafeCheckIns_TripPlanId");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_TripSafety_SafeCheckIns_UserId");
+
+                    b.HasIndex("SessionId", "TripPlanId")
+                        .HasDatabaseName("IX_TripSafety_SafeCheckIns_SessionId_TripPlanId");
+
+                    b.HasIndex("SessionId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_TripSafety_SafeCheckIns_SessionId_UserId");
+
+                    b.ToTable("TripSafety_SafeCheckIns", (string)null);
+                });
+
             modelBuilder.Entity("Wayhunter.Domain.Modules.HunterPlaces.Entities.HunterEvidence", b =>
                 {
                     b.HasOne("Wayhunter.Domain.Modules.HunterPlaces.Entities.HunterSubmission", null)
@@ -2108,8 +3005,7 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                     b.HasOne("Wayhunter.Infrastructure.Persistence.Models.CoinsWallet.SampleVoucherInventoryRow", null)
                         .WithMany()
                         .HasForeignKey("InventoryId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("Wayhunter.Infrastructure.Persistence.Models.CoinsWallet.SampleVoucherRedemptionRequestRow", null)
                         .WithMany()
@@ -2352,6 +3248,224 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired()
                         .HasConstraintName("FK_Hunter_CaptureSessions_Submission_Owner");
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.IdentitySocial.UserRoleAssignmentRow", b =>
+                {
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_UserRoleAssignments_Users_UserId");
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TravelPlanning.TripPlanCopyAttributionRow", b =>
+                {
+                    b.HasOne("Wayhunter.Domain.Modules.TravelPlanning.Entities.TripPlan", null)
+                        .WithMany()
+                        .HasForeignKey("TripPlanId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationAudienceReceiptRow", b =>
+                {
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("ActorId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationDeliveryAuditRow", b =>
+                {
+                    b.HasOne("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationRecipientRow", null)
+                        .WithMany()
+                        .HasForeignKey("EventId", "UserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationDeviceRow", b =>
+                {
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationEventRow", b =>
+                {
+                    b.HasOne("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationJobRow", null)
+                        .WithMany()
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.NoAction);
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationJobRecipientRow", b =>
+                {
+                    b.HasOne("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationJobRow", null)
+                        .WithMany()
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationJobRow", b =>
+                {
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("ActorId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Wayhunter.Domain.Modules.TravelPlanning.Entities.TripPlan", null)
+                        .WithMany()
+                        .HasForeignKey("TripPlanId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Wayhunter.Domain.Modules.TripSafety.Entities.LiveTripSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId", "TripPlanId")
+                        .HasPrincipalKey("SessionId", "TripPlanId")
+                        .OnDelete(DeleteBehavior.NoAction);
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationOperationRow", b =>
+                {
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("ActorId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationPreferenceRow", b =>
+                {
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationRecipientRow", b =>
+                {
+                    b.HasOne("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationEventRow", null)
+                        .WithMany()
+                        .HasForeignKey("EventId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationTokenBindingRow", b =>
+                {
+                    b.HasOne("Wayhunter.Infrastructure.Persistence.Models.TripSafety.NotificationDeviceRow", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.TripMembershipRevocationOutboxRow", b =>
+                {
+                    b.HasOne("Wayhunter.Domain.Modules.TripSafety.Entities.TripMember", null)
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.TripMemoryMediaRow", b =>
+                {
+                    b.HasOne("Wayhunter.Infrastructure.Persistence.Models.TripSafety.TripMemoryRow", null)
+                        .WithOne()
+                        .HasForeignKey("Wayhunter.Infrastructure.Persistence.Models.TripSafety.TripMemoryMediaRow", "MemoryId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.TripMemoryRow", b =>
+                {
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerUserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Wayhunter.Domain.Modules.TravelPlanning.Entities.TripPlan", null)
+                        .WithMany()
+                        .HasForeignKey("TripPlanId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Wayhunter.Domain.Modules.TravelPlanning.Entities.TripStop", null)
+                        .WithMany()
+                        .HasForeignKey("TripStopId", "TripPlanId")
+                        .HasPrincipalKey("Id", "TripPlanId")
+                        .OnDelete(DeleteBehavior.ClientNoAction);
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.TripSafeCheckInOutboxRow", b =>
+                {
+                    b.HasOne("Wayhunter.Infrastructure.Persistence.Models.TripSafety.TripSafeCheckInRow", null)
+                        .WithOne()
+                        .HasForeignKey("Wayhunter.Infrastructure.Persistence.Models.TripSafety.TripSafeCheckInOutboxRow", "CheckInId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_TripSafety_SafeCheckInOutbox_SafeCheckIns_CheckInId");
+
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("RecipientUserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_TripSafety_SafeCheckInOutbox_Users_RecipientUserId");
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TripSafety.TripSafeCheckInRow", b =>
+                {
+                    b.HasOne("Wayhunter.Domain.Modules.TravelPlanning.Entities.TripPlan", null)
+                        .WithMany()
+                        .HasForeignKey("TripPlanId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_TripSafety_SafeCheckIns_Trips_TripPlanId");
+
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_TripSafety_SafeCheckIns_Users_UserId");
+
+                    b.HasOne("Wayhunter.Domain.Modules.TripSafety.Entities.LiveTripSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId", "TripPlanId")
+                        .HasPrincipalKey("SessionId", "TripPlanId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_TripSafety_SafeCheckIns_LiveTripSessions_SessionId_TripPlanId");
                 });
 
             modelBuilder.Entity("Wayhunter.Domain.Modules.TravelPlanning.Entities.TripPlan", b =>

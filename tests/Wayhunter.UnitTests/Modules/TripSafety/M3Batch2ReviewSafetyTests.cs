@@ -40,12 +40,13 @@ public sealed class M3Batch2ReviewSafetyTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void BothRuntimeModes_DisableUnsafeCheckInStore(bool sql)
+    public void CheckInStore_UsesSqlOnlyWhenDurablePersistenceIsEnabled(bool sql)
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["TripSafety:EnableSqlPersistence"] = sql.ToString() }).Build();
         var services = new ServiceCollection();
         services.AddTripSafetyBatch2Services(config);
-        Assert.Contains(services, x => x.ServiceType == typeof(ITripSafetyCheckInStore) && x.ImplementationType == typeof(UnavailableTripSafetyCheckInStore));
+        var registration = Assert.Single(services, x => x.ServiceType == typeof(ITripSafetyCheckInStore));
+        Assert.Equal(sql ? typeof(EfTripSafeCheckInStore) : typeof(UnavailableTripSafetyCheckInStore), registration.ImplementationType);
     }
     [Fact]
     public void NonSqlRuntime_UsesUnavailableReminderGuard()

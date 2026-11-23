@@ -36,7 +36,8 @@ public sealed class M3Ms08NotificationTests
         Assert.Contains(job.GetForeignKeys(), x => x.Properties.Select(p => p.Name).SequenceEqual(["SessionId", "TripPlanId"]));
         Assert.Contains(job.GetIndexes(), x => x.IsUnique && x.GetFilter() == "[Kind] = 1");
         var snapshot = db.GetService<IMigrationsAssembly>().ModelSnapshot!.Model;
-        Assert.DoesNotContain(snapshot.GetEntityTypes(), x => x.GetTableName()?.StartsWith("TripSafety_Notification", StringComparison.Ordinal) == true);
+        Assert.Contains(snapshot.GetEntityTypes(), x => x.GetTableName() == "TripSafety_NotificationJobs");
+        Assert.Contains(snapshot.GetEntityTypes(), x => x.GetTableName() == "TripSafety_NotificationDevices");
     }
 
     [Theory]

@@ -117,17 +117,18 @@ public sealed class M3SafeCheckInSchemaMetadataTests
     }
 
     [Fact]
-    public void ProposedTablesAndSessionAlternateKey_AreAbsentFromMigrationSnapshot()
+    public void ReconciliationMigration_IncludesCheckInTablesAndSessionAlternateKey()
     {
         using var context = CreateContext();
         var migrations = context.GetService<IMigrationsAssembly>();
         Assert.Contains("20261117093023_InitialSharedSchema", migrations.Migrations.Keys);
+        Assert.Contains("20261123012139_ReconcileSharedModulePersistence", migrations.Migrations.Keys);
         var snapshot = migrations.ModelSnapshot!.Model;
         var tables = snapshot.GetEntityTypes().Select(x => x.GetTableName()).ToArray();
-        Assert.DoesNotContain("TripSafety_SafeCheckIns", tables);
-        Assert.DoesNotContain("TripSafety_SafeCheckInOutbox", tables);
+        Assert.Contains("TripSafety_SafeCheckIns", tables);
+        Assert.Contains("TripSafety_SafeCheckInOutbox", tables);
         var session = snapshot.FindEntityType(typeof(LiveTripSession).FullName!)!;
-        Assert.Single(session.GetKeys());
+        Assert.Equal(2, session.GetKeys().Count());
     }
 
     private static void AssertColumns(IEntityType entity, params (string Name, string Type, bool Nullable)[] expected)

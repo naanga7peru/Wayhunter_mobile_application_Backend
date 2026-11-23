@@ -37,7 +37,7 @@ public sealed class M3SafeCheckInCompletionTests
     }
 
     [Fact]
-    public void ProductionRegistrationKeepsSqlStoreAndOwnerDeliveryDisabled()
+    public void SqlRegistrationUsesDurableStoreAndKeepsOwnerDeliveryDisabled()
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
@@ -47,7 +47,7 @@ public sealed class M3SafeCheckInCompletionTests
         var services = new ServiceCollection().AddTripSafetyBatch2Services(config);
 
         var store = Assert.Single(services, x => x.ServiceType == typeof(ITripSafetyCheckInStore));
-        Assert.Equal(typeof(UnavailableTripSafetyCheckInStore), store.ImplementationType);
+        Assert.Equal(typeof(EfTripSafeCheckInStore), store.ImplementationType);
         Assert.DoesNotContain(services, x => x.ServiceType == typeof(TripSafeCheckInOutboxDispatcher) ||
             x.ServiceType == typeof(ITripSafeCheckInOwnerNotificationSender) ||
             (x.ServiceType == typeof(IHostedService) && x.ImplementationType == typeof(TripSafeCheckInOutboxWorker)));
