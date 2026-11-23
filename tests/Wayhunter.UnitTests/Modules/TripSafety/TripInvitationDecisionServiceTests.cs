@@ -41,7 +41,8 @@ public sealed class TripInvitationDecisionServiceTests
     {
         return new TripInvitationDecisionService(
             repository,
-            new FixedTimeProvider());
+            new FixedTimeProvider(),
+            new TripInviteBlockReaderStub());
     }
 
     [Fact]
@@ -50,7 +51,8 @@ public sealed class TripInvitationDecisionServiceTests
         Assert.Throws<ArgumentNullException>(() =>
             new TripInvitationDecisionService(
                 null!,
-                new FixedTimeProvider()));
+                new FixedTimeProvider(),
+                new TripInviteBlockReaderStub()));
     }
 
     [Fact]
@@ -62,7 +64,8 @@ public sealed class TripInvitationDecisionServiceTests
         Assert.Throws<ArgumentNullException>(() =>
             new TripInvitationDecisionService(
                 repository,
-                null!));
+                null!,
+                new TripInviteBlockReaderStub()));
     }
 
     [Fact]
@@ -112,6 +115,24 @@ public sealed class TripInvitationDecisionServiceTests
         Assert.Equal(
             DecisionAt,
             stored.RespondedAtUtc);
+    }
+
+    [Fact]
+    public async Task Accept_Should_Fail_When_Either_User_Blocked_The_Other()
+    {
+        var repository = new InMemoryTripInvitationDecisionRepository();
+        var invitation = CreateInvitation();
+        await repository.AddAsync(invitation);
+        var service = new TripInvitationDecisionService(
+            repository,
+            new FixedTimeProvider(),
+            new TripInviteBlockReaderStub(blocked: true));
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.AcceptAsync(invitation.Id, "user-friend"));
+        Assert.Null(await repository.GetMemberByInvitationIdAsync(invitation.Id));
+        Assert.Equal(TripInvitationStatus.Pending,
+            (await repository.GetByIdAsync(invitation.Id))!.Status);
     }
 
     [Fact]

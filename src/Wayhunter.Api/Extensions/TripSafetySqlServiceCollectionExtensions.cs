@@ -47,6 +47,8 @@ public static class TripSafetySqlServiceCollectionExtensions
         services.AddScoped<ITripInvitationCreateStore, EfTripInvitationCreateStore>();
         services.RemoveAll<ITripInviteEligibilityAccess>();
         services.AddScoped<ITripInviteEligibilityAccess, SqlTripInviteEligibilityAccess>();
+        services.RemoveAll<ITripInviteBlockRelationshipReader>();
+        services.AddScoped<ITripInviteBlockRelationshipReader, SqlTripInviteBlockRelationshipReader>();
 
         // M3 - Membership Revocation
         services.RemoveAll<ITripMembershipRevocationRepository>();

@@ -77,7 +77,8 @@ public sealed class TripInvitationAuthorizationNoAutoGpsTests
 
         var service = new TripInvitationDecisionService(
             repository,
-            new FixedClock());
+            new FixedClock(),
+            new TripInviteBlockReaderStub());
 
         return (trip, invitation, repository, service);
     }

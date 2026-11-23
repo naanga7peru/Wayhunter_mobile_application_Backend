@@ -287,7 +287,8 @@ public sealed class M3InvitationCreateApiTests
 
         var decisions = new TripInvitationDecisionService(
             f.Decisions,
-            new FixedClock());
+            new FixedClock(),
+            new TripInviteBlockReaderStub());
 
         var member = await decisions.AcceptAsync(
             invitation.Id,

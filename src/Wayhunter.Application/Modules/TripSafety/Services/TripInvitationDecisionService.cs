@@ -13,16 +13,21 @@ public sealed class TripInvitationDecisionService
 {
     private readonly ITripInvitationDecisionRepository _repository;
     private readonly TimeProvider _timeProvider;
+    private readonly ITripInviteBlockRelationshipReader _blockReader;
 
     public TripInvitationDecisionService(
         ITripInvitationDecisionRepository repository,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        ITripInviteBlockRelationshipReader blockReader)
     {
         _repository = repository
             ?? throw new ArgumentNullException(nameof(repository));
 
         _timeProvider = timeProvider
             ?? throw new ArgumentNullException(nameof(timeProvider));
+
+        _blockReader = blockReader
+            ?? throw new ArgumentNullException(nameof(blockReader));
     }
 
     // Only the invited recipient may accept.
@@ -51,6 +56,15 @@ public sealed class TripInvitationDecisionService
             return await GetRequiredMemberAsync(
                 invitation,
                 cancellationToken);
+        }
+
+        if (await _blockReader.IsBlockedEitherWayAsync(
+                invitation.SenderUserId,
+                invitation.RecipientUserId,
+                cancellationToken))
+        {
+            throw new UnauthorizedAccessException(
+                "Blocked users cannot accept invitations.");
         }
 
         if (invitation.Status != TripInvitationStatus.Pending)

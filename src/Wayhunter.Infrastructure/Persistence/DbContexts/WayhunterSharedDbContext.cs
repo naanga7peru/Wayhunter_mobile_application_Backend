@@ -58,6 +58,9 @@ public sealed class WayhunterSharedDbContext : DbContext
     public DbSet<UserAccount> Users
         => Set<UserAccount>();
 
+    public DbSet<BlockedUserRelationship> BlockedUserRelationships
+        => Set<BlockedUserRelationship>();
+
     public DbSet<UserProfile> UserProfiles
         => Set<UserProfile>();
 
@@ -262,6 +265,9 @@ public sealed class WayhunterSharedDbContext : DbContext
 
         modelBuilder.ApplyConfiguration(
             new UserAccountConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new BlockedUserRelationshipConfiguration());
 
         modelBuilder.ApplyConfiguration(
             new UserProfileConfiguration());
