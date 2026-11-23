@@ -77,13 +77,9 @@ builder.Services.AddCoinsWalletAdministratorPolicy(
 // M7 - Advertisement Image Storage
 // ==========================================
 
-// Fail-closed by default.
-// Real provider activation requires separate approval.
-// No Cloudinary credentials or external writes here.
-
-builder.Services.AddScoped<
-    IAdvertisementImageStorage,
-    UnavailableAdvertisementImageStorage>();
+// Disabled unless server-side Cloudinary settings are supplied explicitly.
+builder.Services.AddConfiguredAdvertisementImageStorage(
+    builder.Configuration);
 // ==========================================
 // M1 - Identity Authentication
 // ==========================================

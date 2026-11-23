@@ -48,6 +48,8 @@ public static class IdentityApiContract
     public const string MyProfileRoute =
         MobileBaseRoute + "/me";
 
+    public const string UpdateMyProfileRoute = MyProfileRoute;
+
     public const string CorrelationIdHeader =
         "X-Correlation-ID";
 
