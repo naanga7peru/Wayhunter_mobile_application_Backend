@@ -58,43 +58,65 @@ public sealed class SqlHunterCaptureSessionStore :
                 "Valid UTC session timestamps are required.");
         }
 
-        await using var transaction =
-            await _db.Database.BeginTransactionAsync(
-                IsolationLevel.Serializable,
+        var sessionId = Guid.NewGuid();
+        var strategy = _db.Database.CreateExecutionStrategy();
+        var attempt = 0;
+        return await strategy.ExecuteAsync(async () =>
+        {
+            if (attempt++ > 0)
+                _db.ChangeTracker.Clear();
+
+            // A retry after an ambiguous commit must return the original
+            // session instead of creating another capture grant.
+            var prior = await _db.Set<HunterCaptureSessionRow>()
+                .AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == sessionId, cancellationToken);
+            if (prior is not null)
+            {
+                if (prior.HunterId == hunterId &&
+                    prior.HunterSubmissionId == hunterSubmissionId &&
+                    prior.IssuedAtUtc == issuedAtUtc &&
+                    prior.ExpiresAtUtc == expiresAtUtc)
+                    return sessionId;
+
+                throw new InvalidOperationException(
+                    "Capture session retry did not match the original operation.");
+            }
+
+            await using var transaction =
+                await _db.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
+
+            // Lock the submission while checking eligibility
+            // and inserting the new capture session.
+            var eligible = await IsDraftOwnerLockedAsync(
+                hunterId,
+                hunterSubmissionId,
                 cancellationToken);
 
-        // Lock the submission while checking eligibility
-        // and inserting the new capture session.
-        var eligible = await IsDraftOwnerLockedAsync(
-            hunterId,
-            hunterSubmissionId,
-            cancellationToken);
-
-        if (!eligible)
-        {
-            throw new UnauthorizedAccessException(
-                "Hunter capture session access denied.");
-        }
-
-        var sessionId = Guid.NewGuid();
-
-        _db.Set<HunterCaptureSessionRow>().Add(
-            new HunterCaptureSessionRow
+            if (!eligible)
             {
-                Id = sessionId,
-                HunterId = hunterId,
-                HunterSubmissionId = hunterSubmissionId,
-                IssuedAtUtc = issuedAtUtc,
-                ExpiresAtUtc = expiresAtUtc,
-                IsConsumed = false,
-                IsRevoked = false
-            });
+                throw new UnauthorizedAccessException(
+                    "Hunter capture session access denied.");
+            }
 
-        await _db.SaveChangesAsync(cancellationToken);
+            _db.Set<HunterCaptureSessionRow>().Add(
+                new HunterCaptureSessionRow
+                {
+                    Id = sessionId,
+                    HunterId = hunterId,
+                    HunterSubmissionId = hunterSubmissionId,
+                    IssuedAtUtc = issuedAtUtc,
+                    ExpiresAtUtc = expiresAtUtc,
+                    IsConsumed = false,
+                    IsRevoked = false
+                });
 
-        await transaction.CommitAsync(cancellationToken);
-
-        return sessionId;
+            await _db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return sessionId;
+        });
     }
 
     public async Task<bool> TryConsumeAsync(
@@ -115,50 +137,43 @@ public sealed class SqlHunterCaptureSessionStore :
             return false;
         }
 
-        await using var transaction =
-            await _db.Database.BeginTransactionAsync(
-                IsolationLevel.Serializable,
-                cancellationToken);
-
-        // Check trusted submission ownership and status.
-        var eligible = await IsDraftOwnerLockedAsync(
-            authenticatedHunterId,
-            hunterSubmissionId,
-            cancellationToken);
-
-        if (!eligible)
+        var strategy = _db.Database.CreateExecutionStrategy();
+        var attempt = 0;
+        return await strategy.ExecuteAsync(async () =>
         {
-            return false;
-        }
+            if (attempt++ > 0)
+                _db.ChangeTracker.Clear();
 
-        // ExecuteUpdate performs one conditional SQL UPDATE.
-        // Only one concurrent request can change the row
-        // from unused to consumed.
-        var updated = await _db
-            .Set<HunterCaptureSessionRow>()
-            .Where(x =>
-                x.Id == captureSessionId &&
-                x.HunterId == authenticatedHunterId &&
-                x.HunterSubmissionId == hunterSubmissionId &&
-                !x.IsConsumed &&
-                !x.IsRevoked &&
-                x.IssuedAtUtc <= serverReceivedAtUtc &&
-                x.ExpiresAtUtc > serverReceivedAtUtc)
-            .ExecuteUpdateAsync(
-                setters => setters
-                    .SetProperty(
-                        x => x.IsConsumed,
-                        true),
+            await using var transaction =
+                await _db.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
+
+            var eligible = await IsDraftOwnerLockedAsync(
+                authenticatedHunterId,
+                hunterSubmissionId,
                 cancellationToken);
+            if (!eligible)
+                return false;
 
-        if (updated != 1)
-        {
-            return false;
-        }
+            var updated = await _db.Set<HunterCaptureSessionRow>()
+                .Where(x =>
+                    x.Id == captureSessionId &&
+                    x.HunterId == authenticatedHunterId &&
+                    x.HunterSubmissionId == hunterSubmissionId &&
+                    !x.IsConsumed &&
+                    !x.IsRevoked &&
+                    x.IssuedAtUtc <= serverReceivedAtUtc &&
+                    x.ExpiresAtUtc > serverReceivedAtUtc)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(x => x.IsConsumed, true),
+                    cancellationToken);
+            if (updated != 1)
+                return false;
 
-        await transaction.CommitAsync(cancellationToken);
-
-        return true;
+            await transaction.CommitAsync(cancellationToken);
+            return true;
+        });
     }
 
     public async Task<int> RevokeBySubmissionIdAsync(

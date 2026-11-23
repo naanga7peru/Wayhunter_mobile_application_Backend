@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wayhunter.Application.Modules.TravelPlanning.Interfaces;
 using Xunit;
@@ -72,6 +73,7 @@ public sealed class NearbyPlacesHttpTests
         return new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
+                builder.ConfigureLogging(logging => logging.ClearProviders());
                 builder.ConfigureAppConfiguration(
                     (_, config) =>
                     {

@@ -249,6 +249,9 @@ public sealed partial class AdvertisementAdminPositiveHttpTests
             {
                 EnvironmentName = "Development"
             });
+        // Windows Event Log is not writable in the test runner and can mask
+        // the HTTP exception under test with a logging-provider failure.
+        builder.Logging.ClearProviders();
 
         if (useKestrel)
         {

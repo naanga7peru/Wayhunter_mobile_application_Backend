@@ -12,11 +12,17 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Domain.Modules.Games.Entities;
+using Wayhunter.Domain.Modules.HunterPlaces.Entities;
+using Wayhunter.Domain.Modules.HunterPlaces.Enums;
+using Wayhunter.Domain.Modules.HomeAdsAnalytics.Entities;
+using Wayhunter.Domain.Modules.HomeAdsAnalytics.Enums;
 using Wayhunter.Domain.Modules.IdentitySocial.Entities;
+using Wayhunter.Domain.Modules.TripSafety.Entities;
 using Wayhunter.Application.Modules.TravelPlanning.Dtos;
 using Wayhunter.Infrastructure.Integrations.Email;
 using Wayhunter.Infrastructure.Persistence.DbContexts;
 using Wayhunter.Infrastructure.Persistence.Models.CoinsWallet;
+using Wayhunter.Infrastructure.Persistence.Models.HunterPlaces;
 using Wayhunter.Infrastructure.Persistence.Repositories.Games;
 using Xunit;
 
@@ -85,6 +91,7 @@ public sealed class RealSqlHttpE2EFixture : IAsyncLifetime
                     ["Identity:EnableSharedAuthentication"] = "true",
                     ["TravelPlanning:EnableSqlPersistence"] = "true",
                     ["TripSafety:EnableSqlPersistence"] = "true",
+                    ["TripSafety:EnableSafeCheckIn"] = "true",
                     ["Games:EnableSqlPersistence"] = "true",
                     ["Games:EnableSqlAttemptWriter"] = "true",
                     ["Advertisements:EnableSqlPersistence"] = "true",
@@ -131,9 +138,8 @@ public sealed class RealSqlHttpE2EFixture : IAsyncLifetime
         }
     }
 
-    public async Task<string> RegisterAndLoginAsync()
+    public async Task<string> RegisterAndLoginAsync(string email = "sql-e2e@wayhunter.invalid")
     {
-        const string email = "sql-e2e@wayhunter.invalid";
         const string password = "E2e-Password-2026!";
         using var register = await Client.PostAsJsonAsync("/api/mobile/identity/register",
             new { displayName = "SQL E2E", email, password, confirmPassword = password });
@@ -183,6 +189,120 @@ public sealed class RealSqlHttpE2EFixture : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
         await using var db = CreateVerificationContext();
         Assert.Equal("Updated HTTP SQL trip", await db.Trips.Where(x => x.Id == trip.TripPlanId).Select(x => x.TripName).SingleAsync());
+    }
+
+    [SqlE2EFact]
+    public async Task M3_AuthenticatedSessionCheckInAndFinishPersistInSql()
+    {
+        await RegisterAndLoginAsync();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        using var create = await Client.PostAsJsonAsync("/api/mobile/trip-plans", new CreateTripPlanDto(
+            "M3 HTTP SQL trip", today.AddDays(1), today.AddDays(3), 25000m, "Car", 2));
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var trip = await create.Content.ReadFromJsonAsync<TripPlanResponseDto>();
+        Assert.NotNull(trip);
+
+        using var started = await Client.PostAsync($"/api/mobile/trips/{trip.TripPlanId}/sessions", null);
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        using var startedJson = JsonDocument.Parse(await started.Content.ReadAsStringAsync());
+        var sessionId = startedJson.RootElement.GetProperty("sessionId").GetGuid();
+
+        using var recovered = await Client.GetAsync($"/api/mobile/trips/{trip.TripPlanId}/sessions/{sessionId}/recover");
+        Assert.Equal(HttpStatusCode.OK, recovered.StatusCode);
+
+        using var ownerToken = await Client.GetAsync("/api/mobile/identity/me");
+        Assert.Equal(HttpStatusCode.OK, ownerToken.StatusCode);
+        var ownerBearer = Client.DefaultRequestHeaders.Authorization!.Parameter!;
+
+        var guestEmail = $"sql-e2e-guest-{Guid.NewGuid():N}@wayhunter.invalid";
+        var guestBearer = await RegisterAndLoginAsync(guestEmail);
+        await using (var lookup = CreateVerificationContext())
+        {
+            var guestUserId = await lookup.Users.Where(x => x.NormalizedEmail == guestEmail.ToUpperInvariant())
+                .Select(x => x.UserId).SingleAsync();
+            var acceptedInvitation = TripInvitation.Create(
+                Guid.NewGuid(), trip.TripPlanId,
+                await lookup.Users.Where(x => x.NormalizedEmail == "SQL-E2E@WAYHUNTER.INVALID").Select(x => x.UserId).SingleAsync(),
+                guestUserId, DateTimeOffset.UtcNow.AddMinutes(-1));
+            acceptedInvitation.Accept(DateTimeOffset.UtcNow);
+            lookup.TripInvitations.Add(acceptedInvitation);
+            lookup.TripMembers.Add(TripMember.FromAcceptedInvitation(
+                Guid.NewGuid(), acceptedInvitation));
+            await lookup.SaveChangesAsync();
+
+            Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", guestBearer);
+            using var consent = await Client.PutAsJsonAsync($"/api/mobile/trips/{trip.TripPlanId}/sessions/{sessionId}/gps-consent", new { isGranted = true });
+            Assert.Equal(HttpStatusCode.OK, consent.StatusCode);
+            using var memberCheckIn = await Client.PostAsync($"/api/mobile/trips/{trip.TripPlanId}/sessions/{sessionId}/im-safe", null);
+            Assert.Equal(HttpStatusCode.OK, memberCheckIn.StatusCode);
+
+            Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ownerBearer);
+            using var removal = await Client.DeleteAsync($"/api/mobile/trips/{trip.TripPlanId}/members/{guestUserId}");
+            Assert.Equal(HttpStatusCode.OK, removal.StatusCode);
+            await using var membershipCheck = CreateVerificationContext();
+            Assert.False(await membershipCheck.TripMembers.Where(x => x.TripPlanId == trip.TripPlanId && x.MemberUserId == guestUserId).Select(x => x.IsActive).SingleAsync());
+            Assert.True(await membershipCheck.TripGpsConsents.Where(x => x.SessionId == sessionId && x.UserId == guestUserId).Select(x => x.IsGranted).SingleAsync());
+            Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", guestBearer);
+            using var revokedMemberConsent = await Client.PutAsJsonAsync($"/api/mobile/trips/{trip.TripPlanId}/sessions/{sessionId}/gps-consent", new { isGranted = true });
+            Assert.Equal(HttpStatusCode.Forbidden, revokedMemberConsent.StatusCode);
+            Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ownerBearer);
+        }
+
+        using var paused = await Client.PostAsync($"/api/mobile/trips/{trip.TripPlanId}/sessions/{sessionId}/pause", null);
+        Assert.Equal(HttpStatusCode.OK, paused.StatusCode);
+        using var resumed = await Client.PostAsync($"/api/mobile/trips/{trip.TripPlanId}/sessions/{sessionId}/resume", null);
+        Assert.Equal(HttpStatusCode.OK, resumed.StatusCode);
+
+        using var safe = await Client.PostAsync($"/api/mobile/trips/{trip.TripPlanId}/sessions/{sessionId}/im-safe", null);
+        Assert.Equal(HttpStatusCode.OK, safe.StatusCode);
+        using var safeRetry = await Client.PostAsync($"/api/mobile/trips/{trip.TripPlanId}/sessions/{sessionId}/im-safe", null);
+        Assert.Equal(HttpStatusCode.OK, safeRetry.StatusCode);
+        using var retryJson = JsonDocument.Parse(await safeRetry.Content.ReadAsStringAsync());
+        Assert.False(retryJson.RootElement.GetProperty("created").GetBoolean());
+
+        using var finished = await Client.PostAsync($"/api/mobile/trips/{trip.TripPlanId}/sessions/{sessionId}/finish", null);
+        Assert.Equal(HttpStatusCode.OK, finished.StatusCode);
+        await using var db = CreateVerificationContext();
+        Assert.Equal(1, await db.LiveTripSessions.CountAsync(x => x.SessionId == sessionId && x.Status == Wayhunter.Domain.Modules.TripSafety.Enums.LiveTripStatus.Finished));
+        Assert.Equal(2, await db.TripSafeCheckIns.CountAsync(x => x.SessionId == sessionId));
+        Assert.Equal(2, await db.TripSafeCheckInOutbox.CountAsync(x => db.TripSafeCheckIns.Any(c => c.SessionId == sessionId && c.CheckInId == x.CheckInId)));
+    }
+
+    [SqlE2EFact]
+    public async Task M4_AuthenticatedHunterStatusAndCaptureSessionPersistInSql()
+    {
+        await RegisterAndLoginAsync();
+        await using var db = CreateVerificationContext();
+        var user = await db.Users.SingleAsync(x => x.NormalizedEmail == "sql-e2e@wayhunter.invalid");
+        var submission = new HunterSubmission
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.UserId,
+            UserNameSnapshot = user.DisplayName,
+            PlaceName = "SQL Hunter draft",
+            Description = "Pending evidence capture",
+            District = "Jaffna",
+            Latitude = 9.66845,
+            Longitude = 80.0074,
+            Status = HunterSubmissionStatus.Draft,
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        };
+        db.HunterSubmissions.Add(submission);
+        await db.SaveChangesAsync();
+
+        using var status = await Client.GetAsync($"/api/mobile/hunter/submissions/{submission.Id}");
+        Assert.Equal(HttpStatusCode.OK, status.StatusCode);
+        using var capture = await Client.PostAsync($"/api/mobile/hunter/submissions/{submission.Id}/capture-sessions", null);
+        Assert.Equal(HttpStatusCode.Created, capture.StatusCode);
+        var sessionDto = await capture.Content.ReadFromJsonAsync<Wayhunter.Application.Modules.HunterPlaces.Dtos.HunterStartCaptureSessionResponseDto>();
+        Assert.NotNull(sessionDto);
+
+        await using var verify = CreateVerificationContext();
+        var persisted = await verify.HunterCaptureSessions.SingleAsync(x => x.Id == sessionDto.CaptureSessionId);
+        Assert.Equal(user.UserId, persisted.OwnerUserId);
+        Assert.False(persisted.IsConsumed);
+        Assert.False(persisted.IsRevoked);
+        Assert.Equal(TimeSpan.FromMinutes(10), persisted.ExpiresAtUtc - persisted.IssuedAtUtc);
     }
 
     [SqlE2EFact]
@@ -247,8 +367,33 @@ public sealed class RealSqlHttpE2EFixture : IAsyncLifetime
         Assert.Equal(25, balance.RootElement.GetProperty("reservedCoins").GetInt64());
         using var transactions = await Client.GetAsync("/api/mobile/coins-wallet/me/transactions");
         Assert.Equal(HttpStatusCode.OK, transactions.StatusCode);
-        using var advertisements = await Client.GetAsync("/api/mobile/advertisements/active");
+        var now = DateTimeOffset.UtcNow;
+        await using (var db = CreateVerificationContext())
+        {
+            var home = new Advertisement(Guid.NewGuid(), "SQL active home", "https://example.invalid/home.png", null,
+                now.AddMinutes(-1), now.AddHours(1));
+            home.SetPlacement(AdvertisementPlacement.HomeBanner);
+            home.Enable();
+            var poi = new Advertisement(Guid.NewGuid(), "SQL active POI", "https://example.invalid/poi.png", null,
+                now.AddMinutes(-1), now.AddHours(1));
+            poi.SetPlacement(AdvertisementPlacement.SponsoredPoi);
+            poi.Enable();
+            var future = new Advertisement(Guid.NewGuid(), "SQL future", "https://example.invalid/future.png", null,
+                now.AddHours(1), now.AddHours(2));
+            future.Enable();
+            var inactive = new Advertisement(Guid.NewGuid(), "SQL draft", "https://example.invalid/draft.png", null,
+                now.AddMinutes(-1), now.AddHours(1));
+            db.Advertisements.AddRange(home, poi, future, inactive);
+            await db.SaveChangesAsync();
+        }
+        using var advertisements = await Client.GetAsync("/api/mobile/advertisements/active?placement=HomeBanner");
         Assert.Equal(HttpStatusCode.OK, advertisements.StatusCode);
+        using var adPayload = JsonDocument.Parse(await advertisements.Content.ReadAsStringAsync());
+        Assert.Single(adPayload.RootElement.EnumerateArray(), item => item.GetProperty("title").GetString() == "SQL active home");
+        using var poiAds = await Client.GetAsync("/api/mobile/advertisements/active?placement=SponsoredPoi");
+        Assert.Equal(HttpStatusCode.OK, poiAds.StatusCode);
+        using var poiPayload = JsonDocument.Parse(await poiAds.Content.ReadAsStringAsync());
+        Assert.Single(poiPayload.RootElement.EnumerateArray(), item => item.GetProperty("title").GetString() == "SQL active POI");
     }
 
     private WayhunterSharedDbContext CreateVerificationContext() => new(
