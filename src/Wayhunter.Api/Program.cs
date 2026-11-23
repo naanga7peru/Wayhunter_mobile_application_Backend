@@ -16,6 +16,7 @@ using Wayhunter.Api.Services.TripSafety;
 using Wayhunter.Application.Modules.HunterPlaces.Interfaces;
 using Wayhunter.Application.Modules.HunterPlaces.Services;
 using Wayhunter.Infrastructure.Persistence.Repositories.HunterPlaces;
+using Wayhunter.Infrastructure.Integrations.HunterPlaces;
 using Wayhunter.Api.Services.HunterPlaces;
 using Wayhunter.Application.Modules.HunterPlaces.Commands;
 
@@ -98,6 +99,15 @@ if (enableSharedAuthentication)
         IHunterSubmissionStatusReader,
         SqlHunterSubmissionStatusReader>();
     builder.Services.AddScoped<HunterSubmissionStatusService>();
+    builder.Services.AddScoped<IHunterDraftStore, SqlHunterDraftStore>();
+    builder.Services.AddScoped<HunterDraftService>();
+    builder.Services.AddScoped<IHunterEvidenceStore, SqlHunterEvidenceStore>();
+    builder.Services.AddScoped<IHunterMediaReceiptVerifier, DisabledHunterMediaReceiptVerifier>();
+    builder.Services.AddScoped<HunterEvidenceService>();
+    builder.Services.AddScoped<IHunterReviewStore, SqlHunterReviewStore>();
+    builder.Services.AddScoped<IHunterReviewService, HunterReviewService>();
+    builder.Services.AddScoped<IHunterSubmissionStatusTransitionStore, SqlHunterSubmissionStatusTransitionStore>();
+    builder.Services.AddScoped<HunterSubmissionStatusTransitionService>();
 
     // M4 Batch 2 authenticated capture-session runtime.
     builder.Services.AddScoped<

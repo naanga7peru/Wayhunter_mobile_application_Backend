@@ -156,6 +156,9 @@ public sealed class WayhunterSharedDbContext : DbContext
     public DbSet<HunterCaptureSessionRow> HunterCaptureSessions
         => Set<HunterCaptureSessionRow>();
 
+    public DbSet<HunterRequestIdempotencyRow> HunterRequestIdempotency
+        => Set<HunterRequestIdempotencyRow>();
+
     // ==========================================
     // M5 - Games
     // ==========================================
@@ -361,6 +364,9 @@ public sealed class WayhunterSharedDbContext : DbContext
 
         modelBuilder.ApplyConfiguration(
             new HunterCaptureSessionRowConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new HunterRequestIdempotencyRowConfiguration());
 
         // ======================================
         // M5 - Games

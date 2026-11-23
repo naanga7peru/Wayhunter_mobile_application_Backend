@@ -25,6 +25,15 @@ public sealed class HunterEvidenceConfiguration
             table.HasCheckConstraint(
                 "CK_Hunter_Evidence_Duration",
                 "[DurationSeconds] IS NULL OR [DurationSeconds] > 0");
+            table.HasCheckConstraint(
+                "CK_Hunter_Evidence_VerifiedBinding",
+                "[ProviderVerifiedAtUtc] IS NULL OR " +
+                "([CaptureSessionId] IS NOT NULL AND [OwnerUserId] IS NOT NULL " +
+                "AND [ProviderAssetIdHash] IS NOT NULL AND [ProviderReceiptDigest] IS NOT NULL)");
+            table.HasCheckConstraint(
+                "CK_Hunter_Evidence_ProviderHashLengths",
+                "([ProviderAssetIdHash] IS NULL OR LEN([ProviderAssetIdHash]) = 64) AND " +
+                "([ProviderReceiptDigest] IS NULL OR LEN([ProviderReceiptDigest]) = 64)");
         });
 
         builder.HasKey(x => x.Id);
@@ -34,6 +43,11 @@ public sealed class HunterEvidenceConfiguration
 
         builder.Property(x => x.HunterSubmissionId)
             .IsRequired();
+        builder.Property(x => x.CaptureSessionId);
+        builder.Property(x => x.OwnerUserId).HasMaxLength(256);
+        builder.Property(x => x.ProviderAssetIdHash).HasMaxLength(64);
+        builder.Property(x => x.ProviderReceiptDigest).HasMaxLength(64);
+        builder.Property(x => x.ProviderVerifiedAtUtc).HasColumnType("datetimeoffset");
 
         builder.Property(x => x.EvidenceType)
             .HasConversion<int>()
@@ -62,6 +76,20 @@ public sealed class HunterEvidenceConfiguration
             .HasConstraintName(
                 "FK_Hunter_Evidence_Submissions");
 
+        builder.HasOne<HunterSubmission>()
+            .WithMany()
+            .HasForeignKey(x => new { x.HunterSubmissionId, x.OwnerUserId })
+            .HasPrincipalKey(x => new { x.Id, x.UserId })
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_Hunter_Evidence_Submission_Owner");
+
+        builder.HasOne<Wayhunter.Infrastructure.Persistence.Models.HunterPlaces.HunterCaptureSessionRow>()
+            .WithMany()
+            .HasForeignKey(x => new { x.CaptureSessionId, x.HunterSubmissionId })
+            .HasPrincipalKey(x => new { x.Id, x.HunterSubmissionId })
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_Hunter_Evidence_CaptureSession_Owner");
+
         builder.HasIndex(x => new
         {
             x.HunterSubmissionId,
@@ -69,5 +97,18 @@ public sealed class HunterEvidenceConfiguration
         })
         .HasDatabaseName(
             "IX_Hunter_Evidence_Submission_Type");
+
+        builder.HasIndex(x => new { x.HunterSubmissionId, x.EvidenceType }, "VerifiedEvidencePerSubmissionType")
+            .IsUnique()
+            .HasFilter("[ProviderVerifiedAtUtc] IS NOT NULL")
+            .HasDatabaseName("UX_Hunter_Evidence_Verified_Submission_Type");
+        builder.HasIndex(x => x.CaptureSessionId)
+            .IsUnique()
+            .HasFilter("[CaptureSessionId] IS NOT NULL")
+            .HasDatabaseName("UX_Hunter_Evidence_CaptureSession");
+        builder.HasIndex(x => x.ProviderAssetIdHash)
+            .IsUnique()
+            .HasFilter("[ProviderAssetIdHash] IS NOT NULL")
+            .HasDatabaseName("UX_Hunter_Evidence_ProviderAsset");
     }
 }

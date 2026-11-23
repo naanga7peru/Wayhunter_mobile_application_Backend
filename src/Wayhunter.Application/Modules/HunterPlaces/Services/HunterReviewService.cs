@@ -47,11 +47,10 @@ public sealed class HunterReviewService : IHunterReviewService
                 "A trusted Admin identity is required.");
         }
 
-        // The approved M4 business rules establish the Admin approval gate
-        // and +200 reward boundary. Rejection/Held transition and reason
-        // semantics remain owner decisions, so fail closed for those states.
-        if (request.ResultingStatus !=
-            HunterSubmissionStatus.Approved)
+        // Rejection is enabled for this development contract and requires
+        // an explicit reason. Held remains disabled.
+        if (request.ResultingStatus is not
+            (HunterSubmissionStatus.Approved or HunterSubmissionStatus.Rejected))
         {
             throw new InvalidOperationException(
                 "Only the approved Hunter decision is currently enabled.");

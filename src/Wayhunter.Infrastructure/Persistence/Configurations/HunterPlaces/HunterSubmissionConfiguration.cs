@@ -28,7 +28,7 @@ public sealed class HunterSubmissionConfiguration
 
             table.HasCheckConstraint(
                 "CK_Hunter_Submissions_GpsAccuracy",
-                "[GpsAccuracyMeters] IS NULL OR [GpsAccuracyMeters] >= 0");
+                "[GpsAccuracyMeters] IS NULL OR [GpsAccuracyMeters] > 0");
         });
 
         builder.HasKey(x => x.Id);
