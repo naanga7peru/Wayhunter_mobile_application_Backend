@@ -27,6 +27,38 @@ namespace Wayhunter.IntegrationTests.Modules.TripSafety;
 public sealed class M3FinalBackendFlowTests
 {
     [Fact]
+    public async Task InvitationAcceptance_RejectsWhenTestBlockReaderReportsEitherWayBlocked()
+    {
+        var owner = Guid.NewGuid().ToString("D");
+        var invitee = Guid.NewGuid().ToString("D");
+        using var host = new Host(owner, invitee, Guid.NewGuid().ToString("D"));
+        using var ownerClient = Client(host, owner);
+        using var inviteeClient = Client(host, invitee);
+        var now = DateTimeOffset.UtcNow;
+        var start = DateOnly.FromDateTime(now.UtcDateTime);
+        var trip = new TripPlan(owner, "Blocked invite", start, start.AddDays(1), 100m, "Car", 2);
+        var memberships = host.Services.GetRequiredService<InMemoryTripMembershipRevocationRepository>();
+        await memberships.AddTripAsync(trip, CancellationToken.None);
+
+        using var created = await ownerClient.PostAsJsonAsync(
+            $"/api/mobile/trips/{trip.Id:D}/invitations",
+            new CreateTripInvitationRequest(invitee));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var invitation = (await created.Content.ReadFromJsonAsync<TripInvitationApiResponse>())!;
+
+        // Simulate M1's authoritative block relation after invitation creation.
+        host.Services.GetRequiredService<TestBlockRelationshipReader>()
+            .Block(invitee, owner);
+
+        using var accepted = await inviteeClient.PostAsync(
+            $"/api/mobile/trip-invitations/{invitation.InvitationId:D}/accept", null);
+        Assert.Equal(HttpStatusCode.Forbidden, accepted.StatusCode);
+        var decisions = host.Services.GetRequiredService<ITripInvitationDecisionRepository>();
+        Assert.Null(await decisions.GetMemberByInvitationIdAsync(
+            invitation.InvitationId, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task InvitationToFinishRequiresExplicitConsentAndRejectsRevokedListeners()
     {
         var elapsed = Stopwatch.StartNew();
@@ -199,11 +231,44 @@ public sealed class M3FinalBackendFlowTests
             builder.ConfigureTestServices(services =>
             {
                 services.AddAuthentication("M3Flow").AddScheme<AuthenticationSchemeOptions, TestAuth>("M3Flow", _ => { });
+                services.RemoveAll<ITripInviteBlockRelationshipReader>();
+                services.AddSingleton<TestBlockRelationshipReader>();
+                services.AddSingleton<ITripInviteBlockRelationshipReader>(sp =>
+                    sp.GetRequiredService<TestBlockRelationshipReader>());
                 services.RemoveAll<ITripInviteEligibilityAccess>();
                 services.AddSingleton<ITripInviteEligibilityAccess>(new Friends(owner, friend, peer));
                 services.RemoveAll<ITripLiveLocationAccessReader>();
                 services.AddSingleton<ITripLiveLocationAccessReader, TestAccess>();
             });
+        }
+    }
+
+    /// <summary>
+    /// Explicit in-memory M1 test contract. Production retains the fail-closed
+    /// UnconfiguredTripInviteBlockRelationshipReader until SQL is configured.
+    /// </summary>
+    private sealed class TestBlockRelationshipReader : ITripInviteBlockRelationshipReader
+    {
+        private readonly HashSet<(string First, string Second)> _blocked = [];
+
+        public void Block(string firstUserId, string secondUserId)
+        {
+            var pair = StringComparer.Ordinal.Compare(firstUserId, secondUserId) <= 0
+                ? (firstUserId, secondUserId)
+                : (secondUserId, firstUserId);
+            _blocked.Add(pair);
+        }
+
+        public Task<bool> IsBlockedEitherWayAsync(
+            string senderUserId,
+            string recipientUserId,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var pair = StringComparer.Ordinal.Compare(senderUserId, recipientUserId) <= 0
+                ? (senderUserId, recipientUserId)
+                : (recipientUserId, senderUserId);
+            return Task.FromResult(_blocked.Contains(pair));
         }
     }
 
