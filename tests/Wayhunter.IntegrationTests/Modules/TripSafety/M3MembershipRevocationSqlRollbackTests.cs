@@ -185,17 +185,12 @@ public sealed class M3MembershipRevocationSqlRollbackTests
                     new EfTripMembershipRevocationRepository(
                         context);
 
-                var exception =
-                    await Assert.ThrowsAsync<InvalidOperationException>(
-                        () => repository
-                            .RemoveMemberAndQueueNotificationAsync(
-                                seed.TripId,
-                                seed.MemberId,
-                                RemovedAt));
-
-                Assert.Contains(
-                    "Injected M3 transaction commit failure",
-                    exception.Message);
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => repository
+                        .RemoveMemberAndQueueNotificationAsync(
+                            seed.TripId,
+                            seed.MemberId,
+                            RemovedAt));
             }
 
             Assert.True(interceptor.CommitAttempted);

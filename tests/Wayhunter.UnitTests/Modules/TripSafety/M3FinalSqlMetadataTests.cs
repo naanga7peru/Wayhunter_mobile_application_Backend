@@ -16,7 +16,7 @@ public sealed class M3FinalSqlMetadataTests(ITestOutputHelper output)
         using var db = new WayhunterSharedDbContext(new DbContextOptionsBuilder<WayhunterSharedDbContext>()
             .UseSqlServer("Server=localhost;Database=MetadataOnly;Integrated Security=True").Options);
         var migrations = db.GetService<IMigrationsAssembly>();
-        var migration = migrations.CreateMigration(migrations.Migrations["20261117093023_InitialSharedSchema"],
+        var migration = migrations.CreateMigration(migrations.Migrations["20261123012139_ReconcileSharedModulePersistence"],
             db.Database.ProviderName!);
         var initializer = db.GetService<IModelRuntimeInitializer>();
         var model = db.GetService<IDesignTimeModel>().Model.GetRelationalModel();
@@ -33,7 +33,7 @@ public sealed class M3FinalSqlMetadataTests(ITestOutputHelper output)
         Assert.All(new[] { "TripSafety_SafeCheckIns", "TripSafety_SafeCheckInOutbox",
             "TripSafety_MemberRevocationOutbox", "TripSafety_TripMemories" }, table =>
         {
-            Assert.Null(snapshot.FindTable(table, null));
+            Assert.NotNull(snapshot.FindTable(table, null));
             Assert.NotNull(model.FindTable(table, null));
         });
         Assert.Equal(System.Data.ConnectionState.Closed, db.Database.GetDbConnection().State);

@@ -14,10 +14,14 @@ public static class TripSafetyBatch2ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
+        var sqlPersistenceEnabled = configuration.GetValue<bool>("TripSafety:EnableSqlPersistence");
         services.RemoveAll<ITripSafetyCheckInStore>();
-        services.AddScoped<ITripSafetyCheckInStore, UnavailableTripSafetyCheckInStore>();
+        if (sqlPersistenceEnabled)
+            services.AddScoped<ITripSafetyCheckInStore, EfTripSafeCheckInStore>();
+        else
+            services.AddScoped<ITripSafetyCheckInStore, UnavailableTripSafetyCheckInStore>();
         services.RemoveAll<ITripFinishedReminderGuard>();
-        if (configuration.GetValue<bool>("TripSafety:EnableSqlPersistence"))
+        if (sqlPersistenceEnabled)
             services.AddScoped<ITripFinishedReminderGuard, EfTripFinishedReminderGuard>();
         else
             services.AddScoped<ITripFinishedReminderGuard, UnavailableTripFinishedReminderGuard>();
