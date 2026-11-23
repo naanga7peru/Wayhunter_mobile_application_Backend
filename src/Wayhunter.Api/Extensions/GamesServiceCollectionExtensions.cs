@@ -17,6 +17,8 @@ public static class GamesServiceCollectionExtensions
 {
     private const string SqlPersistenceFlag =
         "Games:EnableSqlPersistence";
+    private const string SqlAttemptWriterFlag =
+        "Games:EnableSqlAttemptWriter";
 
     /// <summary>
     /// Registers the current M5 in-memory workflow store and
@@ -117,7 +119,8 @@ public static class GamesServiceCollectionExtensions
     // Preserve existing API behavior by default.
     public static IServiceCollection AddConfiguredGamesPersistence(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IHostEnvironment? environment = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
@@ -128,6 +131,17 @@ public static class GamesServiceCollectionExtensions
         if (enableSql)
         {
             services.AddGamesSqlPersistence(configuration);
+
+            // Attempt writes are a separately opted-in local development
+            // capability. Production and other environments remain fail-closed.
+            if (environment?.IsDevelopment() == true &&
+                configuration.GetValue<bool>(SqlAttemptWriterFlag))
+            {
+                services.AddScoped<SqlGameAttemptRepository>();
+                services.RemoveAll<IStartGameAttemptStore>();
+                services.AddScoped<IStartGameAttemptStore>(sp =>
+                    sp.GetRequiredService<SqlGameAttemptRepository>());
+            }
 
             if (configuration.GetValue<bool>(
                     "Games:EnableExpiryWorker"))

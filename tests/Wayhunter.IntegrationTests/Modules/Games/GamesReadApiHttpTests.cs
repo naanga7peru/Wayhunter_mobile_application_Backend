@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Wayhunter.Api.Services.IdentitySocial;
+using Wayhunter.Api.Services.Games;
 using Wayhunter.Application.Modules.Games.Dtos;
 using Wayhunter.Application.Modules.Games.Interfaces;
 using Wayhunter.Domain.Modules.Games.Enums;
@@ -237,6 +238,26 @@ public sealed class GamesReadApiHttpTests
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
     }
 
+    [Fact]
+    public async Task SqlEnabledConfiguration_WhenAttemptStoreUnavailable_Returns503()
+    {
+        using var factory = new GamesReadFactory
+        {
+            UseFakeAttemptStore = false,
+            EnableSqlAttemptWriter = true
+        };
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", factory.Bearer(0));
+
+        using var response = await client.PostAsync(
+            $"/api/mobile/games/{factory.PublicGameId:D}/attempts", content: null);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("GAME_ATTEMPTS_UNAVAILABLE", body.RootElement.GetProperty("code").GetString());
+    }
+
     private sealed class GamesReadFactory : WebApplicationFactory<Program>
     {
         private const string Secret = "games-read-api-test-signing-secret-32-bytes-minimum";
@@ -247,6 +268,7 @@ public sealed class GamesReadApiHttpTests
         public readonly FakeAttemptsStore Attempts = new();
         public readonly FakeStartAttemptStore StartAttempts = new();
         public bool UseFakeAttemptStore { get; set; } = true;
+        public bool EnableSqlAttemptWriter { get; set; }
         public Guid PublicGameId { get; } = Guid.NewGuid();
         private readonly TestAccountIds _testAccountIds;
 
@@ -269,7 +291,8 @@ public sealed class GamesReadApiHttpTests
                 {
                     ["environment"] = "Development",
                     ["Identity:EnableSharedAuthentication"] = "true",
-                    ["Games:EnableSqlPersistence"] = "false",
+                    ["Games:EnableSqlPersistence"] = EnableSqlAttemptWriter ? "true" : "false",
+                    ["Games:EnableSqlAttemptWriter"] = EnableSqlAttemptWriter ? "true" : "false",
                     ["Games:EnableDevelopmentDraftHttpApi"] = "false",
                     ["TravelPlanning:EnableSqlPersistence"] = "false",
                     ["ConnectionStrings:WayhunterSharedDb"] = "Server=localhost;Database=GamesReadTests;Trusted_Connection=True;TrustServerCertificate=True",
@@ -306,6 +329,14 @@ public sealed class GamesReadApiHttpTests
                 {
                     services.RemoveAll<IStartGameAttemptStore>();
                     services.AddSingleton<IStartGameAttemptStore>(StartAttempts);
+                }
+                else if (EnableSqlAttemptWriter)
+                {
+                    // Keep this HTTP test database-free; the actual SQL
+                    // registration is asserted by M5GamesRuntimeDiStartupTests.
+                    services.RemoveAll<IStartGameAttemptStore>();
+                    services.AddSingleton<IStartGameAttemptStore>(
+                        new UnavailableGameAttemptStore());
                 }
             });
         }

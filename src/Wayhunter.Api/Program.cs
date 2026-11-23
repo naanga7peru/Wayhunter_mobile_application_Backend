@@ -190,7 +190,8 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddGamesApplicationServices();
 
 builder.Services.AddConfiguredGamesPersistence(
-    builder.Configuration);
+    builder.Configuration,
+    builder.Environment);
 
 builder.Services.AddGamesReadApiServices(
     builder.Configuration);

@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Wayhunter.Application.Modules.Games.Interfaces;
 using Wayhunter.Application.Modules.Games.Services;
+using Wayhunter.Api.Services.Games;
 using Wayhunter.Infrastructure.Persistence.DbContexts;
 using Wayhunter.Infrastructure.Persistence.Repositories.Games;
 using Microsoft.EntityFrameworkCore;
@@ -26,10 +27,17 @@ public sealed class M5GamesRuntimeDiStartupTests
         : WebApplicationFactory<Program>
     {
         private readonly bool _enableSql;
+        private readonly bool _enableAttemptWriter;
+        private readonly string _environment;
 
-        public GamesStartupFactory(bool enableSql)
+        public GamesStartupFactory(
+            bool enableSql,
+            bool enableAttemptWriter = false,
+            string environment = "Development")
         {
             _enableSql = enableSql;
+            _enableAttemptWriter = enableAttemptWriter;
+            _environment = environment;
         }
 
         protected override IHost CreateHost(
@@ -43,6 +51,9 @@ public sealed class M5GamesRuntimeDiStartupTests
                         {
                             ["Games:EnableSqlPersistence"] =
                                 _enableSql ? "true" : "false",
+                            ["Games:EnableSqlAttemptWriter"] =
+                                _enableAttemptWriter ? "true" : "false",
+                            ["environment"] = _environment,
 
                             ["Identity:EnableSharedAuthentication"] =
                                 "false",
@@ -77,6 +88,8 @@ public sealed class M5GamesRuntimeDiStartupTests
         Assert.Same(gameRepository, deletionRepository);
         Assert.IsType<UnavailableGamesReadQueryStores>(publicGamesQuery);
         Assert.Null(scope.ServiceProvider.GetService<SqlGameRepository>());
+        Assert.IsType<UnavailableGameAttemptStore>(
+            scope.ServiceProvider.GetRequiredService<IStartGameAttemptStore>());
     }
 
     [Fact]
@@ -111,5 +124,30 @@ public sealed class M5GamesRuntimeDiStartupTests
             .GetRequiredService<WayhunterSharedDbContext>();
 
         Assert.True(db.Database.IsSqlServer());
+    }
+
+    [Fact]
+    public void ActualProgram_DevelopmentAttemptWriterOptIn_ResolvesSqlStore()
+    {
+        using var factory = new GamesStartupFactory(
+            enableSql: true,
+            enableAttemptWriter: true);
+        using var scope = factory.Services.CreateScope();
+
+        Assert.IsType<SqlGameAttemptRepository>(
+            scope.ServiceProvider.GetRequiredService<IStartGameAttemptStore>());
+    }
+
+    [Fact]
+    public void ActualProgram_NonDevelopmentAttemptWriterOptIn_RemainsUnavailable()
+    {
+        using var factory = new GamesStartupFactory(
+            enableSql: true,
+            enableAttemptWriter: true,
+            environment: Environments.Production);
+        using var scope = factory.Services.CreateScope();
+
+        Assert.IsType<UnavailableGameAttemptStore>(
+            scope.ServiceProvider.GetRequiredService<IStartGameAttemptStore>());
     }
 }

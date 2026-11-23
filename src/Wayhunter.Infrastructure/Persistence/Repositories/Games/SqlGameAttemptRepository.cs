@@ -21,8 +21,7 @@ namespace Wayhunter.Infrastructure.Persistence.Repositories.Games;
 /// Uses the existing shared SQL Server schema.
 /// Does not create or apply migrations.
 ///
-/// Not registered as an active runtime store until
-/// the remaining Game workflows are SQL-ready.
+/// Runtime registration is explicitly opt-in and Development-only.
 /// </summary>
 public sealed class SqlGameAttemptRepository
     : IStartGameAttemptStore
