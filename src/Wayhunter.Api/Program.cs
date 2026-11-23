@@ -380,7 +380,7 @@ if (builder.Environment.IsDevelopment())
 
 
 
-builder.Services.AddTripMemoryServices();
+builder.Services.AddTripMemoryServices(builder.Configuration);
 builder.Services.AddNotificationFoundation(builder.Configuration);
 builder.Services.AddAdminSafetyMonitoring();
 builder.Services.AddTripSafetyBatch2Services(builder.Configuration);
