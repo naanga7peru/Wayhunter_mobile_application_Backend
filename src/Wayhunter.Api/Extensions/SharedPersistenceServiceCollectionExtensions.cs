@@ -40,7 +40,10 @@ public static class SharedPersistenceServiceCollectionExtensions
                 "is missing.");
         }
 
-        services.AddDbContext<WayhunterSharedDbContext>(
+        // The factory also exposes WayhunterSharedDbContext as a scoped
+        // service, while supporting SQL stores that create independent
+        // contexts (notably the M3 check-in and notification workflows).
+        services.AddDbContextFactory<WayhunterSharedDbContext>(
             options =>
                 options.UseSqlServer(
                     connectionString,
