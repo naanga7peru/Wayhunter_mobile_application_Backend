@@ -164,8 +164,18 @@ public sealed class RealSqlHttpE2EFixture : IAsyncLifetime
         await RegisterAndLoginAsync();
         using var me = await Client.GetAsync("/api/mobile/identity/me");
         Assert.Equal(HttpStatusCode.OK, me.StatusCode);
+        using var profileUpdate = await Client.PutAsJsonAsync(
+            "/api/mobile/identity/me",
+            new { displayName = "Updated SQL E2E", bio = "Persisted over authenticated HTTP" });
+        Assert.Equal(HttpStatusCode.OK, profileUpdate.StatusCode);
         await using var db = CreateVerificationContext();
         Assert.Equal(1, await db.Users.CountAsync(x => x.NormalizedEmail == "sql-e2e@wayhunter.invalid"));
+        Assert.Equal("Updated SQL E2E", await db.Users
+            .Where(x => x.NormalizedEmail == "sql-e2e@wayhunter.invalid")
+            .Select(x => x.DisplayName).SingleAsync());
+        Assert.Equal("Persisted over authenticated HTTP", await db.UserProfiles
+            .Where(x => db.Users.Any(u => u.UserId == x.UserId && u.NormalizedEmail == "sql-e2e@wayhunter.invalid"))
+            .Select(x => x.Bio).SingleAsync());
         Assert.Equal(1, await db.IdentitySessions.CountAsync());
     }
 
@@ -174,11 +184,22 @@ public sealed class RealSqlHttpE2EFixture : IAsyncLifetime
     {
         await RegisterAndLoginAsync();
         var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
-        using var create = await Client.PostAsJsonAsync("/api/mobile/trip-plans", new CreateTripPlanDto(
-            "HTTP SQL trip", today.AddDays(1), today.AddDays(3), 25000m, "Car", 2));
+        var createRequest = new CreateTripPlanDto(
+            "HTTP SQL trip", today.AddDays(1), today.AddDays(3), 25000m, "Car", 2)
+        {
+            InitialStops =
+            [
+                new InitialTripStopDto("SQL origin", "place-origin", 9.661, 80.021),
+                new InitialTripStopDto("SQL destination", "place-destination", 9.671, 80.031)
+            ]
+        };
+        using var create = await Client.PostAsJsonAsync("/api/mobile/trip-plans", createRequest);
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
         var trip = await create.Content.ReadFromJsonAsync<TripPlanResponseDto>();
         Assert.NotNull(trip);
+        Assert.Equal(2, trip.Stops.Count);
+        Assert.Equal(9.661, trip.Stops[0].Latitude);
+        Assert.Equal(80.021, trip.Stops[0].Longitude);
         using var list = await Client.GetAsync("/api/mobile/trip-plans");
         Assert.Equal(HttpStatusCode.OK, list.StatusCode);
         using var detail = await Client.GetAsync($"/api/mobile/trip-plans/{trip.TripPlanId}");
@@ -189,6 +210,14 @@ public sealed class RealSqlHttpE2EFixture : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
         await using var db = CreateVerificationContext();
         Assert.Equal("Updated HTTP SQL trip", await db.Trips.Where(x => x.Id == trip.TripPlanId).Select(x => x.TripName).SingleAsync());
+        var persistedStops = await db.TripStops
+            .Where(x => x.TripPlanId == trip.TripPlanId)
+            .OrderBy(x => x.OrderIndex)
+            .ToListAsync();
+        Assert.Equal(2, persistedStops.Count);
+        Assert.Equal(9.661, persistedStops[0].Latitude);
+        Assert.Equal(80.021, persistedStops[0].Longitude);
+        Assert.Equal("place-destination", persistedStops[1].PlaceId);
     }
 
     [SqlE2EFact]
@@ -292,6 +321,10 @@ public sealed class RealSqlHttpE2EFixture : IAsyncLifetime
 
         using var status = await Client.GetAsync($"/api/mobile/hunter/submissions/{submission.Id}");
         Assert.Equal(HttpStatusCode.OK, status.StatusCode);
+        using (var statusJson = JsonDocument.Parse(await status.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal("SQL Hunter draft", statusJson.RootElement.GetProperty("placeName").GetString());
+        }
         using var capture = await Client.PostAsync($"/api/mobile/hunter/submissions/{submission.Id}/capture-sessions", null);
         Assert.Equal(HttpStatusCode.Created, capture.StatusCode);
         var sessionDto = await capture.Content.ReadFromJsonAsync<Wayhunter.Application.Modules.HunterPlaces.Dtos.HunterStartCaptureSessionResponseDto>();
@@ -303,6 +336,39 @@ public sealed class RealSqlHttpE2EFixture : IAsyncLifetime
         Assert.False(persisted.IsConsumed);
         Assert.False(persisted.IsRevoked);
         Assert.Equal(TimeSpan.FromMinutes(10), persisted.ExpiresAtUtc - persisted.IssuedAtUtc);
+        var persistedSubmission = await verify.HunterSubmissions
+            .AsNoTracking().SingleAsync(x => x.Id == submission.Id);
+        Assert.Equal(9.66845, persistedSubmission.Latitude);
+        Assert.Equal(80.0074, persistedSubmission.Longitude);
+
+        // This seeded record verifies SQL metadata mapping only. The test does not
+        // assert that its private reference is an uploaded or verified media asset.
+        var evidence = new HunterEvidence
+        {
+            Id = Guid.NewGuid(),
+            HunterSubmissionId = submission.Id,
+            EvidenceType = Wayhunter.Domain.Modules.HunterPlaces.Enums.HunterEvidenceType.LivePhoto,
+            PrivateMediaReference = "test-private-reference/e2e",
+            CapturedAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1),
+            UploadedAtUtc = DateTimeOffset.UtcNow,
+            CaptureLatitude = 9.66846,
+            CaptureLongitude = 80.00741,
+            DurationSeconds = null
+        };
+        await using (var evidenceWrite = CreateVerificationContext())
+        {
+            evidenceWrite.HunterEvidence.Add(evidence);
+            await evidenceWrite.SaveChangesAsync();
+        }
+        await using (var evidenceRead = CreateVerificationContext())
+        {
+            var storedEvidence = await evidenceRead.HunterEvidence
+                .AsNoTracking().SingleAsync(x => x.Id == evidence.Id);
+            Assert.Equal(evidence.CaptureLatitude, storedEvidence.CaptureLatitude);
+            Assert.Equal(evidence.CaptureLongitude, storedEvidence.CaptureLongitude);
+            Assert.Equal(evidence.CapturedAtUtc, storedEvidence.CapturedAtUtc);
+            Assert.Equal(evidence.UploadedAtUtc, storedEvidence.UploadedAtUtc);
+        }
     }
 
     [SqlE2EFact]

@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Wayhunter.Api.Extensions;
+using Wayhunter.Api.Services.HomeAdsAnalytics;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Interfaces;
 using Wayhunter.Application.Modules.HomeAdsAnalytics.Services;
 using Wayhunter.Infrastructure.Persistence.Repositories.HomeAdsAnalytics;
@@ -16,6 +17,61 @@ namespace Wayhunter.UnitTests.Modules.HomeAdsAnalytics;
 
 public sealed class HomeAdsAnalyticsServiceRegistrationTests
 {
+    [Fact]
+    public void AdvertisementImageStorage_IsUnavailableByDefault()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddConfiguredAdvertisementImageStorage(
+            new ConfigurationBuilder().Build());
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        Assert.IsType<UnavailableAdvertisementImageStorage>(
+            scope.ServiceProvider.GetRequiredService<IAdvertisementImageStorage>());
+    }
+
+    [Fact]
+    public void AdvertisementImageStorage_UsesCloudinaryOnlyWithCompleteConfiguration()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Advertisements:Cloudinary:Enabled"] = "true",
+                ["Advertisements:Cloudinary:CloudName"] = "test-cloud",
+                ["Advertisements:Cloudinary:ApiKey"] = "test-key",
+                ["Advertisements:Cloudinary:ApiSecret"] = "test-secret"
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddConfiguredAdvertisementImageStorage(configuration);
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        Assert.IsType<CloudinaryAdvertisementImageStorage>(
+            scope.ServiceProvider.GetRequiredService<IAdvertisementImageStorage>());
+    }
+
+    [Fact]
+    public void AdvertisementImageStorage_EnabledWithoutCredentialsFailsClosed()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Advertisements:Cloudinary:Enabled"] = "true"
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddConfiguredAdvertisementImageStorage(configuration);
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        Assert.Throws<Microsoft.Extensions.Options.OptionsValidationException>(() =>
+            scope.ServiceProvider.GetRequiredService<IAdvertisementImageStorage>());
+    }
+
     [Fact]
     public void Foundation_ShouldRegisterAdvertisementRepositoryAsScoped()
     {

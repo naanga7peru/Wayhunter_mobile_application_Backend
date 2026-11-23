@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Wayhunter.Api.Controllers.Mobile.IdentitySocial;
 using Wayhunter.Api.Contracts.Responses;
+using Wayhunter.Api.Contracts.Requests;
 using Wayhunter.Application.Modules.IdentitySocial.Dtos;
 using Wayhunter.Domain.Modules.IdentitySocial.Entities;
 using Wayhunter.Infrastructure.Persistence.DbContexts;
@@ -64,6 +65,54 @@ public sealed class MyProfileControllerTests
         Assert.False(string.IsNullOrWhiteSpace(error.Message));
         Assert.Equal(controller.HttpContext.TraceIdentifier, error.CorrelationId);
         Assert.False(string.IsNullOrWhiteSpace(error.CorrelationId));
+    }
+
+    [Fact]
+    public async Task Update_ChangesOnlyAuthenticatedOwnersNameAndBio()
+    {
+        var account = CreateActiveAccount();
+        var userId = account.UserId;
+        var profile = UserProfile.CreateForUser(account, account.CreatedAtUtc);
+        profile.UpdatePublicDetails(
+            "https://assets.example/avatar.png",
+            "Old bio",
+            account.CreatedAtUtc.AddMinutes(1));
+
+        await using var db = CreateDb();
+        db.Users.Add(account);
+        db.UserProfiles.Add(profile);
+        await db.SaveChangesAsync();
+
+        var controller = CreateController(db, userId);
+        var result = await controller.Update(
+            new UpdateMyProfileRequest("New name", "New bio"),
+            CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var response = Assert.IsType<PrivateProfileDto>(ok.Value);
+        Assert.Equal(userId, response.UserId);
+        Assert.Equal("New name", response.DisplayName);
+        Assert.Equal("New bio", response.Bio);
+        Assert.Equal("https://assets.example/avatar.png", response.AvatarUrl);
+        Assert.Equal("New name", (await db.Users.SingleAsync()).DisplayName);
+    }
+
+    [Fact]
+    public async Task Update_RejectsInvalidBioWithoutChangingAccount()
+    {
+        var account = CreateActiveAccount();
+        var originalName = account.DisplayName;
+        await using var db = CreateDb();
+        db.Users.Add(account);
+        await db.SaveChangesAsync();
+
+        var controller = CreateController(db, account.UserId);
+        var result = await controller.Update(
+            new UpdateMyProfileRequest("Changed", new string('x', 501)),
+            CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal(originalName, (await db.Users.SingleAsync()).DisplayName);
     }
 
     private static WayhunterSharedDbContext CreateDb()
