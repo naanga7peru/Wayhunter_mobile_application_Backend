@@ -1,6 +1,21 @@
 # Final backend closure and demo handoff
 
-Updated 2026-11-24 from this worktree. Branch: `task/m5-production-game-writes`.
+Updated 2026-11-24 after PR #314 merge. Base: `develop` at `1db9999`; final runtime hardening branch: `task/final-demo-runtime-hardening`.
+
+## Final demo runtime verification
+
+Verified against `Wayhunter_Demo_Final` on `(localdb)\MSSQLLocalDB`; no database was created, migrated, or reseeded during this verification. The API process remained running at `http://127.0.0.1:5055`.
+
+- `POST /api/mobile/identity/login`: HTTP 200; authenticated JWT issued.
+- `GET /api/mobile/home` with the bearer token: HTTP 200.
+- Anonymous `GET /api/mobile/home`: HTTP 401.
+- Home response: profile present; wallet spendable balance 100; 1 upcoming trip; 0 published games; 0 approved Hunter places; 1 active banner; 1 sponsored POI.
+- Swagger: HTTP 200, 120 operations.
+- Health: HTTP 200 and remained available for at least 60 seconds.
+- The PowerShell 5.1 verifier sends JSON only for non-empty POST/PUT/PATCH requests; GET/HEAD send no request body. It uses `$homeResponse` to avoid collision with PowerShell's automatic `$HOME` variable.
+- The seed runner was previously executed twice against this catalog in explicit `--skip-voucher` mode. Verified seeded data: 10 accounts/profiles, 5 trips/10 stops, one Trip Safety session, check-in, notification outbox item, hazard and text-only memory, 2 Hunter drafts, 2 Game drafts with stages/hints, 10 wallets and welcome rewards, no voucher offer/inventory (intentionally skipped), and 2 active advertisements (1 banner, 1 sponsored POI).
+
+The current API listens on loopback only. This is suitable for the Android emulator via host-loopback forwarding; a physical device requires a reachable bind address and firewall rule as described below. Do not restart the verified process solely for physical-device configuration.
 
 ## API inventory
 
@@ -46,52 +61,46 @@ No real provider credentials were available or tested in this run. OTP/email, Cl
 
 ## Demo seed readiness
 
-An explicit console runner now seeds deterministic M1 account/profile records, M2 trips/stops, M3 live session/check-in/outbox/hazard/text memory, M4 draft submissions, M5 draft games/stages/hints, M6 approved welcome rewards and protected academic voucher offer/inventory, and M7 banner/sponsored-POI records. It uses the password hash format accepted by ASP.NET Identity, trusted Admin role assignment, existing reward/voucher/Game/Trip Memory/Safe Check-in domain services and deterministic IDs. It does not run on API startup. It does not generate OTP receipts, trusted media, or provider delivery outcomes. It only accepts explicitly confirmed LocalDB `Wayhunter_Demo_*` targets with schema preflight and never permits Official/production. The runner has not been executed or SQL-idempotency-tested; do not execute it until a target demo database and run are separately authorized. Its exact command and environment are in [`DEMO_SEED_RUNNER.md`](DEMO_SEED_RUNNER.md). Seed transactions are per operation/context rather than one all-modules transaction, so an interrupted run is resumed by rerunning; existing records are checked and conflicting identities fail closed. Welcome-only balances are 100 Coins; the runner deliberately does not mint the additional amount needed for voucher redemption.
+An explicit console runner seeds deterministic M1 account/profile records, M2 trips/stops, M3 live session/check-in/outbox/hazard/text memory, M4 draft submissions, M5 draft games/stages/hints, M6 approved welcome rewards and (when configured) protected academic voucher offer/inventory, and M7 banner/sponsored-POI records. It uses the password hash format accepted by ASP.NET Identity, trusted Admin role assignment, existing reward/voucher/Game/Trip Memory/Safe Check-in domain services and deterministic IDs. It does not run on API startup and does not generate OTP receipts, trusted media, or provider delivery outcomes. It accepts explicitly confirmed LocalDB `Wayhunter_Demo_*` targets with schema preflight and never permits Official/production. It was executed twice against `Wayhunter_Demo_Final` in explicit `--skip-voucher` mode; both passes succeeded and duplicate prevention was verified. Voucher inventory was skipped because no trusted private image reference/provider was available. Seed writes are per operation/context rather than one all-modules transaction; rerun resumes existing records and conflicting identities fail closed. Welcome-only balances are 100 Coins; the runner deliberately does not mint the additional amount needed for voucher redemption. See [`DEMO_SEED_RUNNER.md`](DEMO_SEED_RUNNER.md) for runner details.
 
 The authenticated Home dashboard is `GET /api/mobile/home`. It composes owner profile summary, wallet balances, upcoming trips, published games, approved Hunter places and active advertisement placements. It collects no analytics events and includes no contact, GPS or media data. The checked-in Swagger inventory contains 120 SQL-mode operations; it describes gated surfaces as well as enabled routes, so deployment feature gates still apply.
 
 ## Flutter connection
 
 - API base URL is the origin only; routes already include `/api`.
-- Android emulator: `http://10.0.2.2:<port>`.
-- Physical Android: `https://<reachable-hostname-or-LAN-IP>:<port>` with a certificate trusted by the device; API must bind to a reachable interface and firewall must allow the port.
+- Android emulator for the current listener: `http://10.0.2.2:5055`. The emulator's `10.0.2.2` address forwards to the host loopback listener at `127.0.0.1:5055`. Set the Flutter `API_BASE_URL` to this origin; routes already include `/api`.
+- Physical Android: the current loopback-only API is not reachable from a phone. For a later physical-device session, start the API with `--urls http://0.0.0.0:5055`, allow inbound TCP 5055 in Windows Firewall on the trusted local network, and set `API_BASE_URL` to `http://<laptop-LAN-IP>:5055`. Use HTTPS with a device-trusted certificate outside a local debug setup. No restart was done for this handoff.
+- Local HTTP is for the isolated debug demo only. If Android blocks cleartext traffic, permit HTTP only in the debug manifest/network-security configuration; do not carry that allowance into release builds.
+- Login is `POST /api/mobile/identity/login` with JSON `{ "email": "traveller1@demo.wayhunter.test", "password": "<entered securely>" }`. Keep the returned access token in memory and send `Authorization: Bearer <access-token>` to protected routes. Never put passwords, JWT signing secrets, or provider credentials in Flutter.
 - Flutter web: use the deployed HTTPS origin and set `Cors:AllowedOrigins` to the exact web origin. Do not use wildcard CORS with credentials.
 - Send `Authorization: Bearer <access-token>` on protected routes. Use `Idempotency-Key` for Game draft creation; send the returned `ETag` as `If-Match` for draft updates. Never store provider secrets in Flutter.
 - Configure issuer/audience consistently between token issuer and API. Review response DTOs and the endpoint inventory before generating mobile models.
 
 ## Database and startup procedure
 
-The prior authorization is only for the disposable LocalDB catalog named above. Do not substitute or target Official. Before any migration, query the exact catalog with standard `sqlcmd` and confirm it is ONLINE. Migration commands below are a future procedure and are **not run by this handoff**:
+The selected local runtime database is `Wayhunter_Demo_Final` on `(localdb)\MSSQLLocalDB`. It is ONLINE/read-write, has all eight merged EF migrations applied through `20261123175746_M5GameDraftCreateIdempotency`, and has no pending model changes. No further migration or seed execution is needed for the verified demo state. `Wayhunter_Official` and the M5 test database are outside this target.
+
+The independent API is already running at `http://127.0.0.1:5055`. Do not launch a second instance while this port is occupied. For a later local restart, the standalone launcher validates that the port is free, pins the connection string to `Wayhunter_Demo_Final`, reuses the current-user DPAPI voucher key, sets the Development session lifetime and uses `--no-launch-profile`:
 
 ```powershell
-$env:ConnectionStrings__WayhunterSharedDb = 'Server=(localdb)\MSSQLLocalDB;Database=Wayhunter_Test_M5_eee96080bb0540ebaa5cd326f366d2fb;Integrated Security=true;TrustServerCertificate=true'
-dotnet ef database update --project src/Wayhunter.Infrastructure --startup-project src/Wayhunter.Api --configuration Release
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File tools/Wayhunter.DemoSeedRunner/StartDemoApi.ps1
 ```
 
-Take and verify a backup before upgrading a final demo database. Review generated SQL/migration list and exact catalog first. The current disposable catalog already has eight migrations applied and no pending model changes.
-
-Backend startup after secure configuration:
-
-```powershell
-$env:ASPNETCORE_ENVIRONMENT = 'Development'
-dotnet run --project src/Wayhunter.Api --urls http://0.0.0.0:5055
-```
-
-Enable SQL persistence only after applying reviewed migrations to the explicitly selected demo database. Do not use these commands with production/Official.
+For a future explicitly authorized seed run, `InvokeDemoSeedSecurely.ps1` performs a read-only catalog/migration preflight, securely prompts for the demo account password, and runs the deterministic seed runner twice with `--skip-voucher`. Do not use `--seed` against any other database or run it again against this already seeded catalog unless a deliberate rerun is required.
 
 ## Git review
 
-No commit, push or merge was made. See [`FINAL_CHANGED_FILES.md`](FINAL_CHANGED_FILES.md) for the complete modified/untracked inventory. Migration inventory includes the existing change `20261123175746_M5GameDraftCreateIdempotency`; it has already been applied to the previously authorized disposable catalog. Recommended commit title after human review: `Complete M5 SQL game draft review workflow`.
+PR #314 is merged as commit `1db9999`. This final runtime-hardening change is prepared separately on `task/final-demo-runtime-hardening`. See [`FINAL_CHANGED_FILES.md`](FINAL_CHANGED_FILES.md) for the merged implementation inventory and this branch's delta. No migration was added. Recommended commit title: `Harden demo seed and API verification scripts`.
 
-Suggested PR title: `Complete authenticated M5 game draft SQL workflow`.
+Suggested PR title: `Finalize demo backend runtime and Flutter integration readiness`.
 
-PR summary: durable draft create idempotency, ownership-safe SQL CRUD, ETag/If-Match updates, Admin approval/rejection and authenticated SQL E2E. Include M3 profile/fixture safety changes, M6 voucher offer detail and demo seed factory, plus current verification. Risks: explicit M5 API gate, unverified external media/email/notification providers, unresolved M1 refresh/lockout policy, and M7 dashboard/analytics decisions.
+PR summary: add an explicit voucher-skip mode to the idempotent demo seed runner, correct Development session lifetime and PowerShell 5.1 HTTP verification behavior, add a safe standalone loopback API launcher, and update final runtime/Flutter handoff documentation. Verified runtime results: login 200, bearer-authenticated Home 200, anonymous Home 401, Health 200, and Swagger 120 operations. Limitations: voucher image/media, email, Maps, Gemini, weather, and notification providers remain unverified; refresh-token rotation and account-lockout policy remain unresolved.
 
-## Remaining blockers before demo/production
+## Remaining production-readiness blockers
 
-1. Select and authorize a dedicated `Wayhunter_Demo_*` database, then execute and verify the guarded seed runner; prepare demo passwords/voucher codes through environment variables.
-2. Obtain M1 refresh/lockout policy and schema approval, then implement rotation/replay-safe persistence.
-3. Decide whether analytics ingestion is required; if so, approve event schema, privacy and retention before implementation.
-4. Approve and configure a trusted private media/receipt provider for M3/M4/M5 and private voucher image bytes.
-5. Configure and verify Resend, Google, Gemini, weather, Cloudinary and durable notification receiver credentials/receipts.
-6. Review the route inventory/DTOs with Flutter and resolve remaining 58 integration skips against safe isolated targets before production.
+1. M1 refresh-token rotation/replay protection and durable account lockout remain unimplemented pending policy/schema decisions.
+2. Trusted private media/receipt verification is unavailable for M3/M4/M5; client media references are not accepted as verified evidence. Private voucher image delivery is not verified, and the demo voucher offer/inventory was intentionally skipped.
+3. Resend, Google Places/Routes/Geocoding, Gemini, weather, Cloudinary and notification receiver credentials/delivery receipts are not configured or verified. These providers remain fail-closed.
+4. No analytics ingestion is enabled because event schema, privacy, and retention policy are not approved.
+5. The 58 previously skipped integration tests still need safe, bounded coverage or documented reasons. Do not enable legacy fixtures that create/drop fixed database names.
+6. Physical Android access needs a deliberate API bind/firewall setup; current verified service is loopback only. Production must use HTTPS and deployment-grade secret storage.

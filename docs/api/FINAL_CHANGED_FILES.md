@@ -1,8 +1,23 @@
 ﻿# Changed files
 
-Branch: task/m5-production-game-writes
+## Post-PR #314 final runtime-hardening delta
 
-All pre-existing work is preserved. No commit, push or merge was made.
+Target branch: `task/final-demo-runtime-hardening`; base `develop` merge commit `1db9999`. No migrations or generated SQL artifacts are part of this delta.
+
+- Modified `src/Wayhunter.Api/appsettings.Development.json`: Development session lifetime only; no secrets.
+- Modified `tests/Wayhunter.UnitTests/Modules/DemoSeedRunner/DemoSeedRunnerSafetyTests.cs`: skip-voucher safety coverage.
+- Modified `tools/Wayhunter.DemoSeedRunner/DemoSeedOptions.cs`, `DemoSeedRunnerService.cs`, and `Program.cs`: explicit `--skip-voucher` mode.
+- Modified `tools/Wayhunter.DemoSeedRunner/StartDemoApiAndVerify.ps1` and `VerifyDemoLoginHome.ps1`: loopback/no-launch-profile startup settings, session lifetime, PowerShell 5.1 request-body handling, and `$homeResponse` naming.
+- Added `tools/Wayhunter.DemoSeedRunner/InvokeDemoSeedSecurely.ps1`, `StartDemoApi.ps1`: secure prompting, explicit demo catalog targeting, DPAPI key reuse, and standalone loopback API launch that refuses an occupied port.
+- Updated `docs/api/FINAL_BACKEND_DEMO_HANDOFF.md` and this inventory with actual demo verification and Flutter connection guidance.
+
+Secret review: these files contain environment-variable names and runtime code that prompts for credentials or loads the current-user DPAPI key; they contain no password, signing key, voucher code, voucher protection key, bearer token, or actual provider credential. The Development appsettings change is only a 60-minute session lifetime. Scripts were inspected for target strings; demo writes target only `Wayhunter_Demo_Final`.
+
+## Merged PR #314 inventory
+
+The following inventory was prepared for the merged `task/m5-production-game-writes` branch; it is historical and included in merge commit `1db9999` on `develop`.
+
+The merged PR inventory below is preserved; the final runtime-hardening delta above is intended for the separate branch and PR.
 
 - `config/wayhunter.server.example.json`
 - `docs/api/DEMO_SEED_RUNNER.md`

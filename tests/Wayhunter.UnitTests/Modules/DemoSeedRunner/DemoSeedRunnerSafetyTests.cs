@@ -42,6 +42,22 @@ public sealed class DemoSeedRunnerSafetyTests
     }
 
     [Fact]
+    public void SkipVoucherModeRequiresNoVoucherCredentialsOrImageReference()
+    {
+        var environment = Environment($"SEED_DEMO_DATABASE:{Catalog}");
+        environment.Remove("WAYHUNTER_DEMO_VOUCHER_CODE");
+        environment.Remove("WAYHUNTER_DEMO_VOUCHER_IMAGE_REFERENCE");
+        environment.Remove("WAYHUNTER_DEMO_VOUCHER_PROTECTION_KEY");
+
+        var options = DemoSeedOptions.FromEnvironment(environment, seedVoucher: false);
+
+        Assert.False(options.SeedVoucher);
+        Assert.Empty(options.VoucherCode);
+        Assert.Empty(options.VoucherImageReference);
+        Assert.Empty(options.VoucherProtectionKey);
+    }
+
+    [Fact]
     public void DemoIdentityAndDataIdentifiersAreStableAndUnique()
     {
         Assert.Equal(10, DemoUsers.All.Count);

@@ -41,9 +41,11 @@ public sealed class DemoSeedRunnerService(DemoSeedOptions options)
         await SeedHunterExamplesAsync(users, cancellationToken);
         await SeedGameDraftsAsync(users, cancellationToken);
         await SeedWalletRewardsAsync(users, cancellationToken);
-        await SeedVoucherAsync(users[^1], cancellationToken);
+        if (options.SeedVoucher)
+            await SeedVoucherAsync(users[^1], cancellationToken);
         await SeedAdvertisementsAsync(cancellationToken);
-        Console.WriteLine($"Seed complete for {options.Catalog}: 10 accounts, 5 trips, 2 Hunter drafts, 2 Game drafts, 10 welcome rewards, 1 voucher offer/inventory, 2 advertisements.");
+        var voucherSummary = options.SeedVoucher ? "1 voucher offer/inventory" : "voucher offer/inventory skipped by explicit option";
+        Console.WriteLine($"Seed complete for {options.Catalog}: 10 accounts, 5 trips, 2 Hunter drafts, 2 Game drafts, 10 welcome rewards, {voucherSummary}, 2 advertisements.");
         Console.WriteLine("No OTP, media receipt, notification delivery or external provider success was asserted.");
     }
 
