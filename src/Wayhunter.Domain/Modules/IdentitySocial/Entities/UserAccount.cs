@@ -36,8 +36,23 @@ public sealed class UserAccount
         string displayName,
         string email,
         string passwordHash,
+        DateTimeOffset createdAtUtc) =>
+        RegisterPendingWithId(Guid.NewGuid().ToString("D"), displayName,
+            email, passwordHash, createdAtUtc);
+
+    /// <summary>
+    /// Creates a validated account with a stable ID for explicit seed/import
+    /// workflows. Runtime registration must continue to use RegisterPending.
+    /// </summary>
+    public static UserAccount RegisterPendingWithId(
+        string userId,
+        string displayName,
+        string email,
+        string passwordHash,
         DateTimeOffset createdAtUtc)
     {
+        if (!Guid.TryParseExact(userId, "D", out var parsedId) || parsedId == Guid.Empty)
+            throw new ArgumentException("A valid stable user ID is required.", nameof(userId));
         if (string.IsNullOrWhiteSpace(displayName))
             throw new ArgumentException(
                 "Display name is required.");
@@ -56,7 +71,7 @@ public sealed class UserAccount
                 "Valid UTC creation time is required.");
 
         return new UserAccount(
-            Guid.NewGuid().ToString("D"),
+            parsedId.ToString("D"),
             displayName.Trim(),
             email.Trim().ToLowerInvariant(),
             passwordHash,

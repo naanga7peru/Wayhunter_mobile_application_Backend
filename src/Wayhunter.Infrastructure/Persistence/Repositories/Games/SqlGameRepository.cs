@@ -14,7 +14,8 @@ using Wayhunter.Infrastructure.Persistence.Models.Games;
 namespace Wayhunter.Infrastructure.Persistence.Repositories.Games;
 
 public sealed class SqlGameRepository
-    : IGameDraftDeletionRepository, IExpiredGameArchiveStore
+    : IGameRepository, IGameDraftDeletionRepository, IExpiredGameArchiveStore,
+      IGameDraftCreateOperationStore
 {
     private const int RowVersionLength = 8;
 
@@ -88,9 +89,11 @@ public sealed class SqlGameRepository
                 x.Id,
                 x.GameStepId,
                 x.TextHint,
-                x.PhotoMediaId)).ToArray());
+                x.PhotoMediaId)).ToArray(),
+            persistenceRevision: row.RowVersion);
 
         RememberVersion(game, row.RowVersion);
+        game.RefreshPersistenceRevision(row.RowVersion);
 
         return game;
     }
@@ -105,39 +108,114 @@ public sealed class SqlGameRepository
             throw new InvalidOperationException(
                 "Winner records require the dedicated approval workflow.");
 
-        await using var transaction =
-            await _db.Database.BeginTransactionAsync(
-                cancellationToken);
-
-        var row = new GameRow { Id = game.Id };
-        CopyGameProperties(game, row);
-
-        await _db.Games.AddAsync(row, cancellationToken);
-        await _db.SaveChangesAsync(cancellationToken);
-
-        _db.GameSteps.AddRange(
-            game.DraftSteps.Select(x => new GameStepRow
+        var strategy = _db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            try
             {
-                Id = x.Id,
-                GameId = x.GameId,
-                StepNumber = x.StepNumber
-            }));
+                await using var transaction =
+                    await _db.Database.BeginTransactionAsync(cancellationToken);
 
-        await _db.SaveChangesAsync(cancellationToken);
+                var row = new GameRow { Id = game.Id };
+                CopyGameProperties(game, row);
+                await _db.Games.AddAsync(row, cancellationToken);
+                await _db.SaveChangesAsync(cancellationToken);
 
-        _db.GameHints.AddRange(
-            game.DraftHints.Select(x => new GameHintRow
+                _db.GameSteps.AddRange(game.DraftSteps.Select(x => new GameStepRow
+                {
+                    Id = x.Id, GameId = x.GameId, StepNumber = x.StepNumber
+                }));
+                await _db.SaveChangesAsync(cancellationToken);
+
+                _db.GameHints.AddRange(game.DraftHints.Select(x => new GameHintRow
+                {
+                    Id = x.Id, GameStepId = x.GameStepId,
+                    TextHint = x.TextHint, PhotoMediaId = x.PhotoMediaId
+                }));
+                await _db.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+
+                RememberVersion(game, row.RowVersion);
+                game.RefreshPersistenceRevision(row.RowVersion);
+            }
+            catch
             {
-                Id = x.Id,
-                GameStepId = x.GameStepId,
-                TextHint = x.TextHint,
-                PhotoMediaId = x.PhotoMediaId
-            }));
+                _db.ChangeTracker.Clear();
+                throw;
+            }
+        });
+    }
 
-        await _db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+    public async Task<Game> CreateOrReplayAsync(
+        Game game,
+        string idempotencyKey,
+        byte[] payloadHash,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 128 ||
+            idempotencyKey.Any(char.IsControl))
+            throw new ArgumentException("A valid Idempotency-Key of at most 128 characters is required.", nameof(idempotencyKey));
+        if (payloadHash is null || payloadHash.Length != 32)
+            throw new ArgumentException("A SHA-256 payload hash is required.", nameof(payloadHash));
 
-        RememberVersion(game, row.RowVersion);
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            try
+            {
+                await using var transaction = await _db.Database.BeginTransactionAsync(
+                    System.Data.IsolationLevel.Serializable, cancellationToken);
+                var operation = await _db.GameDraftCreateOperations.AsNoTracking()
+                    .SingleOrDefaultAsync(x => x.CreatorUserId == game.CreatorUserId &&
+                        x.IdempotencyKey == idempotencyKey, cancellationToken);
+                if (operation is not null)
+                {
+                    if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                            operation.PayloadHash, payloadHash))
+                        throw new InvalidOperationException("Idempotency-Key was already used with a different request.");
+                    if (!operation.GameId.HasValue)
+                        throw new InvalidOperationException("This idempotent draft was previously deleted.");
+                    var replay = await GetByIdAsync(operation.GameId.Value, cancellationToken)
+                        ?? throw new InvalidOperationException("Idempotent Game record is missing.");
+                    await transaction.CommitAsync(cancellationToken);
+                    return replay;
+                }
+
+                var row = new GameRow { Id = game.Id };
+                CopyGameProperties(game, row);
+                var steps = game.DraftSteps.Select(x => new GameStepRow
+                {
+                    Id = x.Id, GameId = x.GameId, StepNumber = x.StepNumber
+                }).ToArray();
+                var hints = game.DraftHints.Select(x => new GameHintRow
+                {
+                    Id = x.Id, GameStepId = x.GameStepId,
+                    TextHint = x.TextHint, PhotoMediaId = x.PhotoMediaId
+                }).ToArray();
+                _db.Games.Add(row);
+                _db.GameSteps.AddRange(steps);
+                _db.GameHints.AddRange(hints);
+                _db.GameDraftCreateOperations.Add(new GameDraftCreateOperationRow
+                {
+                    CreatorUserId = game.CreatorUserId,
+                    IdempotencyKey = idempotencyKey,
+                    PayloadHash = payloadHash.ToArray(),
+                    GameId = game.Id,
+                    CreatedAtUtc = DateTimeOffset.UtcNow
+                });
+                await _db.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                RememberVersion(game, row.RowVersion);
+                game.RefreshPersistenceRevision(row.RowVersion);
+                return game;
+            }
+            catch
+            {
+                _db.ChangeTracker.Clear();
+                throw;
+            }
+        });
     }
 
     public async Task UpdateAsync(
@@ -154,9 +232,13 @@ public sealed class SqlGameRepository
             throw new InvalidOperationException(
                 "A valid SQL Server RowVersion is required.");
 
+        var strategy = _db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+        try
+        {
         await using var transaction =
-            await _db.Database.BeginTransactionAsync(
-                cancellationToken);
+            await _db.Database.BeginTransactionAsync(cancellationToken);
 
         // =====================================
         // SQL SERVER CONCURRENCY LOCK
@@ -287,6 +369,14 @@ public sealed class SqlGameRepository
         await transaction.CommitAsync(cancellationToken);
 
         RememberVersion(game, row.RowVersion);
+        game.RefreshPersistenceRevision(row.RowVersion);
+        }
+        catch
+        {
+            _db.ChangeTracker.Clear();
+            throw;
+        }
+        });
     }
 
     public async Task DeleteAsync(
@@ -297,9 +387,13 @@ public sealed class SqlGameRepository
             throw new ArgumentException(
                 "Game ID is required.", nameof(gameId));
 
+        var strategy = _db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+        try
+        {
         await using var transaction =
-            await _db.Database.BeginTransactionAsync(
-                cancellationToken);
+            await _db.Database.BeginTransactionAsync(cancellationToken);
 
         var row = await _db.Games
             .SingleOrDefaultAsync(
@@ -312,6 +406,12 @@ public sealed class SqlGameRepository
         if (row.Status != GameStatus.Draft)
             throw new InvalidOperationException(
                 "Only draft games can be deleted.");
+
+        var createOperations = await _db.GameDraftCreateOperations
+            .Where(x => x.GameId == gameId).ToListAsync(cancellationToken);
+        foreach (var operation in createOperations)
+            operation.GameId = null;
+        await _db.SaveChangesAsync(cancellationToken);
 
         var steps = await _db.GameSteps
             .Where(x => x.GameId == gameId)
@@ -335,6 +435,13 @@ public sealed class SqlGameRepository
         await _db.SaveChangesAsync(cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            _db.ChangeTracker.Clear();
+            throw;
+        }
+        });
     }
 
     public async Task<int> ArchiveExpiredGamesAsync(

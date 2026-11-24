@@ -112,6 +112,26 @@ public sealed class GameDraftUpdateServiceTests
         Assert.Equal(1, repo.UpdateCount);
     }
 
+    [Fact]
+    public async Task StaleExpectedRevision_ShouldNotReplaceDraft()
+    {
+        var repo = new FakeGameRepository();
+        var service = new GameService(repo);
+        var game = await service.CreateGameDraftAsync("creator-1", ValidDraft());
+        var currentRevision = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 };
+        game.RefreshPersistenceRevision(currentRevision);
+
+        await Assert.ThrowsAsync<GameDraftRevisionConflictException>(() =>
+            service.UpdateGameDraftAsync(
+                game.Id,
+                "creator-1",
+                UpdatedDraft(),
+                expectedRevision: new byte[] { 8, 7, 6, 5, 4, 3, 2, 1 }));
+
+        Assert.Equal("Jaffna Treasure Hunt", game.Title);
+        Assert.Equal(0, repo.UpdateCount);
+    }
+
     // =====================================
     // TEST 02 - OTHER USER CANNOT UPDATE
     // =====================================

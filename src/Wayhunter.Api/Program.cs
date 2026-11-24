@@ -7,6 +7,7 @@ using Wayhunter.Api.Authorization;
 using Wayhunter.Api.BackgroundServices;
 using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Controllers.Mobile.Games;
+using Wayhunter.Api.Controllers.Admin.Games;
 using Wayhunter.Api.Extensions;
 using Wayhunter.Api.Hubs.TripSafety;
 using Wayhunter.Api.Services.IdentitySocial;
@@ -30,19 +31,22 @@ using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
 var builder = WebApplication.CreateBuilder(args);
 
 var enableDevelopmentDraftApi =
-    builder.Environment.IsDevelopment() &&
-    builder.Configuration.GetValue<bool>(
-        "Games:EnableDevelopmentDraftHttpApi") &&
     builder.Configuration.GetValue<bool>(
         "Identity:EnableSharedAuthentication") &&
-    !builder.Configuration.GetValue<bool>(
-        "Games:EnableSqlPersistence");
+    (builder.Configuration.GetValue<bool>("Games:EnableSqlPersistence") ||
+     (builder.Environment.IsDevelopment() &&
+      builder.Configuration.GetValue<bool>("Games:EnableDevelopmentDraftHttpApi")));
 
 builder.Services.AddControllers()
     .ConfigureApplicationPartManager(manager =>
+    {
         manager.FeatureProviders.Add(
             new GameDraftApiControllerFeatureProvider(
-                enableDevelopmentDraftApi)));
+                enableDevelopmentDraftApi));
+        manager.FeatureProviders.Add(new GameReviewControllerFeatureProvider(
+            builder.Configuration.GetValue<bool>("Identity:EnableSharedAuthentication") &&
+            builder.Configuration.GetValue<bool>("Games:EnableSqlPersistence")));
+    });
 
 if (enableDevelopmentDraftApi)
 {
@@ -92,6 +96,11 @@ if (enableSharedAuthentication)
 {
     builder.Services.AddWayhunterIdentityPersistence(
         builder.Configuration);
+    builder.Services.TryAddScoped<
+        ITrustedAdministratorRoleReader,
+        SqlTrustedAdministratorRoleReader>();
+    builder.Services.TryAddScoped<
+        TrustedAdministratorRoleResolutionService>();
 
     // The M4 status route uses the authoritative shared SQL store.
     // No in-memory fallback is registered for runtime requests.

@@ -1,0 +1,62 @@
+{
+  "ConnectionStrings": {
+    "WayhunterSharedDb": "Server=(localdb)\\MSSQLLocalDB;Database=Wayhunter_Test_REPLACE_WITH_AUTHORIZED_CATALOG;Integrated Security=true;TrustServerCertificate=true"
+  },
+  "Authentication": {
+    "Jwt": {
+      "Issuer": "https://api.example.invalid",
+      "Audience": "wayhunter-mobile",
+      "SigningSecret": "REPLACE_WITH_RANDOM_SECRET_MINIMUM_32_BYTES"
+    }
+  },
+  "Identity": {
+    "EnableSharedAuthentication": true,
+    "Email": {
+      "ResendApiKey": "REPLACE_WITH_RESEND_API_KEY",
+      "SenderAddress": "REPLACE_WITH_VERIFIED_SENDER"
+    }
+  },
+  "TravelPlanning": {
+    "Maps": {
+      "EnableGeocoding": false,
+      "GeocodingServerApiKey": "REPLACE_WITH_SERVER_KEY",
+      "EnablePlaces": false,
+      "PlacesServerApiKey": "REPLACE_WITH_SERVER_KEY",
+      "EnableRoutes": false,
+      "RoutesServerApiKey": "REPLACE_WITH_SERVER_KEY"
+    },
+    "AiTrip": {
+      "Enabled": false,
+      "ApiKey": "REPLACE_WITH_GEMINI_KEY",
+      "Model": "REPLACE_WITH_APPROVED_MODEL",
+      "TimeoutSeconds": 20,
+      "MaxRequestsPerUserPerDay": 5
+    },
+    "Weather": {
+      "Enabled": false,
+      "ApiKey": "REPLACE_WITH_WEATHER_KEY",
+      "CacheMaxAgeMinutes": 30,
+      "TimeoutSeconds": 10
+    }
+  },
+  "Advertisements": {
+    "Cloudinary": {
+      "Enabled": false,
+      "CloudName": "REPLACE_WITH_CLOUD_NAME",
+      "ApiKey": "REPLACE_WITH_API_KEY",
+      "ApiSecret": "REPLACE_WITH_API_SECRET"
+    }
+  },
+  "TripSafety": {
+    "EnableSqlPersistence": false,
+    "EnableSqlTripMemories": false,
+    "EnableNotificationOutboxWorker": false,
+    "NotificationOutbox": {
+      "WebhookUrl": "REPLACE_WITH_APPROVED_IDEMPOTENT_RECEIVER",
+      "WebhookApiKey": "REPLACE_WITH_SECRET"
+    }
+  },
+  "Cors": {
+    "AllowedOrigins": [ "https://REPLACE_WITH_FLUTTER_WEB_ORIGIN" ]
+  }
+}

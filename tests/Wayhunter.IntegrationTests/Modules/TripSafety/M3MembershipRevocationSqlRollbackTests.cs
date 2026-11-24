@@ -21,8 +21,7 @@ namespace Wayhunter.IntegrationTests.Modules.TripSafety;
 
 public sealed class M3MembershipRevocationSqlRollbackTests
 {
-    private const string AllowedDatabaseName =
-        "Wayhunter_M3_RevocationIntegrationTest";
+    private static readonly string AllowedDatabaseName = M3LocalDbProfile.GetAuthorizedDisposableCatalog();
 
     private static readonly DateTimeOffset CreatedAt =
         new(2026, 11, 18, 8, 0, 0, TimeSpan.Zero);
@@ -185,15 +184,14 @@ public sealed class M3MembershipRevocationSqlRollbackTests
                     new EfTripMembershipRevocationRepository(
                         context);
 
-                await Assert.ThrowsAsync<InvalidOperationException>(
+                var failure = await Assert.ThrowsAsync<InvalidOperationException>(
                     () => repository
                         .RemoveMemberAndQueueNotificationAsync(
                             seed.TripId,
                             seed.MemberId,
                             RemovedAt));
+                Assert.True(interceptor.CommitAttempted, failure.ToString());
             }
-
-            Assert.True(interceptor.CommitAttempted);
 
             // Fresh context: failed transaction must
             // not have changed the database.

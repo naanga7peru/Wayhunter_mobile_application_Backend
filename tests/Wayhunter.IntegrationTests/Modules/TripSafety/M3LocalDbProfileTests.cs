@@ -4,7 +4,7 @@ namespace Wayhunter.IntegrationTests.Modules.TripSafety;
 
 public sealed class M3LocalDbProfileTests
 {
-    private const string Catalog = "Wayhunter_M3_RevocationIntegrationTest";
+    private const string Catalog = "Wayhunter_Test_M3_0123456789abcdef0123456789abcdef";
     private const string Local = @"Server=(localdb)\MSSQLLocalDB;Database=" + Catalog + ";Integrated Security=True";
 
     [Fact]

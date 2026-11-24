@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Linq;
 using Wayhunter.Application.Modules.CoinsWallet.Dtos;
 using Wayhunter.Application.Modules.CoinsWallet.Interfaces;
 
@@ -28,6 +29,18 @@ public sealed class SampleVoucherRequestService
             ownerId,
             _timeProvider.GetUtcNow(),
             cancellationToken);
+    }
+
+    public async Task<SampleVoucherOfferResponse?> GetOfferAsync(
+        ClaimsPrincipal? currentUser,
+        Guid offerId,
+        CancellationToken cancellationToken = default)
+    {
+        if (offerId == Guid.Empty)
+            throw new ArgumentException("Offer ID is required.");
+
+        var offers = await GetOffersAsync(currentUser, cancellationToken);
+        return offers.SingleOrDefault(x => x.OfferId == offerId);
     }
 
     public Task<SampleVoucherRequestResponse> RequestAsync(

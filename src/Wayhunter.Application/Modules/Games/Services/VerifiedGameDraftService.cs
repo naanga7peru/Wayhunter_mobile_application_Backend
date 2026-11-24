@@ -47,6 +47,19 @@ public sealed class VerifiedGameDraftService
             cancellationToken);
     }
 
+    public async Task<Game> CreateDraftIdempotentlyAsync(
+        string creatorUserId,
+        CreateGameDraftDto request,
+        string idempotencyKey,
+        byte[] payloadHash,
+        CancellationToken cancellationToken = default)
+    {
+        await _mediaService.ValidateCreatorClueMediaAsync(
+            creatorUserId, request, cancellationToken);
+        return await _gameService.CreateGameDraftIdempotentlyAsync(
+            creatorUserId, request, idempotencyKey, payloadHash, cancellationToken);
+    }
+
     // =====================================
     // UPDATE VERIFIED GAME DRAFT
     // =====================================
@@ -55,7 +68,8 @@ public sealed class VerifiedGameDraftService
         Guid gameId,
         string actorUserId,
         CreateGameDraftDto request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        byte[]? expectedRevision = null)
     {
         // Check draft ownership and status first.
         await _gameService.GetGameDraftAsync(
@@ -74,6 +88,7 @@ public sealed class VerifiedGameDraftService
             gameId,
             actorUserId,
             request,
-            cancellationToken);
+            cancellationToken,
+            expectedRevision);
     }
 }

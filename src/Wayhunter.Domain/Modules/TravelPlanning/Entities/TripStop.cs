@@ -23,7 +23,22 @@ public sealed class TripStop
         string? placeId = null,
         double? latitude = null,
         double? longitude = null)
+        : this(Guid.NewGuid(), tripPlanId, orderIndex, name, placeId, latitude, longitude)
     {
+    }
+
+    /// <summary>Validated explicit ID constructor for deterministic seed/import data.</summary>
+    public TripStop(
+        Guid id,
+        Guid tripPlanId,
+        int orderIndex,
+        string name,
+        string? placeId = null,
+        double? latitude = null,
+        double? longitude = null)
+    {
+        if (id == Guid.Empty)
+            throw new ArgumentException("Stop ID is required.", nameof(id));
         if (tripPlanId == Guid.Empty)
         {
             throw new ArgumentException(
@@ -86,7 +101,7 @@ public sealed class TripStop
             }
         }
 
-        Id = Guid.NewGuid();
+        Id = id;
         TripPlanId = tripPlanId;
         OrderIndex = orderIndex;
 

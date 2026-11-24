@@ -22,8 +22,8 @@ public sealed class M3SafeCheckInSqlFactAttribute : FactAttribute
 {
     public M3SafeCheckInSqlFactAttribute()
     {
-        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WAYHUNTER_M3_SAFECHECKIN_TEST_SQL_CONNECTION")))
-            Skip = "Dedicated M3 safe check-in SQL Server test connection is unavailable.";
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WAYHUNTER_M3_TEST_SQL_CONNECTION")))
+            Skip = "Set the authorized disposable M3 SQL connection to run SQL integration tests.";
     }
 }
 
@@ -414,9 +414,7 @@ public sealed class M3SafeCheckInSqlTests
 
     private sealed class Fixture : IDbContextFactory<WayhunterSharedDbContext>, IAsyncDisposable
     {
-        private const string CatalogPrefix = "Wayhunter_M3_SafeCheckInIntegrationTest";
         private readonly string _connection;
-        private bool _created;
         private readonly DbContextOptions<TestSchemaContext> _testOptions;
         private readonly DbContextOptions<WayhunterSharedDbContext> _sharedOptions;
 
@@ -425,6 +423,7 @@ public sealed class M3SafeCheckInSqlTests
         public UserAccount Member { get; private set; } = null!;
         public UserAccount Outsider { get; private set; } = null!;
         public TripPlan Trip { get; private set; } = null!;
+        public TripPlan OtherTrip { get; private set; } = null!;
         public LiveTripSession Session { get; private set; } = null!;
         public LiveTripSession OtherSession { get; private set; } = null!;
 
@@ -439,15 +438,13 @@ public sealed class M3SafeCheckInSqlTests
         public static async Task<Fixture> CreateAsync()
         {
             var configured = M3LocalDbProfile.Validate(
-                Environment.GetEnvironmentVariable("WAYHUNTER_M3_SAFECHECKIN_TEST_SQL_CONNECTION"), CatalogPrefix);
-            configured.InitialCatalog = $"{CatalogPrefix}_{Guid.NewGuid():N}";
+                Environment.GetEnvironmentVariable("WAYHUNTER_M3_TEST_SQL_CONNECTION"),
+                M3LocalDbProfile.GetAuthorizedDisposableCatalog());
             var fixture = new Fixture(configured.ConnectionString);
             try
             {
                 await using var schema = new TestSchemaContext(fixture._testOptions);
-                fixture._created = await schema.Database.EnsureCreatedAsync();
-                if (!fixture._created)
-                    throw new InvalidOperationException("Expected a fresh isolated test database.");
+                await schema.Database.EnsureCreatedAsync();
                 await fixture.SeedAsync();
                 return fixture;
             }
@@ -484,32 +481,60 @@ public sealed class M3SafeCheckInSqlTests
             Outsider = Account("Outsider", now);
             var date = DateOnly.FromDateTime(now.UtcDateTime);
             Trip = new TripPlan(Owner.UserId, "Check-in trip", date, date.AddDays(1), 100m, "Car", 2);
-            var otherTrip = new TripPlan(Outsider.UserId, "Other trip", date, date.AddDays(1), 100m, "Car", 2);
+            OtherTrip = new TripPlan(Outsider.UserId, "Other trip", date, date.AddDays(1), 100m, "Car", 2);
             Session = LiveTripSession.Start(Guid.NewGuid(), Trip.Id, now.AddMinutes(-5));
-            OtherSession = LiveTripSession.Start(Guid.NewGuid(), otherTrip.Id, now.AddMinutes(-5));
+            OtherSession = LiveTripSession.Start(Guid.NewGuid(), OtherTrip.Id, now.AddMinutes(-5));
             var invite = TripInvitation.Create(Guid.NewGuid(), Trip.Id, Owner.UserId, Member.UserId, now.AddMinutes(-15));
             invite.Accept(now.AddMinutes(-10));
             var member = TripMember.FromAcceptedInvitation(Guid.NewGuid(), invite);
 
             await using var db = CreateDbContext();
-            db.AddRange(Owner, Member, Outsider, Trip, otherTrip, Session, OtherSession, invite, member);
+            db.AddRange(Owner, Member, Outsider, Trip, OtherTrip, Session, OtherSession, invite, member);
             await db.SaveChangesAsync();
         }
 
         private static UserAccount Account(string name, DateTimeOffset now)
         {
-            var account = UserAccount.RegisterPending(name, $"{name}@example.invalid", "test-hash", now.AddHours(-1));
+            var account = UserAccount.RegisterPending(name, $"{name}-{Guid.NewGuid():N}@example.invalid", "test-hash", now.AddHours(-1));
             account.ActivateAfterVerifiedOtp(now.AddMinutes(-30));
             return account;
         }
 
         public async ValueTask DisposeAsync()
         {
-            if (!_created)
+            if (Owner is null)
                 return;
 
-            await using var schema = new TestSchemaContext(_testOptions);
-            await schema.Database.EnsureDeletedAsync();
+            await using var db = CreateDbContext();
+            Guid[] tripIds = [Trip.Id, OtherTrip.Id];
+            Guid[] sessionIds = [Session.SessionId, OtherSession.SessionId];
+            string[] userIds = [Owner.UserId, Member.UserId, Outsider.UserId];
+            var checkInIds = await db.TripSafeCheckIns
+                .Where(x => tripIds.Contains(x.TripPlanId))
+                .Select(x => x.CheckInId)
+                .ToArrayAsync();
+
+            await db.TripSafeCheckInOutbox
+                .Where(x => checkInIds.Contains(x.CheckInId))
+                .ExecuteDeleteAsync();
+            await db.TripSafeCheckIns
+                .Where(x => tripIds.Contains(x.TripPlanId))
+                .ExecuteDeleteAsync();
+            await db.TripMembers
+                .Where(x => tripIds.Contains(x.TripPlanId))
+                .ExecuteDeleteAsync();
+            await db.TripInvitations
+                .Where(x => tripIds.Contains(x.TripPlanId))
+                .ExecuteDeleteAsync();
+            await db.LiveTripSessions
+                .Where(x => sessionIds.Contains(x.SessionId))
+                .ExecuteDeleteAsync();
+            await db.Trips
+                .Where(x => tripIds.Contains(x.Id))
+                .ExecuteDeleteAsync();
+            await db.Users
+                .Where(x => userIds.Contains(x.UserId))
+                .ExecuteDeleteAsync();
         }
     }
 

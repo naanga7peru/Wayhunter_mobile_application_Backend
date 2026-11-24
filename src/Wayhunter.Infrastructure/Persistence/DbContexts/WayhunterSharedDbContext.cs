@@ -196,6 +196,9 @@ public sealed class WayhunterSharedDbContext : DbContext
     public DbSet<GameCreationApprovalRow> GameCreationApprovals
         => Set<GameCreationApprovalRow>();
 
+    public DbSet<GameDraftCreateOperationRow> GameDraftCreateOperations
+        => Set<GameDraftCreateOperationRow>();
+
     public DbSet<GameModerationDecisionRow> GameModerationDecisions
         => Set<GameModerationDecisionRow>();
 
@@ -407,6 +410,9 @@ public sealed class WayhunterSharedDbContext : DbContext
 
         modelBuilder.ApplyConfiguration(
             new GameCreationApprovalRowConfiguration());
+
+        modelBuilder.ApplyConfiguration(
+            new GameDraftCreateOperationRowConfiguration());
 
         modelBuilder.ApplyConfiguration(
             new GameModerationDecisionRowConfiguration());

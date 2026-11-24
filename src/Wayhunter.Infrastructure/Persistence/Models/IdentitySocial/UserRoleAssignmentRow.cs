@@ -32,7 +32,8 @@ public sealed class UserRoleAssignmentRow
     public static UserRoleAssignmentRow CreateTrusted(
         string userId,
         DateTimeOffset assignedAtUtc,
-        string? assignedByUserId)
+        string? assignedByUserId,
+        Guid? assignmentId = null)
     {
         if (!Guid.TryParseExact(
                 userId, "D", out var parsedUserId) ||
@@ -63,9 +64,12 @@ public sealed class UserRoleAssignmentRow
                 nameof(assignedByUserId));
         }
 
+        if (assignmentId == Guid.Empty)
+            throw new ArgumentException("Valid assignment ID required.", nameof(assignmentId));
+
         return new UserRoleAssignmentRow
         {
-            AssignmentId = Guid.NewGuid(),
+            AssignmentId = assignmentId ?? Guid.NewGuid(),
             UserId = parsedUserId.ToString("D"),
             Role = "Admin",
             Status = "Active",

@@ -36,6 +36,29 @@ public sealed class SampleVoucherRequestsController : ControllerBase
         }
     }
 
+    [HttpGet("offers/{offerId:guid}")]
+    public async Task<ActionResult<SampleVoucherOfferResponse>> GetOffer(
+        Guid offerId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await _service.GetOfferAsync(
+                User,
+                offerId,
+                cancellationToken);
+            return result is null ? NotFound() : Ok(result);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Unauthorized();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
     [HttpPost("requests")]
     public async Task<ActionResult<SampleVoucherRequestResponse>>
         RequestVoucher(
