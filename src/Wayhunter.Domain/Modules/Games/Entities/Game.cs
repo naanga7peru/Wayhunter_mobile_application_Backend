@@ -1,6 +1,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Wayhunter.Domain.Modules.Games.Enums;
 
 namespace Wayhunter.Domain.Modules.Games.Entities;
@@ -14,6 +15,15 @@ public sealed class Game
     public Guid Id { get; }
 
     public string CreatorUserId { get; }
+
+    /// <summary>Opaque SQL Server revision for conditional HTTP writes.</summary>
+    public byte[]? PersistenceRevision { get; private set; }
+
+    public void RefreshPersistenceRevision(byte[] revision)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+        PersistenceRevision = revision.ToArray();
+    }
 
     public string? Title { get; private set; }
 
@@ -113,7 +123,8 @@ public sealed class Game
         string? disabledReason,
         DateTimeOffset? lastModeratedAtUtc,
         IReadOnlyList<GameStep> steps,
-        IReadOnlyList<GameHint> hints)
+        IReadOnlyList<GameHint> hints,
+        byte[]? persistenceRevision = null)
     {
         ArgumentNullException.ThrowIfNull(steps);
         ArgumentNullException.ThrowIfNull(hints);
@@ -168,6 +179,8 @@ public sealed class Game
             DisabledReason = disabledReason,
             LastModeratedAtUtc = lastModeratedAtUtc
         };
+
+        game.PersistenceRevision = persistenceRevision?.ToArray();
 
         game._draftSteps.AddRange(steps);
         game._draftHints.AddRange(hints);

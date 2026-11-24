@@ -149,7 +149,7 @@ public sealed class GamesServiceCollectionExtensionsTests
     }
 
     [Fact]
-    public void SqlEnabled_DoesNotReplaceApprovalWorkflow()
+    public void SqlEnabled_UsesSqlBackedAdminReviewWorkflow()
     {
         var services = new ServiceCollection();
 
@@ -164,9 +164,12 @@ public sealed class GamesServiceCollectionExtensionsTests
             services,
             x => x.ServiceType == typeof(IGameApprovalStore));
 
-        Assert.Equal(
-            typeof(InMemoryGameSubmissionStore),
-            registration.ImplementationType);
+        Assert.NotNull(registration.ImplementationFactory);
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        Assert.IsType<SqlGameAdminReviewStore>(
+            scope.ServiceProvider.GetRequiredService<IGameApprovalStore>());
     }
 
     [Theory]

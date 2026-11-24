@@ -18,6 +18,7 @@
 		<ProjectReference Include="../../src/Wayhunter.Application/Wayhunter.Application.csproj" />
 		<ProjectReference Include="../../src/Wayhunter.Infrastructure/Wayhunter.Infrastructure.csproj" />
 		<ProjectReference Include="../../src/Wayhunter.Api/Wayhunter.Api.csproj" />
+    <ProjectReference Include="../../tools/Wayhunter.DemoSeedRunner/Wayhunter.DemoSeedRunner.csproj" />
 	</ItemGroup>
 
 </Project>

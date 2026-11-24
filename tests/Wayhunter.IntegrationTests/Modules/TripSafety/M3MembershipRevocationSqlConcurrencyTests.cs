@@ -38,8 +38,7 @@ public sealed class M3RevocationSqlFactAttribute : FactAttribute
 
 public sealed class M3MembershipRevocationSqlConcurrencyTests
 {
-    private const string AllowedDatabaseName =
-        "Wayhunter_M3_RevocationIntegrationTest";
+    private static readonly string AllowedDatabaseName = M3LocalDbProfile.GetAuthorizedDisposableCatalog();
 
     private static readonly SemaphoreSlim SchemaGate =
         new(1, 1);

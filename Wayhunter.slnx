@@ -5,6 +5,9 @@
     <Project Path="src/Wayhunter.Domain/Wayhunter.Domain.csproj" />
     <Project Path="src/Wayhunter.Infrastructure/Wayhunter.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Wayhunter.DemoSeedRunner/Wayhunter.DemoSeedRunner.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Wayhunter.IntegrationTests/Wayhunter.IntegrationTests.csproj" />
     <Project Path="tests/Wayhunter.UnitTests/Wayhunter.UnitTests.csproj" />

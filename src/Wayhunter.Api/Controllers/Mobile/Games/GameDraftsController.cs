@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Application.Modules.Games.Dtos;
+using Wayhunter.Application.Modules.Games.Services;
 using Wayhunter.Domain.Modules.Games.Entities;
 
 namespace Wayhunter.Api.Controllers.Mobile.Games;
@@ -14,10 +16,14 @@ namespace Wayhunter.Api.Controllers.Mobile.Games;
 public sealed class GameDraftsController : ControllerBase
 {
     private readonly GameDraftApplicationAdapter _drafts;
+    private readonly ILogger<GameDraftsController> _logger;
 
-    public GameDraftsController(GameDraftApplicationAdapter drafts)
+    public GameDraftsController(
+        GameDraftApplicationAdapter drafts,
+        ILogger<GameDraftsController> logger)
     {
         _drafts = drafts ?? throw new ArgumentNullException(nameof(drafts));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     [HttpPost]
@@ -30,9 +36,11 @@ public sealed class GameDraftsController : ControllerBase
     {
         return await ExecuteAsync(async () =>
         {
+            var idempotencyKey = Request.Headers["Idempotency-Key"].ToString();
             var game = await _drafts.CreateAsync(
-                User, request, cancellationToken);
+                User, request, idempotencyKey, cancellationToken);
             var response = GameDraftResponseDto.From(game);
+            SetRevision(response.Revision);
 
             return CreatedAtAction(
                 nameof(Read),
@@ -49,9 +57,13 @@ public sealed class GameDraftsController : ControllerBase
         Guid gameId,
         CancellationToken cancellationToken)
     {
-        return await ExecuteAsync(async () => Ok(
-            GameDraftResponseDto.From(await _drafts.ReadAsync(
-                User, gameId, cancellationToken))));
+        return await ExecuteAsync(async () =>
+        {
+            var response = GameDraftResponseDto.From(await _drafts.ReadAsync(
+                User, gameId, cancellationToken));
+            SetRevision(response.Revision);
+            return Ok(response);
+        });
     }
 
     [HttpPut("{gameId:guid}")]
@@ -65,10 +77,23 @@ public sealed class GameDraftsController : ControllerBase
         [FromBody] CreateGameDraftDto request,
         CancellationToken cancellationToken)
     {
-        return await ExecuteAsync(async () => Ok(
-            GameDraftResponseDto.From(await _drafts.UpdateAsync(
-                User, gameId, request, cancellationToken))));
+        return await ExecuteAsync(async () =>
+        {
+            var expectedRevision = Request.Headers.IfMatch.ToString().Trim('"');
+            var response = GameDraftResponseDto.From(await _drafts.UpdateAsync(
+                User, gameId, request, expectedRevision, cancellationToken));
+            SetRevision(response.Revision);
+            return Ok(response);
+        });
     }
+
+    [HttpPost("{gameId:guid}/submit")]
+    [ProducesResponseType<GameAdminQueueItemDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiErrorResponse>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiErrorResponse>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ApiErrorResponse>(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Submit(Guid gameId, CancellationToken cancellationToken) =>
+        await ExecuteAsync(async () => Ok(await _drafts.SubmitAsync(User, gameId, cancellationToken)));
 
     [HttpDelete("{gameId:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -129,8 +154,16 @@ public sealed class GameDraftsController : ControllerBase
                 "GAME_DRAFT_REVISION_CONFLICT",
                 "The draft changed during this operation.");
         }
-        catch (InvalidOperationException)
+        catch (GameDraftRevisionConflictException)
         {
+            return Error(
+                StatusCodes.Status409Conflict,
+                "GAME_DRAFT_REVISION_CONFLICT",
+                "The draft changed during this operation.");
+        }
+        catch (InvalidOperationException exception)
+        {
+            _logger.LogInformation(exception, "Game draft operation was rejected.");
             return Error(
                 StatusCodes.Status409Conflict,
                 "GAME_DRAFT_STATE_CONFLICT",
@@ -148,6 +181,12 @@ public sealed class GameDraftsController : ControllerBase
     {
         StatusCode = statusCode
     };
+
+    private void SetRevision(string? revision)
+    {
+        if (!string.IsNullOrWhiteSpace(revision))
+            Response.Headers.ETag = $"\"{revision}\"";
+    }
 }
 
 public sealed record GameDraftResponseDto(
@@ -156,7 +195,8 @@ public sealed record GameDraftResponseDto(
     string? Description,
     int? DurationMinutes,
     string Status,
-    IReadOnlyList<GameDraftStageResponseDto> Stages)
+    IReadOnlyList<GameDraftStageResponseDto> Stages,
+    string? Revision)
 {
     public static GameDraftResponseDto From(Game game)
     {
@@ -183,7 +223,10 @@ public sealed record GameDraftResponseDto(
             game.Description,
             game.DurationMinutes,
             game.Status.ToString(),
-            stages);
+            stages,
+            game.PersistenceRevision is null
+                ? null
+                : Convert.ToBase64String(game.PersistenceRevision));
     }
 }
 

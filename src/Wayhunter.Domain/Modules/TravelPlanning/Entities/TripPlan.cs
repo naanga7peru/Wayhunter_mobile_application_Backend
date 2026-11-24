@@ -48,7 +48,24 @@ public sealed class TripPlan
         decimal budgetLkr,
         string vehicleType,
         int headcount)
+        : this(Guid.NewGuid(), ownerUserId, tripName, startDate, endDate,
+            budgetLkr, vehicleType, headcount)
     {
+    }
+
+    /// <summary>Validated explicit ID constructor for deterministic seed/import data.</summary>
+    public TripPlan(
+        Guid id,
+        string ownerUserId,
+        string tripName,
+        DateOnly startDate,
+        DateOnly endDate,
+        decimal budgetLkr,
+        string vehicleType,
+        int headcount)
+    {
+        if (id == Guid.Empty)
+            throw new ArgumentException("Trip ID is required.", nameof(id));
         if (string.IsNullOrWhiteSpace(ownerUserId))
             throw new ArgumentException("User ID is required.");
 
@@ -71,7 +88,7 @@ public sealed class TripPlan
             throw new ArgumentException(
                 "Headcount must be at least 1.");
 
-        Id = Guid.NewGuid();
+        Id = id;
         OwnerUserId = ownerUserId;
         TripName = tripName.Trim();
         StartDate = startDate;
@@ -175,6 +192,22 @@ public sealed class TripPlan
 
         _stops.Add(stop);
 
+        return stop;
+    }
+
+    /// <summary>Validated explicit stop ID for deterministic seed/import data.</summary>
+    public TripStop AddStopWithId(
+        Guid stopId,
+        string name,
+        string? placeId = null,
+        double? latitude = null,
+        double? longitude = null)
+    {
+        EnsureEditable();
+        if (_stops.Any(x => x.Id == stopId))
+            throw new ArgumentException("Stop ID is already used in this trip.", nameof(stopId));
+        var stop = new TripStop(stopId, Id, _stops.Count, name, placeId, latitude, longitude);
+        _stops.Add(stop);
         return stop;
     }
 

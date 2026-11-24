@@ -14,12 +14,16 @@ namespace Wayhunter.Application.Modules.Games.Services;
 public sealed class GameService
 {
     private readonly IGameRepository _gameRepository;
+    private readonly IGameDraftCreateOperationStore? _createOperations;
 
-    public GameService(IGameRepository gameRepository)
+    public GameService(
+        IGameRepository gameRepository,
+        IGameDraftCreateOperationStore? createOperations = null)
     {
         _gameRepository = gameRepository
             ?? throw new ArgumentNullException(
                 nameof(gameRepository));
+        _createOperations = createOperations;
     }
 
     // =====================================
@@ -41,6 +45,20 @@ public sealed class GameService
             cancellationToken);
 
         return game;
+    }
+
+    public async Task<Game> CreateGameDraftIdempotentlyAsync(
+        string creatorUserId,
+        CreateGameDraftDto request,
+        string idempotencyKey,
+        byte[] payloadHash,
+        CancellationToken cancellationToken = default)
+    {
+        if (_createOperations is null)
+            throw new InvalidOperationException("Durable draft idempotency is not configured.");
+        var game = BuildValidatedDraft(Guid.NewGuid(), creatorUserId, request);
+        return await _createOperations.CreateOrReplayAsync(
+            game, idempotencyKey, payloadHash, cancellationToken);
     }
 
     // =====================================
@@ -94,13 +112,24 @@ public sealed class GameService
         Guid gameId,
         string actorUserId,
         CreateGameDraftDto request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        byte[]? expectedRevision = null)
     {
         // First verify that this user owns the draft.
         var existingGame = await GetGameDraftAsync(
             gameId,
             actorUserId,
             cancellationToken);
+
+        // Compare the caller's ETag against the exact version loaded by the
+        // repository instance that will perform the write. SQL additionally
+        // checks that same rowversion again inside its update transaction.
+        if (expectedRevision is not null &&
+            (existingGame.PersistenceRevision is null ||
+             !existingGame.PersistenceRevision.AsSpan().SequenceEqual(expectedRevision)))
+        {
+            throw new GameDraftRevisionConflictException();
+        }
 
         // Validate the complete replacement BEFORE
         // changing the existing stored game.
@@ -223,3 +252,6 @@ public sealed class GameService
             cancellationToken);
     }
 }
+
+public sealed class GameDraftRevisionConflictException()
+    : Exception("The draft revision is stale.");

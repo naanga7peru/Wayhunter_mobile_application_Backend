@@ -29,7 +29,7 @@ public sealed class M6SqlIntegrationFactAttribute : FactAttribute
 public sealed class SqlCoinRewardConcurrencyTests
 {
     private const string AllowedDatabase =
-        "Wayhunter_M6_IntegrationTest";
+        "Wayhunter_Test_M5_eee96080bb0540ebaa5cd326f366d2fb";
 
     private const string AllowedServer =
         @"(localdb)\MSSQLLocalDB";

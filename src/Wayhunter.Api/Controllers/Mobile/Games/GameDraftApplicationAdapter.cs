@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text.Json;
 using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Application.Modules.Games.Dtos;
 using Wayhunter.Application.Modules.Games.Services;
@@ -17,29 +19,60 @@ public sealed class GameDraftApplicationAdapter
     private readonly VerifiedGameDraftService _verifiedDrafts;
     private readonly GameService _games;
     private readonly GameDraftDeletionService _deletion;
+    private readonly GameSubmissionService? _submission;
+    private readonly TimeProvider? _clock;
 
     public GameDraftApplicationAdapter(
         TrustedIdentityResolutionService identity,
         VerifiedGameDraftService verifiedDrafts,
         GameService games,
-        GameDraftDeletionService deletion)
+        GameDraftDeletionService deletion,
+        GameSubmissionService? submission = null,
+        TimeProvider? clock = null)
     {
         _identity = identity ?? throw new ArgumentNullException(nameof(identity));
         _verifiedDrafts = verifiedDrafts ?? throw new ArgumentNullException(nameof(verifiedDrafts));
         _games = games ?? throw new ArgumentNullException(nameof(games));
         _deletion = deletion ?? throw new ArgumentNullException(nameof(deletion));
+        _submission = submission;
+        _clock = clock;
+    }
+
+    public async Task<GameAdminQueueItemDto> SubmitAsync(
+        ClaimsPrincipal principal, Guid gameId, CancellationToken cancellationToken = default)
+    {
+        var account = await _identity.ResolveActiveAccountAsync(principal, cancellationToken)
+            ?? throw new GameDraftIdentityRejectedException("An authenticated active account is required.");
+        if (_submission is null || _clock is null)
+            throw new InvalidOperationException("Game submission is not configured.");
+        return await _submission.SubmitAsync(gameId, account,
+            _clock.GetUtcNow().ToUniversalTime(), cancellationToken);
     }
 
     public async Task<Game> CreateAsync(
         ClaimsPrincipal principal,
         CreateGameDraftDto request,
+        string idempotencyKey = "unit-test",
         CancellationToken cancellationToken = default)
     {
         var actor = await RequireActiveActorAsync(principal, cancellationToken);
-        return await _verifiedDrafts.CreateDraftAsync(
-            actor,
-            request,
-            cancellationToken);
+        if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 128 || idempotencyKey.Any(char.IsControl))
+            throw new ArgumentException("A valid Idempotency-Key of at most 128 characters is required.");
+        var canonical = new
+        {
+            Title = request.Title?.Trim(),
+            Description = request.Description?.Trim(),
+            request.DurationMinutes,
+            Stages = request.Stages?.OrderBy(x => x.StepNumber).Select(x => new
+            {
+                x.StepNumber,
+                TextHint = x.TextHint?.Trim(),
+                PhotoMediaId = x.PhotoMediaId?.Trim()
+            }).ToArray()
+        };
+        var hash = SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(canonical));
+        return await _verifiedDrafts.CreateDraftIdempotentlyAsync(
+            actor, request, idempotencyKey.Trim(), hash, cancellationToken);
     }
 
     public async Task<Game> ReadAsync(
@@ -66,15 +99,35 @@ public sealed class GameDraftApplicationAdapter
         ClaimsPrincipal principal,
         Guid gameId,
         CreateGameDraftDto request,
+        string? expectedRevision = null,
         CancellationToken cancellationToken = default)
     {
         var actor = await RequireActiveActorAsync(principal, cancellationToken);
-        await RequireOwnedDraftAsync(gameId, actor, cancellationToken);
+        var current = await RequireOwnedDraftAsync(gameId, actor, cancellationToken);
+        byte[]? revision = null;
+        if (current.PersistenceRevision is not null)
+        {
+            if (string.IsNullOrWhiteSpace(expectedRevision))
+                throw new ArgumentException("Draft revision is required.");
+            try
+            {
+                revision = Convert.FromBase64String(expectedRevision);
+            }
+            catch (FormatException)
+            {
+                throw new ArgumentException("Draft revision is invalid.");
+            }
+
+            if (!current.PersistenceRevision.AsSpan().SequenceEqual(revision))
+                throw new GameDraftRevisionConflictException();
+        }
+
         return await _verifiedDrafts.UpdateDraftAsync(
             gameId,
             actor,
             request,
-            cancellationToken);
+            cancellationToken,
+            revision);
     }
 
     public async Task DeleteAsync(
@@ -97,14 +150,14 @@ public sealed class GameDraftApplicationAdapter
         }
     }
 
-    private async Task RequireOwnedDraftAsync(
+    private async Task<Game> RequireOwnedDraftAsync(
         Guid gameId,
         string actor,
         CancellationToken cancellationToken)
     {
         try
         {
-            await _games.GetGameDraftAsync(
+            return await _games.GetGameDraftAsync(
                 gameId, actor, cancellationToken);
         }
         catch (UnauthorizedAccessException ex)

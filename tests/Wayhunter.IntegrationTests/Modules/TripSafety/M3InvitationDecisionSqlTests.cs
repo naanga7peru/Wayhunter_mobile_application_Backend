@@ -22,8 +22,7 @@ namespace Wayhunter.IntegrationTests.Modules.TripSafety;
 
 public sealed class M3InvitationDecisionSqlTests
 {
-    private const string AllowedDatabaseName =
-        "Wayhunter_M3_RevocationIntegrationTest";
+    private static readonly string AllowedDatabaseName = M3LocalDbProfile.GetAuthorizedDisposableCatalog();
 
     private static readonly DateTimeOffset CreatedAt =
         new(2026, 11, 18, 8, 0, 0, TimeSpan.Zero);

@@ -41,8 +41,7 @@ public sealed class M3LiveSessionSqlFactAttribute : FactAttribute
 
 public sealed class M3LiveTripSessionSqlTests
 {
-    private const string AllowedDatabaseName =
-        "Wayhunter_M3_LiveSessionIntegrationTest";
+    private static readonly string AllowedDatabaseName = M3LocalDbProfile.GetAuthorizedDisposableCatalog();
 
     private static readonly SemaphoreSlim SchemaGate =
         new(1, 1);

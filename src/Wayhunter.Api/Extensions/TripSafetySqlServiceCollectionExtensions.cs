@@ -6,8 +6,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Wayhunter.Application.Modules.TripSafety.Interfaces;
+using Wayhunter.Application.Modules.TravelPlanning.Interfaces;
 
 using Wayhunter.Infrastructure.Persistence.Repositories.TripSafety;
+using Wayhunter.Infrastructure.Integrations.Maps;
 
 using Wayhunter.Api.Services.TripSafety;
 
@@ -79,6 +81,13 @@ public static class TripSafetySqlServiceCollectionExtensions
         services.AddScoped<
             IHazardReportRepository,
             EfHazardReportRepository>();
+
+        // Use actual configured Google Routes geometry for hazard matching.
+        // GoogleRoutesProvider returns an unavailable result when disabled or
+        // unconfigured, so no straight-line or guessed geometry is substituted.
+        services.RemoveAll<IRoutesProvider>();
+        services.AddScoped<IRoutesProvider>(sp =>
+            sp.GetRequiredService<GoogleRoutesProvider>());
 
         return services;
     }

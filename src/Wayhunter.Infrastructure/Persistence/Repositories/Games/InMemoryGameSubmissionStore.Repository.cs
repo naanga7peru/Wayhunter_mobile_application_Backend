@@ -10,8 +10,31 @@ using Wayhunter.Domain.Modules.Games.Enums;
 namespace Wayhunter.Infrastructure.Persistence.Repositories.Games;
 
 public sealed partial class InMemoryGameSubmissionStore
-    : IGameRepository, IGameDraftDeletionRepository
+    : IGameRepository, IGameDraftDeletionRepository, IGameDraftCreateOperationStore
 {
+    private readonly Dictionary<(string Owner, string Key), (byte[] Hash, Guid GameId)> _draftCreateOperations = new();
+
+    public Task<Game> CreateOrReplayAsync(
+        Game game, string idempotencyKey, byte[] payloadHash,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_gate)
+        {
+            var key = (game.CreatorUserId, idempotencyKey);
+            if (_draftCreateOperations.TryGetValue(key, out var prior))
+            {
+                if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(prior.Hash, payloadHash))
+                    throw new InvalidOperationException("Idempotency-Key was already used with a different request.");
+                return Task.FromResult(_games[prior.GameId]);
+            }
+            _games.Add(game.Id, game);
+            _draftCreateOperations.Add(key, (payloadHash.ToArray(), game.Id));
+            return Task.FromResult(game);
+        }
+    }
+
     public Task<Game?> GetByIdAsync(
         Guid gameId,
         CancellationToken cancellationToken = default)

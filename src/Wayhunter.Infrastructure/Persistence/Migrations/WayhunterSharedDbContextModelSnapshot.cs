@@ -1634,6 +1634,39 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                     b.ToTable("GameCreationApprovals", (string)null);
                 });
 
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.Games.GameDraftCreateOperationRow", b =>
+                {
+                    b.Property<string>("CreatorUserId")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("GameId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<byte[]>("PayloadHash")
+                        .IsRequired()
+                        .HasColumnType("binary(32)");
+
+                    b.HasKey("CreatorUserId", "IdempotencyKey");
+
+                    b.HasIndex("CreatedAtUtc")
+                        .HasDatabaseName("IX_GameDraftCreateOperations_CreatedAt");
+
+                    b.HasIndex("GameId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_GameDraftCreateOperations_Game")
+                        .HasFilter("[GameId] IS NOT NULL");
+
+                    b.ToTable("GameDraftCreateOperations", (string)null);
+                });
+
             modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.Games.GameHintRow", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3356,6 +3389,20 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                         .HasForeignKey("GameId")
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.Games.GameDraftCreateOperationRow", b =>
+                {
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("CreatorUserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Wayhunter.Infrastructure.Persistence.Models.Games.GameRow", null)
+                        .WithMany()
+                        .HasForeignKey("GameId")
+                        .OnDelete(DeleteBehavior.NoAction);
                 });
 
             modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.Games.GameHintRow", b =>

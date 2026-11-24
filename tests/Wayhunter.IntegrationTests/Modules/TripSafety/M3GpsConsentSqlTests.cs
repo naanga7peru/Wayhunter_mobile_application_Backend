@@ -38,8 +38,7 @@ public sealed class M3GpsSqlFactAttribute : FactAttribute
 
 public sealed class M3GpsConsentSqlTests
 {
-    private const string AllowedDatabaseName =
-        "Wayhunter_M3_GpsConsentIntegrationTest";
+    private static readonly string AllowedDatabaseName = M3LocalDbProfile.GetAuthorizedDisposableCatalog();
 
     private static readonly SemaphoreSlim SchemaGate = new(1, 1);
     private static bool _schemaReady;

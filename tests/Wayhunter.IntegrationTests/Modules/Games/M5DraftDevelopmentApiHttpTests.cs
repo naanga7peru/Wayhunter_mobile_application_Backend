@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Linq;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -9,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Xunit.Abstractions;
 using Wayhunter.Api.Services.IdentitySocial;
 using Wayhunter.Application.Modules.Games.Dtos;
 using Wayhunter.Application.Modules.Games.Services;
@@ -19,8 +21,13 @@ namespace Wayhunter.IntegrationTests.Modules.Games;
 
 public sealed class M5DraftDevelopmentApiHttpTests
 {
+    private readonly ITestOutputHelper _output;
+
     private const string SigningSecret =
         "test-only-32-byte-or-longer-jwt-signing-key-123";
+
+    public M5DraftDevelopmentApiHttpTests(ITestOutputHelper output) =>
+        _output = output;
 
     [Fact]
     public async Task DevelopmentFlag_ExposesSecureOwnerScopedDraftCrud()
@@ -45,8 +52,7 @@ public sealed class M5DraftDevelopmentApiHttpTests
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", ownerToken);
 
-        using var created = await client.PostAsJsonAsync(
-            "/api/mobile/games/drafts", TextDraft("First draft"));
+        using var created = await CreateDraftAsync(client, TextDraft("First draft"));
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
 
         using var createdBody = JsonDocument.Parse(
@@ -90,14 +96,12 @@ public sealed class M5DraftDevelopmentApiHttpTests
 
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", ownerToken);
-        using (var invalid = await client.PostAsJsonAsync(
-                   "/api/mobile/games/drafts", TextDraft(" ")))
+        using (var invalid = await CreateDraftAsync(client, TextDraft(" ")))
         {
             Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
         }
 
-        using (var unverifiedMedia = await client.PostAsJsonAsync(
-                   "/api/mobile/games/drafts", new CreateGameDraftDto(
+        using (var unverifiedMedia = await CreateDraftAsync(client, new CreateGameDraftDto(
                        "Media draft", null, 30,
                        [new GameDraftStageDto(
                            1, null, "not-verified-media")])))
@@ -137,8 +141,7 @@ public sealed class M5DraftDevelopmentApiHttpTests
                 repeatedDelete.StatusCode);
         }
 
-        using var conflictCreated = await client.PostAsJsonAsync(
-            "/api/mobile/games/drafts", TextDraft("Submitted draft"));
+        using var conflictCreated = await CreateDraftAsync(client, TextDraft("Submitted draft"));
         Assert.Equal(HttpStatusCode.Created, conflictCreated.StatusCode);
         using var conflictBody = JsonDocument.Parse(
             await conflictCreated.Content.ReadAsStringAsync());
@@ -183,25 +186,75 @@ public sealed class M5DraftDevelopmentApiHttpTests
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
+    [Fact]
+    public async Task SqlModeSwagger_ListsAuthenticatedDraftAndAdminReviewRoutes()
+    {
+        using var factory = new DraftApiFactory(
+            "Development", enableDraftApi: true, enableSqlPersistence: true);
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/swagger/v1/swagger.json");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var document = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync());
+        var paths = document.RootElement.GetProperty("paths");
+        var operationCount = paths.EnumerateObject()
+            .Sum(path => path.Value.EnumerateObject().Count());
+        _output.WriteLine("Swagger operation count: {0}", operationCount);
+        Assert.Equal(120, operationCount);
+        Assert.True(paths.TryGetProperty("/api/mobile/home", out var home));
+        Assert.True(home.TryGetProperty("get", out _));
+        Assert.True(paths.TryGetProperty("/api/mobile/games/drafts", out var drafts));
+        Assert.True(drafts.TryGetProperty("post", out _));
+        Assert.True(paths.TryGetProperty(
+            "/api/mobile/games/drafts/{gameId}", out var gameDraft));
+        Assert.True(gameDraft.TryGetProperty("get", out _));
+        Assert.True(gameDraft.TryGetProperty("put", out _));
+        Assert.True(gameDraft.TryGetProperty("delete", out _));
+        Assert.True(paths.TryGetProperty(
+            "/api/mobile/games/drafts/{gameId}/submit", out _));
+        Assert.True(paths.TryGetProperty(
+            "/api/admin/games/reviews/pending", out _));
+        Assert.True(paths.TryGetProperty(
+            "/api/admin/games/reviews/{gameId}/approve", out _));
+        Assert.True(paths.TryGetProperty(
+            "/api/admin/games/reviews/{gameId}/reject", out _));
+    }
+
     private static CreateGameDraftDto TextDraft(string title) => new(
         title,
         null,
         45,
         [new GameDraftStageDto(1, "Read the sign", null)]);
 
+    private static async Task<HttpResponseMessage> CreateDraftAsync(
+        HttpClient client,
+        CreateGameDraftDto request)
+    {
+        using var message = new HttpRequestMessage(
+            HttpMethod.Post, "/api/mobile/games/drafts");
+        message.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString("N"));
+        message.Content = JsonContent.Create(request);
+        return await client.SendAsync(message);
+    }
+
     private sealed class DraftApiFactory : WebApplicationFactory<Program>
     {
         private readonly string _environment;
         private readonly bool _enableDraftApi;
+        private readonly bool _enableSqlPersistence;
         private readonly UserAccount[] _accounts;
         private readonly IdentitySession[] _sessions;
 
         public DraftApiFactory(
             string environment,
-            bool enableDraftApi)
+            bool enableDraftApi,
+            bool enableSqlPersistence = false)
         {
             _environment = environment;
             _enableDraftApi = enableDraftApi;
+            _enableSqlPersistence = enableSqlPersistence;
             _accounts = CreateAccounts();
             _sessions = _accounts.Select(account =>
                 IdentitySession.Create(
@@ -232,7 +285,8 @@ public sealed class M5DraftDevelopmentApiHttpTests
                         ["Identity:EnableSharedAuthentication"] = "true",
                         ["Games:EnableDevelopmentDraftHttpApi"] =
                             _enableDraftApi.ToString(),
-                        ["Games:EnableSqlPersistence"] = "false",
+                        ["Games:EnableSqlPersistence"] =
+                            _enableSqlPersistence.ToString(),
                         ["ConnectionStrings:WayhunterSharedDb"] =
                             "Server=localhost;Database=DraftHttpTest;" +
                             "Trusted_Connection=True;TrustServerCertificate=True",

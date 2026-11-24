@@ -34,6 +34,8 @@ public static class GamesServiceCollectionExtensions
 
         services.TryAddSingleton<IGameRepository>(sp =>
             sp.GetRequiredService<InMemoryGameSubmissionStore>());
+        services.TryAddSingleton<IGameDraftCreateOperationStore>(sp =>
+            sp.GetRequiredService<InMemoryGameSubmissionStore>());
         services.TryAddSingleton<IGameDraftDeletionRepository>(sp =>
             sp.GetRequiredService<InMemoryGameSubmissionStore>());
         services.TryAddSingleton<IGameSubmissionStore>(sp =>
@@ -106,6 +108,10 @@ public static class GamesServiceCollectionExtensions
         services.RemoveAll<IGameRepository>();
         services.RemoveAll<IGameDraftDeletionRepository>();
         services.RemoveAll<IExpiredGameArchiveStore>();
+        services.RemoveAll<IGameDraftCreateOperationStore>();
+        services.RemoveAll<IGameApprovalStore>();
+        services.RemoveAll<IGameModerationStore>();
+        services.RemoveAll<IGameSubmissionStore>();
 
         services.AddScoped<IGameRepository>(
             sp => sp.GetRequiredService<SqlGameRepository>());
@@ -114,6 +120,14 @@ public static class GamesServiceCollectionExtensions
             sp => sp.GetRequiredService<SqlGameRepository>());
         services.AddScoped<IExpiredGameArchiveStore>(
             sp => sp.GetRequiredService<SqlGameRepository>());
+        services.AddScoped<IGameDraftCreateOperationStore>(
+            sp => sp.GetRequiredService<SqlGameRepository>());
+        services.TryAddScoped<SqlGameAdminReviewStore>();
+        services.AddScoped<IGameApprovalStore>(sp =>
+            sp.GetRequiredService<SqlGameAdminReviewStore>());
+        services.AddScoped<IGameModerationStore>(sp =>
+            sp.GetRequiredService<SqlGameAdminReviewStore>());
+        services.AddScoped<IGameSubmissionStore, SqlGameSubmissionStore>();
 
         return services;
     }
