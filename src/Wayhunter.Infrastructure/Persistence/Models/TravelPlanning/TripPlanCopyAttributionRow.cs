@@ -8,5 +8,7 @@ public sealed class TripPlanCopyAttributionRow
     public Guid TripPlanId { get; set; }
     public Guid SourceTripPlanId { get; set; }
     public string SourceOwnerUserId { get; set; } = string.Empty;
+    public string? RequesterUserId { get; set; }
+    public string? RequestKeyHash { get; set; }
     public DateTimeOffset CopiedAtUtc { get; set; }
 }

@@ -134,25 +134,28 @@ public sealed class TravelPlanningSqlServiceCollectionExtensionsTests
             registrations[0].Lifetime);
     }
 
-    [Fact]
-    public void LegacyCopyFlag_DoesNotActivateUnapprovedCopy()
+    [Theory]
+    [InlineData(false, true, typeof(UnavailableCopySuggestedTripPlanStore))]
+    [InlineData(true, false, typeof(UnavailableCopySuggestedTripPlanStore))]
+    [InlineData(true, true, typeof(SqlCopySuggestedTripPlanStore))]
+    public void CopyRequiresExplicitFlagAndSharedSafetySql(bool enabled, bool safetySql, Type expectedStore)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(
             new Dictionary<string, string?>
             {
                 ["ConnectionStrings:WayhunterSharedDb"] = TestConnectionString,
                 ["TravelPlanning:EnableSqlPersistence"] = "true",
-                ["TripSafety:EnableSqlPersistence"] = "true",
-                ["TravelPlanning:EnableMemberPlanCopy"] = "true"
+                ["TripSafety:EnableSqlPersistence"] = safetySql.ToString(),
+                ["TravelPlanning:EnableMemberPlanCopy"] = enabled.ToString()
             }).Build();
         var services = new ServiceCollection();
         services.AddTravelPlanningModule();
         services.AddConfiguredTravelPlanningPersistence(configuration);
 
-        var copy = Assert.Single(services.Where(s => s.ServiceType == typeof(ICopySuggestedTripPlanStore)));
-        Assert.Equal(typeof(UnavailableCopySuggestedTripPlanStore), copy.ImplementationType);
-        var reader = Assert.Single(services.Where(s => s.ServiceType == typeof(ISuggestedTripPlansReader)));
-        Assert.Equal(typeof(SqlSuggestedTripPlansReader), reader.ImplementationType);
+        var copy = Assert.Single(services, s => s.ServiceType == typeof(ICopySuggestedTripPlanStore));
+        Assert.Equal(expectedStore, copy.ImplementationType);
+        var reader = Assert.Single(services, s => s.ServiceType == typeof(ISuggestedTripPlansReader));
+        Assert.Equal(safetySql ? typeof(SqlSuggestedTripPlansReader) : typeof(UnavailableSuggestedTripPlansReader), reader.ImplementationType);
     }
 
     [Fact]

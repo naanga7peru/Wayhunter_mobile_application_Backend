@@ -31,13 +31,18 @@ public sealed partial class LocalDbAuthenticationPhase3Tests(ITestOutputHelper o
     private const string ConnectionKey = "ConnectionStrings__WayhunterSharedDb";
 
     [LocalDbPhase3Fact]
-    public Task VerifyAllAuthenticationCases() =>
-        RunIsolatedAsync(Catalog, migrateFreshCatalog: false, VerifyAuthenticationAsync);
+    public Task VerifyAllAuthenticationCases()
+    {
+        var fresh = Environment.GetEnvironmentVariable("WAYHUNTER_AUTH_FRESH_CATALOG");
+        Assert.True(fresh is null || Regex.IsMatch(fresh, @"\AWayhunter_Auth_Test_[a-f0-9]{32}\z"));
+        return RunIsolatedAsync(fresh ?? Catalog, migrateFreshCatalog: fresh is not null, VerifyAuthenticationAsync);
+    }
 
     private async Task RunIsolatedAsync(
         string catalog,
         bool migrateFreshCatalog,
-        Func<HttpClient, WayhunterSharedDbContext, Capture, TestClock, Dictionary<string, string?>, Task> run)
+        Func<HttpClient, WayhunterSharedDbContext, Capture, TestClock, Dictionary<string, string?>, Task> run,
+        Action<IServiceCollection>? configureTestServices = null)
     {
         // Require the process-level override before Program begins registering services.
         var startupConnection = Environment.GetEnvironmentVariable(ConnectionKey);
@@ -75,6 +80,7 @@ public sealed partial class LocalDbAuthenticationPhase3Tests(ITestOutputHelper o
             builder.ConfigureLogging(logging => logging.ClearProviders());
             builder.ConfigureTestServices(services =>
             {
+                configureTestServices?.Invoke(services);
                 services.RemoveAll<IHostedService>();
                 services.RemoveAll<IIdentityOtpEmailSender>();
                 services.RemoveAll<IPasswordResetEmailSender>();
@@ -120,7 +126,6 @@ public sealed partial class LocalDbAuthenticationPhase3Tests(ITestOutputHelper o
         if (migrateFreshCatalog)
             await db.Database.MigrateAsync();
         var applied = (await db.Database.GetAppliedMigrationsAsync()).ToArray();
-        Assert.Equal(8, applied.Length);
         Assert.Equal(db.Database.GetMigrations(), applied);
         output.WriteLine($"Runtime SQL isolation verified at {Server}/{catalog}, version 17.0.4025.3, {applied.Length} migrations.");
         await run(client, db, capture, clock, jwtSettings);

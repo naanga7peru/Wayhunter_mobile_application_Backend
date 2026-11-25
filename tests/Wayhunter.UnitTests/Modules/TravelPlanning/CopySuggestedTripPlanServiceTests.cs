@@ -76,7 +76,7 @@ public sealed class CopySuggestedTripPlanServiceTests
     {
         var service = new CopySuggestedTripPlanService(
             new UnavailableCopySuggestedTripPlanStore());
-        Assert.Null(await service.CopyAsync(Guid.NewGuid(), "viewer-2"));
+        Assert.Null(await service.CopyAsync(Guid.NewGuid(), "viewer-2", "test-key"));
     }
 
     [Fact]
@@ -85,9 +85,9 @@ public sealed class CopySuggestedTripPlanServiceTests
         var store = new FakeStore();
         var service = new CopySuggestedTripPlanService(store);
         await Assert.ThrowsAsync<ArgumentException>(
-            () => service.CopyAsync(Guid.Empty, "viewer-2"));
+            () => service.CopyAsync(Guid.Empty, "viewer-2", "test-key"));
         await Assert.ThrowsAsync<ArgumentException>(
-            () => service.CopyAsync(Guid.NewGuid(), " "));
+            () => service.CopyAsync(Guid.NewGuid(), " ", "test-key"));
         Assert.Equal(0, store.CallCount);
     }
 
@@ -96,7 +96,7 @@ public sealed class CopySuggestedTripPlanServiceTests
     {
         var store = new FakeStore();
         var service = new CopySuggestedTripPlanService(store);
-        Assert.Null(await service.CopyAsync(Guid.NewGuid(), "viewer-2"));
+        Assert.Null(await service.CopyAsync(Guid.NewGuid(), "viewer-2", "test-key"));
     }
 
     [Fact]
@@ -108,7 +108,7 @@ public sealed class CopySuggestedTripPlanServiceTests
             Result = TripPlan.CreateCopyFrom(source, "viewer-2")
         };
         var service = new CopySuggestedTripPlanService(store);
-        var result = await service.CopyAsync(source.Id, "viewer-2");
+        var result = await service.CopyAsync(source.Id, "viewer-2", "test-key");
 
         Assert.NotNull(result);
         Assert.Equal(source.Id, result.SourceTripPlanId);
@@ -125,7 +125,7 @@ public sealed class CopySuggestedTripPlanServiceTests
         var store = new FakeStore { Result = TripPlan.CreateCopyFrom(source, "viewer-2") };
         var service = new CopySuggestedTripPlanService(store);
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.CopyAsync(source.Id, "not-the-viewer"));
+            () => service.CopyAsync(source.Id, "not-the-viewer", "test-key"));
     }
 
     [Fact]
@@ -136,7 +136,7 @@ public sealed class CopySuggestedTripPlanServiceTests
         var service = new CopySuggestedTripPlanService(store);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.CopyAsync(requestedSource.Id, "viewer-2"));
+            () => service.CopyAsync(requestedSource.Id, "viewer-2", "test-key"));
     }
 
     private static TripPlan MakeSource()
@@ -149,14 +149,30 @@ public sealed class CopySuggestedTripPlanServiceTests
         return source;
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("contains space")]
+    [InlineData("two,values")]
+    [InlineData("café")]
+    public async Task InvalidIdempotencyKey_DoesNotCallStore(string key)
+    {
+        var store = new FakeStore();
+        var service = new CopySuggestedTripPlanService(store);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CopyAsync(Guid.NewGuid(), "viewer-2", key));
+        Assert.Equal(0, store.CallCount);
+    }
+
     private sealed class FakeStore : ICopySuggestedTripPlanStore
     {
+        public Task<bool> SetReuseConsentAsync(Guid sourceTripPlanId, string ownerUserId, bool allowed, CancellationToken cancellationToken) => Task.FromResult(false);
+
         public int CallCount { get; private set; }
         public string? ViewerId { get; private set; }
         public TripPlan? Result { get; set; }
 
         public Task<TripPlan?> CopyEligibleAsync(Guid sourceTripPlanId,
-            string authenticatedUserId, CancellationToken cancellationToken = default)
+            string authenticatedUserId, string idempotencyKey, CancellationToken cancellationToken = default)
         {
             CallCount++;
             ViewerId = authenticatedUserId;

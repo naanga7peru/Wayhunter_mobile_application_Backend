@@ -10,9 +10,13 @@ public sealed class TripPlanCopyAttributionConfiguration
 {
     public void Configure(EntityTypeBuilder<TripPlanCopyAttributionRow> builder)
     {
-        builder.ToTable("TripPlanCopyAttributions", table =>
-            table.HasCheckConstraint("CK_TripPlanCopies_NotOwnSource",
-                "[TripPlanId] <> [SourceTripPlanId]"));
+builder.ToTable("TripPlanCopyAttributions", table =>
+        {
+            table.HasCheckConstraint("CK_TripPlanCopies_NotOwnSource", "[TripPlanId] <> [SourceTripPlanId]");
+            table.HasCheckConstraint("CK_TripPlanCopies_RequestIdentity",
+                "([RequesterUserId] IS NULL AND [RequestKeyHash] IS NULL) OR " +
+                "([RequesterUserId] IS NOT NULL AND [RequestKeyHash] IS NOT NULL AND LEN([RequestKeyHash]) = 64)");
+        });
 
         builder.HasKey(row => row.TripPlanId);
         builder.Property(row => row.TripPlanId).ValueGeneratedNever();
@@ -29,5 +33,11 @@ public sealed class TripPlanCopyAttributionConfiguration
 
 
         builder.HasIndex(row => row.SourceTripPlanId);
+        builder.Property(row => row.RequesterUserId).HasMaxLength(256);
+        builder.Property(row => row.RequestKeyHash).HasMaxLength(64).IsUnicode(false);
+        builder.HasIndex(row => new { row.RequesterUserId, row.RequestKeyHash })
+            .IsUnique().HasFilter("[RequesterUserId] IS NOT NULL AND [RequestKeyHash] IS NOT NULL");
+        builder.HasOne<Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount>()
+            .WithMany().HasForeignKey(row => row.RequesterUserId).OnDelete(DeleteBehavior.NoAction);
     }
 }

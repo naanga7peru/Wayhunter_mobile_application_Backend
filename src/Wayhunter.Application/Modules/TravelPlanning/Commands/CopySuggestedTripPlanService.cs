@@ -16,9 +16,14 @@ public sealed class CopySuggestedTripPlanService
         _store = store ?? throw new ArgumentNullException(nameof(store));
     }
 
+    public Task<bool> SetReuseConsentAsync(Guid tripPlanId, string ownerUserId,
+        bool allowed, CancellationToken cancellationToken) =>
+        _store.SetReuseConsentAsync(tripPlanId, ownerUserId, allowed, cancellationToken);
+
     public async Task<CopiedSuggestedTripPlanDto?> CopyAsync(
         Guid sourceTripPlanId,
         string authenticatedUserId,
+        string idempotencyKey,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -27,10 +32,15 @@ public sealed class CopySuggestedTripPlanService
         if (string.IsNullOrWhiteSpace(authenticatedUserId))
             throw new ArgumentException("Authenticated user ID is required.", nameof(authenticatedUserId));
 
+        if (string.IsNullOrEmpty(idempotencyKey) || idempotencyKey.Length > 128 ||
+            idempotencyKey.Any(character => !char.IsAsciiLetterOrDigit(character) &&
+                character is not '-' and not '_' and not '.'))
+            throw new ArgumentException("A valid Idempotency-Key is required.", nameof(idempotencyKey));
+
         // The source cannot be fetched through GetByIdAsync, which is owner-only.
         // The store performs authorization + copy as one database transaction.
         var copied = await _store.CopyEligibleAsync(
-            sourceTripPlanId, authenticatedUserId, cancellationToken);
+            sourceTripPlanId, authenticatedUserId, idempotencyKey, cancellationToken);
         if (copied is null) return null;
 
         // Defense in depth: refuse misconfigured/fake stores returning wrong owner.

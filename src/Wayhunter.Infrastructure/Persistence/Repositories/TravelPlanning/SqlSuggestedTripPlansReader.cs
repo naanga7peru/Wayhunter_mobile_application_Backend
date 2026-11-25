@@ -8,6 +8,7 @@ using Wayhunter.Application.Modules.TravelPlanning.Dtos;
 using Wayhunter.Application.Modules.TravelPlanning.Interfaces;
 using Wayhunter.Application.Modules.TravelPlanning.Queries;
 using Wayhunter.Domain.Modules.TravelPlanning.Enums;
+using Wayhunter.Domain.Modules.TravelPlanning.Entities;
 using Wayhunter.Domain.Modules.TripSafety.Enums;
 using Wayhunter.Infrastructure.Persistence.DbContexts;
 
@@ -38,10 +39,16 @@ public sealed class SqlSuggestedTripPlansReader : ISuggestedTripPlansReader
             throw new ArgumentOutOfRangeException(nameof(maxResults));
         }
 
-        return await EligiblePlans(authenticatedUserId)
-            .OrderByDescending(plan => plan.CompletedAtUtc)
-            .ThenBy(plan => plan.TripPlanId)
-            .Take(maxResults)
+        var eligible = EligiblePlans(authenticatedUserId)
+            .OrderByDescending(trip => _db.LiveTripSessions
+                .Where(session => session.TripPlanId == trip.Id &&
+                    session.Status == LiveTripStatus.Finished &&
+                    session.FinishedAtUtc.HasValue &&
+                    session.FinishedAtUtc.Value >= session.StartedAtUtc)
+                .Max(session => session.FinishedAtUtc))
+            .ThenBy(trip => trip.Id)
+            .Take(maxResults);
+        return await ProjectPlans(eligible)
             .ToListAsync(cancellationToken);
     }
 
@@ -50,11 +57,11 @@ public sealed class SqlSuggestedTripPlansReader : ISuggestedTripPlansReader
     {
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentException.ThrowIfNullOrWhiteSpace(authenticatedUserId);
-        return EligiblePlans(authenticatedUserId)
-            .SingleOrDefaultAsync(plan => plan.TripPlanId == tripPlanId, cancellationToken);
+        return ProjectPlans(EligiblePlans(authenticatedUserId).Where(trip => trip.Id == tripPlanId))
+            .SingleOrDefaultAsync(cancellationToken);
     }
 
-    private IQueryable<SuggestedTripPlanDto> EligiblePlans(string authenticatedUserId)
+    private IQueryable<TripPlan> EligiblePlans(string authenticatedUserId)
     {
         // The access test runs in the database for EVERY request.
         // A removed member, invitation alone, or another user's plan
@@ -76,8 +83,11 @@ public sealed class SqlSuggestedTripPlansReader : ISuggestedTripPlansReader
             // If a trip has been started again, it is not yet finished.
             .Where(trip => !_db.LiveTripSessions.Any(session =>
                 session.TripPlanId == trip.Id &&
-                session.Status != LiveTripStatus.Finished))
-            .Select(trip => new SuggestedTripPlanDto(
+                session.Status != LiveTripStatus.Finished));
+    }
+
+    private IQueryable<SuggestedTripPlanDto> ProjectPlans(IQueryable<TripPlan> trips) =>
+        trips.Select(trip => new SuggestedTripPlanDto(
                 trip.Id,
                 trip.TripName,
                 trip.StartDate,
@@ -95,5 +105,4 @@ public sealed class SqlSuggestedTripPlansReader : ISuggestedTripPlansReader
                     .OrderByDescending(session => session.FinishedAtUtc)
                     .Select(session => session.FinishedAtUtc!.Value)
                     .FirstOrDefault()));
-    }
 }

@@ -1,4 +1,18 @@
-# M2-MS05-T03 — Copy suggested plan API (REVIEW REQUIRED)
+# M2-MS05-T03 — Copy suggested plan API
+
+## Implemented contract
+
+The user supplied WAYHUNTER Project Leader approval for traveler reuse consent, durable Idempotency-Key implementation, and EF Core schema work on isolated LocalDB. This approval covers the implementation. Each traveler controls reuse of their own source plans.
+
+- `PUT /api/mobile/trip-plans/{tripPlanId}/reuse-consent` accepts JSON `{"allowed":true}` to grant reuse of the plan's planned itinerary to eligible active members and `{"allowed":false}` to revoke it. The setting defaults to false. The authenticated owner receives 204 for an eligible update. Invalid input receives 400, unauthenticated requests receive 401, and unknown or inaccessible plans receive 404.
+- `POST /api/mobile/trip-plans/suggested/{sourceTripPlanId}/copy` requires a single `Idempotency-Key` with 1–128 ASCII letters, digits, dots, underscores, or hyphens. A successful copy or eligible identical retry returns 201 and the draft location. An eligible retry returns the same draft ID and its current editable state. The same key for a different source returns 409 for that authenticated traveler. Invalid input returns 400. Absent or invalid authentication returns 401. Missing source, missing or revoked consent, and ineligible membership or completion return 404.
+- Revocation and member removal prevent future copying and replay through the source route. Previously created drafts remain accessible to their own owners. A copied draft starts with consent disabled and carries only approved itinerary fields and ordered planned stops. Source attribution is stored server-side, with the source plan ID included in the copy response.
+- The SQL store requires `TravelPlanning:EnableSqlPersistence`, `TripSafety:EnableSqlPersistence`, and `TravelPlanning:EnableMemberPlanCopy`. Leave the write gate off unless the target has the approved schema.
+- Migration `20261125171006_M2SuggestedPlanReuseConsent` adds a default-off bit to `Trips` and a requester FK, hashed key, check constraint, and filtered unique index to the existing attribution table. The raw key is not persisted. Consent, membership, and completion are read inside the serializable copy transaction. EF verifies uncertain commits against the durable request row and the attempted draft ID. The forward migration is additive.
+
+## Historical design review
+
+The original proposal below is retained for traceability.
 
 ## KEEP / MODIFY / ADD
 - KEEP: Existing M2 create/update/get endpoints, M3 membership and actual finish authority, source plan data.
