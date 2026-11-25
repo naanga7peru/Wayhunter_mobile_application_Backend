@@ -45,8 +45,15 @@ public sealed class GameDraftApplicationAdapter
             ?? throw new GameDraftIdentityRejectedException("An authenticated active account is required.");
         if (_submission is null || _clock is null)
             throw new InvalidOperationException("Game submission is not configured.");
-        return await _submission.SubmitAsync(gameId, account,
-            _clock.GetUtcNow().ToUniversalTime(), cancellationToken);
+        try
+        {
+            return await _submission.SubmitAsync(gameId, account,
+                _clock.GetUtcNow().ToUniversalTime(), cancellationToken);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            throw new KeyNotFoundException("Game draft not found.");
+        }
     }
 
     public async Task<Game> CreateAsync(

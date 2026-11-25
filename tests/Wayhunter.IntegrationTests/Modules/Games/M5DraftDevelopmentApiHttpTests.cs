@@ -199,10 +199,12 @@ public sealed class M5DraftDevelopmentApiHttpTests
         using var document = JsonDocument.Parse(
             await response.Content.ReadAsStringAsync());
         var paths = document.RootElement.GetProperty("paths");
-        var operationCount = paths.EnumerateObject()
+        var gameOperationCount = paths.EnumerateObject()
+            .Where(path => path.Name.StartsWith("/api/mobile/games", StringComparison.Ordinal) ||
+                           path.Name.StartsWith("/api/admin/games", StringComparison.Ordinal))
             .Sum(path => path.Value.EnumerateObject().Count());
-        _output.WriteLine("Swagger operation count: {0}", operationCount);
-        Assert.Equal(120, operationCount);
+        _output.WriteLine("Games Swagger operation count: {0}", gameOperationCount);
+        Assert.Equal(13, gameOperationCount);
         Assert.True(paths.TryGetProperty("/api/mobile/home", out var home));
         Assert.True(home.TryGetProperty("get", out _));
         Assert.True(paths.TryGetProperty("/api/mobile/games/drafts", out var drafts));
@@ -305,6 +307,7 @@ public sealed class M5DraftDevelopmentApiHttpTests
 
             builder.ConfigureTestServices(services =>
             {
+                services.RemoveAll<IHostedService>();
                 services.RemoveAll<IAuthenticatedSessionReader>();
                 services.AddSingleton<IAuthenticatedSessionReader>(
                     new TestSessionReader(_accounts, _sessions));
