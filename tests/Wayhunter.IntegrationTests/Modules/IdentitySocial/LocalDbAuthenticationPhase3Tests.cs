@@ -42,7 +42,9 @@ public sealed partial class LocalDbAuthenticationPhase3Tests(ITestOutputHelper o
         string catalog,
         bool migrateFreshCatalog,
         Func<HttpClient, WayhunterSharedDbContext, Capture, TestClock, Dictionary<string, string?>, Task> run,
-        Action<IServiceCollection>? configureTestServices = null)
+        Action<IServiceCollection>? configureTestServices = null,
+        IReadOnlyDictionary<string, string?>? additionalSettings = null,
+        Action<WebSocketClient>? configureSocketClient = null)
     {
         // Require the process-level override before Program begins registering services.
         var startupConnection = Environment.GetEnvironmentVariable(ConnectionKey);
@@ -76,6 +78,8 @@ public sealed partial class LocalDbAuthenticationPhase3Tests(ITestOutputHelper o
                     ["ConnectionStrings:WayhunterSharedDb"] = lateConnection.ConnectionString,
                     ["Identity:EnableSharedAuthentication"] = "true"
                 });
+                if (additionalSettings is not null)
+                    configuration.AddInMemoryCollection(additionalSettings);
             });
             builder.ConfigureLogging(logging => logging.ClearProviders());
             builder.ConfigureTestServices(services =>
@@ -91,6 +95,7 @@ public sealed partial class LocalDbAuthenticationPhase3Tests(ITestOutputHelper o
             });
         });
         using var client = factory.CreateClient();
+        configureSocketClient?.Invoke(factory.Server.CreateWebSocketClient());
         using var scope = factory.Services.CreateScope();
         var services = scope.ServiceProvider;
         Assert.Equal("GenericWebHostService", Assert.Single(services.GetServices<IHostedService>()).GetType().Name);

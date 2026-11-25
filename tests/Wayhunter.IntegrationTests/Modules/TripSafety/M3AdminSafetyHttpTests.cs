@@ -115,7 +115,7 @@ public sealed class M3AdminSafetyHttpTests
         using var host = new WebApplicationFactory<Program>();
         using var scope = host.Services.CreateScope();
         var services = scope.ServiceProvider;
-        Assert.Null(services.GetService<TrustedAdministratorRoleResolutionService>());
+        // Shared identity can register the role resolver independently of monitoring.
         Assert.Null(services.GetService<IAdminSafetyScopeReader>());
         Assert.Null(services.GetService<IAdminSafetyProjectionReader>());
         Assert.Null(services.GetService<IAdminSafetyAuditSink>());
