@@ -1,6 +1,7 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <UserSecretsId>bf372364-68e6-419f-9f56-f25caae112fa</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Wayhunter.Application/Wayhunter.Application.csproj" />
