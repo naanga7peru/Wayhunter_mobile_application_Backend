@@ -24,18 +24,24 @@ using Xunit.Abstractions;
 
 namespace Wayhunter.IntegrationTests.Modules.IdentitySocial;
 
-public sealed class LocalDbAuthenticationPhase3Tests(ITestOutputHelper output)
+public sealed partial class LocalDbAuthenticationPhase3Tests(ITestOutputHelper output)
 {
     private const string Server = @"(localdb)\WayhunterTest2026";
     private const string Catalog = "Wayhunter_Identity_Test_20261125";
     private const string ConnectionKey = "ConnectionStrings__WayhunterSharedDb";
 
     [LocalDbPhase3Fact]
-    public async Task VerifyAllAuthenticationCases()
+    public Task VerifyAllAuthenticationCases() =>
+        RunIsolatedAsync(Catalog, migrateFreshCatalog: false, VerifyAuthenticationAsync);
+
+    private async Task RunIsolatedAsync(
+        string catalog,
+        bool migrateFreshCatalog,
+        Func<HttpClient, WayhunterSharedDbContext, Capture, TestClock, Dictionary<string, string?>, Task> run)
     {
         // Require the process-level override before Program begins registering services.
         var startupConnection = Environment.GetEnvironmentVariable(ConnectionKey);
-        AssertTarget(startupConnection);
+        AssertTarget(startupConnection, catalog);
         var lateConnection = new SqlConnectionStringBuilder(startupConnection)
         {
             ApplicationName = "Wayhunter Phase 3 late configuration probe"
@@ -84,15 +90,15 @@ public sealed class LocalDbAuthenticationPhase3Tests(ITestOutputHelper output)
         Assert.Equal("GenericWebHostService", Assert.Single(services.GetServices<IHostedService>()).GetType().Name);
         Assert.Same(capture, services.GetRequiredService<IIdentityOtpEmailSender>());
         Assert.Same(capture, services.GetRequiredService<IPasswordResetEmailSender>());
-        AssertTarget(services.GetRequiredService<WayhunterSharedDbContext>().Database.GetConnectionString());
+        AssertTarget(services.GetRequiredService<WayhunterSharedDbContext>().Database.GetConnectionString(), catalog);
         await using var db = await services.GetRequiredService<IDbContextFactory<WayhunterSharedDbContext>>().CreateDbContextAsync();
-        AssertTarget(db.Database.GetConnectionString());
+        AssertTarget(db.Database.GetConnectionString(), catalog);
         var runtimeConfig = services.GetRequiredService<IConfiguration>().GetConnectionString("WayhunterSharedDb");
-        AssertTarget(runtimeConfig);
+        AssertTarget(runtimeConfig, catalog);
         Assert.Equal(lateConnection.ApplicationName, new SqlConnectionStringBuilder(runtimeConfig).ApplicationName);
         var efConnection = new SqlConnectionStringBuilder(db.Database.GetConnectionString());
         var configuredSql = db.GetService<IDbContextOptions>().Extensions.OfType<RelationalOptionsExtension>().Single().ConnectionString;
-        AssertTarget(configuredSql);
+        AssertTarget(configuredSql, catalog);
         var configured = new SqlConnectionStringBuilder(configuredSql);
         var changedOptions = configured.Keys.Cast<string>()
             .Where(key => !Equals(configured[key], efConnection[key]))
@@ -101,18 +107,29 @@ public sealed class LocalDbAuthenticationPhase3Tests(ITestOutputHelper output)
         await db.Database.OpenConnectionAsync();
         await using (var verify = db.Database.GetDbConnection().CreateCommand())
         {
-            verify.CommandText = "SELECT CONVERT(int, SERVERPROPERTY('IsLocalDB')), DB_NAME(), CONVERT(varchar(32), SERVERPROPERTY('ProductVersion'))";
+            verify.CommandText = "SELECT CONVERT(int, SERVERPROPERTY('IsLocalDB')), DB_NAME(), CONVERT(varchar(32), SERVERPROPERTY('ProductVersion')), (SELECT COUNT(*) FROM sys.tables)";
             await using var row = await verify.ExecuteReaderAsync();
             Assert.True(await row.ReadAsync());
             Assert.Equal(1, row.GetInt32(0));
-            Assert.True(row.GetString(1) == Catalog, "Unexpected runtime SQL catalog.");
+            Assert.True(row.GetString(1) == catalog, "Unexpected runtime SQL catalog.");
             Assert.Equal("17.0.4025.3", row.GetString(2));
+            if (migrateFreshCatalog)
+                Assert.Equal(0, row.GetInt32(3));
         }
+        await db.Database.CloseConnectionAsync();
+        if (migrateFreshCatalog)
+            await db.Database.MigrateAsync();
         var applied = (await db.Database.GetAppliedMigrationsAsync()).ToArray();
         Assert.Equal(8, applied.Length);
         Assert.Equal(db.Database.GetMigrations(), applied);
-        output.WriteLine($"Runtime SQL isolation verified at {Server}/{Catalog}, version 17.0.4025.3, {applied.Length} migrations.");
+        output.WriteLine($"Runtime SQL isolation verified at {Server}/{catalog}, version 17.0.4025.3, {applied.Length} migrations.");
+        await run(client, db, capture, clock, jwtSettings);
+    }
 
+    private async Task VerifyAuthenticationAsync(
+        HttpClient client, WayhunterSharedDbContext db, Capture capture, TestClock clock,
+        Dictionary<string, string?> jwtSettings)
+    {
         const string adminPath = "/api/admin/hunter/submissions";
         var email = $"phase3-{Guid.NewGuid():N}@example.test";
         var password = Guid.NewGuid().ToString("N") + "A!";
@@ -230,14 +247,14 @@ public sealed class LocalDbAuthenticationPhase3Tests(ITestOutputHelper output)
         Assert.True(outcomes.Count == 16 && outcomes.All(result => result), "See individual sanitized case results.");
     }
 
-    private static void AssertTarget(string? raw)
+    private static void AssertTarget(string? raw, string catalog)
     {
         SqlConnectionStringBuilder? target;
         try { target = raw is null ? null : new SqlConnectionStringBuilder(raw); }
         catch (ArgumentException) { target = null; }
         Assert.True(target is not null &&
             string.Equals(target.DataSource, Server, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(target.InitialCatalog, Catalog, StringComparison.Ordinal) &&
+            string.Equals(target.InitialCatalog, catalog, StringComparison.Ordinal) &&
             target.IntegratedSecurity && target.Encrypt == SqlConnectionEncryptOption.Mandatory &&
             target.TrustServerCertificate, "SQL connection failed the dedicated LocalDB allowlist.");
     }
