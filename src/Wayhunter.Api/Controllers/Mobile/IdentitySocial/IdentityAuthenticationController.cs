@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Wayhunter.Api.Contracts;
 using Wayhunter.Api.Contracts.Responses;
 using Wayhunter.Api.Services.IdentitySocial;
+using Wayhunter.Application.Modules.IdentitySocial.Dtos;
 
 namespace Wayhunter.Api.Controllers.Mobile.IdentitySocial;
 
@@ -42,6 +43,10 @@ public sealed class IdentityAuthenticationController : ControllerBase
     }
 
     [HttpPost("register")]
+    [ProducesResponseType<RegistrationIdentityResponseDto>(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiErrorResponse>(StatusCodes.Status409Conflict)]
+    [ProducesResponseType<ApiErrorResponse>(StatusCodes.Status503ServiceUnavailable)]
     public Task<IActionResult> Register(
         IdentityRegisterRequest request,
         CancellationToken cancellationToken) =>
@@ -53,6 +58,10 @@ public sealed class IdentityAuthenticationController : ControllerBase
             cancellationToken));
 
     [HttpPost("resend-otp")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiErrorResponse>(StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType<ApiErrorResponse>(StatusCodes.Status503ServiceUnavailable)]
     public Task<IActionResult> ResendOtp(
         IdentityOtpResendRequest request,
         CancellationToken cancellationToken) =>
@@ -60,6 +69,8 @@ public sealed class IdentityAuthenticationController : ControllerBase
             request.Email, cancellationToken));
 
     [HttpPost("verify-otp")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public Task<IActionResult> VerifyOtp(
         IdentityOtpRequest request,
         CancellationToken cancellationToken) =>
@@ -67,6 +78,10 @@ public sealed class IdentityAuthenticationController : ControllerBase
             request.Email, request.Code, cancellationToken));
 
     [HttpPost("login")]
+    [ProducesResponseType<IdentitySignInResult>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ApiErrorResponse>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ApiErrorResponse>(StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> Login(
         IdentitySignInRequest request,
         CancellationToken cancellationToken)
@@ -90,6 +105,8 @@ public sealed class IdentityAuthenticationController : ControllerBase
     }
 
     [HttpPost("forgot-password")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ForgotPassword(
         IdentityForgotPasswordRequest request,
         CancellationToken cancellationToken)
@@ -100,6 +117,8 @@ public sealed class IdentityAuthenticationController : ControllerBase
     }
 
     [HttpPost("reset-password")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ResetPassword(
         IdentityResetPasswordRequest request,
         CancellationToken cancellationToken)

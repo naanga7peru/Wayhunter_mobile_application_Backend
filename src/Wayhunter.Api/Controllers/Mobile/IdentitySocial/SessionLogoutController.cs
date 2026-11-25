@@ -34,6 +34,8 @@ public sealed class SessionLogoutController : ControllerBase
     // Both identities must come from validated claims.
 
     [HttpPost("logout")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ApiErrorResponse>(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Logout(
         CancellationToken cancellationToken)
     {
