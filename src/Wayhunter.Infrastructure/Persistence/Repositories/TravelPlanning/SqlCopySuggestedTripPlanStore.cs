@@ -1,9 +1,12 @@
 using System;
 using System.Data;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Wayhunter.Application.Modules.TravelPlanning.Interfaces;
 using Wayhunter.Domain.Modules.TravelPlanning.Entities;
 using Wayhunter.Domain.Modules.TravelPlanning.Enums;
@@ -13,9 +16,6 @@ using Wayhunter.Infrastructure.Persistence.Models.TravelPlanning;
 
 namespace Wayhunter.Infrastructure.Persistence.Repositories.TravelPlanning;
 
-// This implementation MUST NOT be enabled until the team approves that
-// active M3 membership grants reuse of planned stops AND the schema change.
-// The DI flag defaults to false, so production/demo paths fail closed.
 public sealed class SqlCopySuggestedTripPlanStore : ICopySuggestedTripPlanStore
 {
     private readonly WayhunterSharedDbContext _db;
@@ -28,6 +28,7 @@ public sealed class SqlCopySuggestedTripPlanStore : ICopySuggestedTripPlanStore
     public async Task<TripPlan?> CopyEligibleAsync(
         Guid sourceTripPlanId,
         string authenticatedUserId,
+        string idempotencyKey,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -35,16 +36,15 @@ public sealed class SqlCopySuggestedTripPlanStore : ICopySuggestedTripPlanStore
             throw new ArgumentException("Valid source trip ID is required.", nameof(sourceTripPlanId));
         ArgumentException.ThrowIfNullOrWhiteSpace(authenticatedUserId);
 
-        // A retrying SQL execution strategy requires the transaction to be
-        // inside its delegate. SERIALIZABLE guards against membership
-        // removal/completion changes during authorization and insertion.
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(idempotencyKey)));
+        var requests = _db.Set<TripPlanCopyAttributionRow>().AsNoTracking()
+            .Where(row => row.RequesterUserId == authenticatedUserId && row.RequestKeyHash == hash);
+        Guid? attemptedDraftId = null;
         var strategy = _db.Database.CreateExecutionStrategy();
-        return await strategy.ExecuteAsync(async () =>
+        return await strategy.ExecuteInTransactionAsync(async token =>
         {
-            // Each retry starts with an untracked source and a fresh draft.
             _db.ChangeTracker.Clear();
-            await using var transaction = await _db.Database
-                .BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+            attemptedDraftId = null;
 
             var source = await _db.Trips
                 .AsNoTracking()
@@ -52,6 +52,7 @@ public sealed class SqlCopySuggestedTripPlanStore : ICopySuggestedTripPlanStore
                 .SingleOrDefaultAsync(trip =>
                     trip.Id == sourceTripPlanId &&
                     trip.OwnerUserId != authenticatedUserId &&
+                    trip.AllowsSuggestedPlanReuse &&
                     trip.DraftStatus != TripDraftStatus.Cancelled &&
                     _db.TripMembers.Any(member =>
                         member.TripPlanId == trip.Id &&
@@ -65,28 +66,50 @@ public sealed class SqlCopySuggestedTripPlanStore : ICopySuggestedTripPlanStore
                     !_db.LiveTripSessions.Any(session =>
                         session.TripPlanId == trip.Id &&
                         session.Status != LiveTripStatus.Finished),
-                    cancellationToken);
+                    token);
 
-            if (source is null)
+            var existing = await requests.SingleOrDefaultAsync(token);
+            if (existing is not null && existing.SourceTripPlanId != sourceTripPlanId)
+                throw new CopyRequestConflictException();
+            if (source is null || source.Stops.Count == 0)
+                return null;
+            if (existing is not null)
             {
-                await transaction.RollbackAsync(cancellationToken);
-                return (TripPlan?)null;
+                var previous = await _db.Trips.AsNoTracking().Include(trip => trip.Stops)
+                    .SingleAsync(trip => trip.Id == existing.TripPlanId &&
+                        trip.OwnerUserId == authenticatedUserId, token);
+                previous.RestoreCopyAttribution(existing.SourceTripPlanId, existing.SourceOwnerUserId);
+                return previous;
             }
 
             // All source coordinates are PLANNED stop positions; no M3
             // samples, live routes, friends or memories are queried/copied.
             var draft = TripPlan.CreateCopyFrom(source, authenticatedUserId);
-            await _db.Trips.AddAsync(draft, cancellationToken);
+            _db.Trips.Add(draft);
             _db.Set<TripPlanCopyAttributionRow>().Add(new TripPlanCopyAttributionRow
             {
                 TripPlanId = draft.Id,
                 SourceTripPlanId = source.Id,
                 SourceOwnerUserId = source.OwnerUserId,
+                RequesterUserId = authenticatedUserId,
+                RequestKeyHash = hash,
                 CopiedAtUtc = DateTimeOffset.UtcNow
             });
-            await _db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-            return draft;
-        });
+            await _db.SaveChangesAsync(token);
+            attemptedDraftId = draft.Id;
+            return (TripPlan?)draft;
+        }, async token => attemptedDraftId.HasValue && await requests.AnyAsync(
+            row => row.TripPlanId == attemptedDraftId.Value, token),
+            IsolationLevel.Serializable, cancellationToken);
+    }
+
+    public async Task<bool> SetReuseConsentAsync(Guid sourceTripPlanId, string ownerUserId,
+        bool allowed, CancellationToken cancellationToken)
+    {
+        // Write one owner-scoped row. SQL serializes this update against copy authorization.
+        return await _db.Trips.Where(trip => trip.Id == sourceTripPlanId &&
+                trip.OwnerUserId == ownerUserId && trip.DraftStatus != TripDraftStatus.Cancelled)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(trip => trip.AllowsSuggestedPlanReuse, allowed),
+                cancellationToken) == 1;
     }
 }

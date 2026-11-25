@@ -12,7 +12,7 @@ Start locally with `dotnet run --project src/Wayhunter.Api`. The default trip re
 
 Flutter can use the same search and detail endpoints when location permission is denied. Render Places as external suggestions. Route preview requires ordered coordinates and returns a traffic-unaware estimate. Fetch a fresh preview after stop edits. Weather displays current observation time and freshness. AI generation returns a proposal for review. Submit reviewed stops in order as initialStops on the existing POST /api/mobile/trip-plans. Each stop accepts name and optional placeId and paired latitude/longitude. The request creates an editable draft. Preserve current draft version when editing stops. ADM-07 remains pending.
 
-Suggested detail uses the same access and field projection as the list. The member-copy flag is retired from runtime while reuse approval is pending. Unknown, denied and disabled copies return 404.
+Suggested detail uses the same access and field projection as the list. Copy and consent writes require both SQL persistence flags and `TravelPlanning__EnableMemberPlanCopy=true`. Unknown, denied and disabled copies return 404. The migration is approved for isolated LocalDB only. See [the copy contract](../task-evidence/M2-MS05-T03_COPY_PLAN_PRIVACY_SCHEMA.md).
 
 Weather forecasts use OpenWeather’s five-day, three-hour product. Forecast timestamps are UTC and expired points are omitted. Forecast age is measured from retrieval, and current weather age is measured from observation and cache timestamps. Each weather cache holds up to 256 exact coordinate pairs. Stale fallback lasts up to 24 hours. Weather is advisory and independent from M3 hazards. [OpenWeather forecast contract](https://openweathermap.org/api/forecast5)
 

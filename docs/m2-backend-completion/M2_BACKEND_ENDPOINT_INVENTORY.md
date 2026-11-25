@@ -14,7 +14,8 @@ Prefix `/api/mobile/trip-plans`. All controllers require authentication and trus
 | PUT /{tripPlanId}/stops/order | ReorderTripStopsDto → updated plan | 200, 400, 404, 409 | ReorderTripStopsController / ReorderTripStopsHttpTests |
 | GET /suggested | Limit → SuggestedTripPlanDto list | 200, 400 | SuggestedTripPlansController / GetSuggestedTripPlansServiceTests |
 | GET /suggested/{tripPlanId} | GUID → SuggestedTripPlanDto card fields only | 200, 400, 404 | SuggestedTripPlansController / NearbyPlacesHttpTests |
-| POST /suggested/{sourceTripPlanId}/copy | GUID → CopiedSuggestedTripPlanDto | 400, 404 in current runtime (candidate success contract 201) | CopySuggestedTripPlansController / CopySuggestedTripPlanServiceTests, NearbyPlacesHttpTests |
+| POST /suggested/{sourceTripPlanId}/copy | GUID and required Idempotency-Key header → CopiedSuggestedTripPlanDto | 201, 400, 401, 404, 409 | CopySuggestedTripPlansController / LocalDbM2FunctionalTests |
+| PUT /{tripPlanId}/reuse-consent | GUID and JSON `{"allowed":true}` to grant or `{"allowed":false}` to revoke | 204, 400, 401, 404 | CopySuggestedTripPlansController / LocalDbM2FunctionalTests |
 | POST /ai/generate | AiTripItineraryRequest → AiTripItineraryResponse | 200, 400, 429, 502, 503, 504 | AiTripPlansController / AiTripPlansControllerTests |
 | POST /routes/preview | RoutePreviewRequest → routeGeometry, encodedPolyline, distanceKm, estimatedDurationMinutes, providerName, trafficAware | 200, 400, 413, 429, 502, 503 | RoutePreviewController / RoutePreviewControllerTests, NearbyPlacesHttpTests |
 | GET /nearby | Latitude, longitude, category → nearby results | 200, 400, 429, 502, 503 | NearbyPlacesController / NearbyPlacesHttpTests |

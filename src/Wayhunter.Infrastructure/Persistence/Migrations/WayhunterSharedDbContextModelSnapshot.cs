@@ -516,6 +516,9 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<bool>("AllowsSuggestedPlanReuse")
+                        .HasColumnType("bit");
+
                     b.Property<decimal>("BudgetLkr")
                         .HasColumnType("decimal(18,2)");
 
@@ -2275,6 +2278,15 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CopiedAtUtc")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<string>("RequestKeyHash")
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("RequesterUserId")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
                     b.Property<string>("SourceOwnerUserId")
                         .IsRequired()
                         .HasMaxLength(256)
@@ -2287,9 +2299,15 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("SourceTripPlanId");
 
+                    b.HasIndex("RequesterUserId", "RequestKeyHash")
+                        .IsUnique()
+                        .HasFilter("[RequesterUserId] IS NOT NULL AND [RequestKeyHash] IS NOT NULL");
+
                     b.ToTable("TripPlanCopyAttributions", null, t =>
                         {
                             t.HasCheckConstraint("CK_TripPlanCopies_NotOwnSource", "[TripPlanId] <> [SourceTripPlanId]");
+
+                            t.HasCheckConstraint("CK_TripPlanCopies_RequestIdentity", "([RequesterUserId] IS NULL AND [RequestKeyHash] IS NULL) OR ([RequesterUserId] IS NOT NULL AND [RequestKeyHash] IS NOT NULL AND LEN([RequestKeyHash]) = 64)");
                         });
                 });
 
@@ -3572,6 +3590,11 @@ namespace Wayhunter.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Wayhunter.Infrastructure.Persistence.Models.TravelPlanning.TripPlanCopyAttributionRow", b =>
                 {
+                    b.HasOne("Wayhunter.Domain.Modules.IdentitySocial.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("RequesterUserId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
                     b.HasOne("Wayhunter.Domain.Modules.TravelPlanning.Entities.TripPlan", null)
                         .WithMany()
                         .HasForeignKey("TripPlanId")

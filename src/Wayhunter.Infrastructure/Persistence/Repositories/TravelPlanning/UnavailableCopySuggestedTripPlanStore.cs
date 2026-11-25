@@ -12,9 +12,13 @@ public sealed class UnavailableCopySuggestedTripPlanStore : ICopySuggestedTripPl
     public Task<TripPlan?> CopyEligibleAsync(
         Guid sourceTripPlanId,
         string authenticatedUserId,
+        string idempotencyKey,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult<TripPlan?>(null);
     }
+
+    public Task<bool> SetReuseConsentAsync(Guid sourceTripPlanId, string ownerUserId,
+        bool allowed, CancellationToken cancellationToken) => Task.FromResult(false);
 }

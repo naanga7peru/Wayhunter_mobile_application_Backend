@@ -13,5 +13,12 @@ public interface ICopySuggestedTripPlanStore
     Task<TripPlan?> CopyEligibleAsync(
         Guid sourceTripPlanId,
         string authenticatedUserId,
+        string idempotencyKey,
         CancellationToken cancellationToken = default);
+
+    Task<bool> SetReuseConsentAsync(Guid sourceTripPlanId, string ownerUserId,
+        bool allowed, CancellationToken cancellationToken);
 }
+
+public sealed class CopyRequestConflictException()
+    : Exception("The Idempotency-Key was already used for a different source plan.");

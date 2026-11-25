@@ -458,7 +458,9 @@ public sealed class NearbyPlacesHttpTests
 
         for (var i = 0; i < 2; i++)
         {
-            using var result = await client.PostAsync(url, null);
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.Add("Idempotency-Key", "disabled-copy");
+            using var result = await client.SendAsync(request);
             Assert.Equal(HttpStatusCode.NotFound, result.StatusCode);
         }
 
