@@ -34,6 +34,12 @@ public sealed class SqlHunterReviewStore : IHunterReviewStore
         cancellationToken.ThrowIfCancellationRequested();
         ValidateDecision(decision);
 
+        return await HunterSqlTransaction.ExecuteAsync(_db,
+            () => ReviewCoreAsync(decision, cancellationToken), cancellationToken);
+    }
+
+    private async Task<HunterSubmissionResponseDto?> ReviewCoreAsync(HunterReviewDecision decision, CancellationToken cancellationToken)
+    {
         await using var transaction = await _db.Database.BeginTransactionAsync(
             IsolationLevel.Serializable,
             cancellationToken);
