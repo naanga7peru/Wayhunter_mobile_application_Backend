@@ -102,6 +102,13 @@ public sealed class SqlHunterSubmissionStatusTransitionStore
                 nameof(nextStatus));
         }
 
+        return await HunterSqlTransaction.ExecuteAsync(_db,
+            () => TransitionCoreAsync(submissionId, expectedStatus, nextStatus, submittedAtUtc, cancellationToken), cancellationToken);
+    }
+
+    private async Task<bool> TransitionCoreAsync(Guid submissionId, HunterSubmissionStatus expectedStatus, HunterSubmissionStatus nextStatus,
+        DateTimeOffset? submittedAtUtc, CancellationToken cancellationToken)
+    {
         await using var transaction =
             await _db.Database.BeginTransactionAsync(
                 IsolationLevel.Serializable,
