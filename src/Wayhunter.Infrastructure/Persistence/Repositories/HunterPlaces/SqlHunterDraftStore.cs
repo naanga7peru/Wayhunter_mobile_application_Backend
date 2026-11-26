@@ -26,6 +26,12 @@ public sealed class SqlHunterDraftStore : IHunterDraftStore
             throw new ArgumentException("Draft submission is invalid.", nameof(submission));
         if (keyHash.Length != 64 || requestDigest.Length != 64)
             throw new ArgumentException("Idempotency hashes must be SHA-256.");
+        return await HunterSqlTransaction.ExecuteAsync(_db,
+            () => CreateCoreAsync(submission, keyHash, requestDigest, cancellationToken), cancellationToken);
+    }
+
+    private async Task<HunterSubmission> CreateCoreAsync(HunterSubmission submission, string keyHash, string requestDigest, CancellationToken cancellationToken)
+    {
         await using var tx = await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         var existing = await _db.HunterRequestIdempotency
             .FromSqlInterpolated($"SELECT * FROM [Hunter_RequestIdempotency] WITH (UPDLOCK, HOLDLOCK) WHERE [OwnerUserId] = {submission.UserId} AND [Operation] = {"draft.create"} AND [KeyHash] = {keyHash}")
@@ -60,6 +66,12 @@ public sealed class SqlHunterDraftStore : IHunterDraftStore
         var errors = HunterDraftRequestValidator.Validate(request, now);
         if (errors.Count != 0) throw new ArgumentException(string.Join(" ", errors), nameof(request));
 
+        return await HunterSqlTransaction.ExecuteAsync(_db,
+            () => UpdateCoreAsync(submissionId, ownerUserId, request, cancellationToken), cancellationToken);
+    }
+
+    private async Task<HunterDraftUpdateResult> UpdateCoreAsync(Guid submissionId, string ownerUserId, HunterDraftRequestDto request, CancellationToken cancellationToken)
+    {
         await using var tx = await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         var row = await _db.HunterSubmissions
             .FromSqlInterpolated($"SELECT * FROM [Hunter_Submissions] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {submissionId}")
@@ -77,6 +89,12 @@ public sealed class SqlHunterDraftStore : IHunterDraftStore
     {
         if (submissionId == Guid.Empty || !Guid.TryParseExact(ownerUserId, "D", out _))
             return HunterDraftDeleteResult.NotFound;
+        return await HunterSqlTransaction.ExecuteAsync(_db,
+            () => DeleteCoreAsync(submissionId, ownerUserId, cancellationToken), cancellationToken);
+    }
+
+    private async Task<HunterDraftDeleteResult> DeleteCoreAsync(Guid submissionId, string ownerUserId, CancellationToken cancellationToken)
+    {
         await using var tx = await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         var row = await _db.HunterSubmissions
             .FromSqlInterpolated($"SELECT * FROM [Hunter_Submissions] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {submissionId}")

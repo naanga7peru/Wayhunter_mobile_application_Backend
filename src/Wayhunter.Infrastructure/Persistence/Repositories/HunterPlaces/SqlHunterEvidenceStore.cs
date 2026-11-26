@@ -25,6 +25,13 @@ public sealed class SqlHunterEvidenceStore : IHunterEvidenceStore
             throw new ArgumentException("Evidence binding identity/time is invalid.");
         ArgumentNullException.ThrowIfNull(receipt);
 
+        return await HunterSqlTransaction.ExecuteAsync(_db,
+            () => BindCoreAsync(submissionId, sessionId, ownerUserId, hunterId, receipt, receivedAtUtc, cancellationToken), cancellationToken);
+    }
+
+    private async Task<HunterEvidenceBindResult> BindCoreAsync(Guid submissionId, Guid sessionId, string ownerUserId, Guid hunterId,
+        VerifiedHunterMediaReceipt receipt, DateTimeOffset receivedAtUtc, CancellationToken cancellationToken)
+    {
         await using var tx = await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         var submission = await _db.HunterSubmissions
             .FromSqlInterpolated($"SELECT * FROM [Hunter_Submissions] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {submissionId}")

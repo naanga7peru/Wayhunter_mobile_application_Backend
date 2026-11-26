@@ -35,6 +35,18 @@ public sealed class TripPlan
     public byte[] RowVersion { get; private set; }
         = Array.Empty<byte>();
 
+    public bool AllowsSuggestedPlanReuse { get; private set; }
+
+    public void RestoreCopyAttribution(Guid sourceId, string sourceOwnerId)
+    {
+        if (sourceId == Guid.Empty || sourceId == Id || string.IsNullOrWhiteSpace(sourceOwnerId) ||
+            sourceOwnerId == OwnerUserId || SourceTripPlanId is not null)
+            throw new InvalidOperationException("Invalid copy attribution.");
+
+        SourceTripPlanId = sourceId;
+        SourceOwnerUserId = sourceOwnerId;
+    }
+
     public IReadOnlyList<TripStop> Stops => _stops.AsReadOnly();
 
     // ==========================================

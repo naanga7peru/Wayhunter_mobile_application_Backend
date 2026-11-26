@@ -147,7 +147,7 @@ The loopback HTTP test fixture disables SQL persistence and routes and uses inje
 - **DECISION_REQUIRED:** M2-MS04-T04 route geometry persistence and M3 version-aligned consumer contract; current preview is transient.
 - **CODE_VERIFIED — unavailable:** M3 hazard route matching is registered with `UnavailableHazardRoutesProvider`; this guide does not enable an M3 production route adapter.
 - **DECISION_REQUIRED:** TripStop-to-memory foreign key and M2 HTTP 409 contract approval; retained M3 memories/tombstones are not part of this run guide's implementation.
-- **CODE_VERIFIED — disabled:** Suggested Plan Copy uses an unavailable store by default. Copy consent/attribution approval and SQL activation remain pending.
+- **CODE_VERIFIED — opt-in:** Suggested Plan Copy uses the unavailable store by default. With both SQL persistence flags and `TravelPlanning__EnableMemberPlanCopy=true`, the SQL store requires source-owner consent, active membership, completion, and durable request identity. Migration approval is limited to isolated LocalDB. See [the copy contract](../task-evidence/M2-MS05-T03_COPY_PLAN_PRIVACY_SCHEMA.md).
 - **NOT EXECUTED:** M3 historical completed-trip evidence integration and D11 traveler ranking policy.
 - **DECISION_REQUIRED:** Angular Admin ADM-07 backend endpoint and approval contract.
 - **DECISION_REQUIRED:** M4 approved Hunter Places read contract.

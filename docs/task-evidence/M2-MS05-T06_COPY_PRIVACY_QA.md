@@ -24,4 +24,21 @@ The copy endpoint is `POST /api/mobile/trip-plans/suggested/{sourceTripPlanId}/c
 
 The integration suite used test doubles and loopback HTTP with shared SQL and live providers disabled. Domain independence and fake-store tests establish offline behavior. SQL transaction integrity, concurrent revocation and retries, Flutter, and device acceptance are NOT_EXECUTED.
 
-DECISION_REQUIRED before activation. Approve explicit reuse consent and revocation, attribution storage, durable request identity and a disposable SQL environment. Verify source immutability and denied reuse against that environment before enabling copy writes.
+The sections above record the pre-approval baseline. See [the implemented contract](M2-MS05-T03_COPY_PLAN_PRIVACY_SCHEMA.md) for the supplied approval and current behavior. Shared SQL and production activation remain outside the isolated LocalDB approval.
+
+## Final isolated verification
+
+The functional run verified the runtime SQL factory against `(localdb)\WayhunterTest2026`, verified server LocalDB status and the intended empty catalog `Wayhunter_M2_Test_135b1dedb7094d42a652a38883ff5b97`, and applied all nine migrations. The M2 scenario passed all 18 original operations and the new consent route. The M1 social and authentication scenarios passed on separate fresh catalogs. Three focused copy fail-closed cases passed in a separate test process with the opt-in SQL switches unset. The API build reported zero errors and warnings. The focused test run passed 975 M2, identity, and migration-readiness unit tests.
+
+| Scenario | Expected HTTP | Actual HTTP | SQL or response evidence |
+| --- | --- | --- | --- |
+| Copy or consent with missing or invalid bearer authentication | 401 | 401 | Real session authentication ran before either action. |
+| Missing, invalid, or repeated key header, empty source ID, or invalid consent body | 400 | 400 | No copy was created. |
+| Unknown source, nonmember, removed member, incomplete source, or missing/revoked consent | 404 | 404 | Private source access stayed restricted. Previously owned drafts remained readable after revocation. |
+| Source owner grants or revokes reuse | 204 | 204 | The owner-scoped SQL value governed copying. Another user received 404. |
+| Eligible copy and identical retry, including concurrent requests | 201 | 201 | One draft and attribution per key, with a stable ID, independent ownership, fresh stop IDs and preserved itinerary order and coordinates. |
+| Same traveler and key, different source | 409 | 409 | Existing draft was preserved. |
+| Injected failure before commit | 500 | 500 | Trip, stop and attribution counts were unchanged. A retry could succeed. |
+| Injected lost acknowledgement after commit | 201 | 201 | The committed identity resolved to the same draft and subsequent retry created no duplicate. |
+
+SQL confirmed the source row version and stop IDs stayed unchanged during copying. The copied draft had no source membership, invitation, session, or private memory rows. Swagger exposed the key header and retry description. OTP and reset delivery were captured in memory, application workers were disabled, and Gemini, Maps, and weather were simulated. Live provider verification and deployment were outside this run.

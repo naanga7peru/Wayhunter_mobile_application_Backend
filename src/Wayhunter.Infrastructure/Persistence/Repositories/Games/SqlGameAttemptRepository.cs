@@ -97,7 +97,9 @@ public sealed class SqlGameAttemptRepository
                 .AsNoTracking()
                 .SingleOrDefaultAsync(cancellationToken);
 
-            if (lockedGame is null)
+            if (lockedGame is null ||
+                (lockedGame.CreatorUserId != cleanPlayerId &&
+                    lockedGame.Status is GameStatus.Draft or GameStatus.PendingApproval or GameStatus.Rejected))
             {
                 throw new KeyNotFoundException(
                     "Game not found.");

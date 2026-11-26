@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.OpenApi;
 
 using Wayhunter.Api.Authorization;
 using Wayhunter.Api.BackgroundServices;
@@ -65,7 +66,17 @@ if (enableDevelopmentDraftApi)
 if (builder.Environment.IsDevelopment())
 {
     builder.Services.AddEndpointsApiExplorer();
-    builder.Services.AddSwaggerGen();
+    builder.Services.AddSwaggerGen(options =>
+    {
+        options.AddSecurityDefinition(SwaggerBearerOperationFilter.Scheme, new OpenApiSecurityScheme
+        {
+            Type = SecuritySchemeType.Http,
+            Scheme = "bearer",
+            BearerFormat = "JWT",
+            Description = "Enter the access token returned by login."
+        });
+        options.OperationFilter<SwaggerBearerOperationFilter>();
+    });
 }
 
 // ==========================================
