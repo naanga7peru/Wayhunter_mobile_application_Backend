@@ -75,6 +75,7 @@ public sealed class M7SqlAdvertisementHttpE2ETests
         using var client = factory.CreateClient();
         var token = factory.Services.GetRequiredService<SignedSessionTokenService>().Issue(admin, session, now);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var anonymousClient = factory.CreateClient();
         using (var scope = factory.Services.CreateScope())
             Assert.IsType<AdvertisementRepository>(scope.ServiceProvider.GetRequiredService<Wayhunter.Application.Modules.HomeAdsAnalytics.Interfaces.IAdvertisementRepository>());
 
@@ -88,6 +89,49 @@ public sealed class M7SqlAdvertisementHttpE2ETests
         Assert.Equal(HttpStatusCode.Created, createdResponse.StatusCode);
         var created = await createdResponse.Content.ReadFromJsonAsync<AdvertisementDto>();
         Assert.NotNull(created);
+        using (var invalidCreate = await client.PostAsJsonAsync("/api/admin/advertisements", current with { Title = "" }))
+            Assert.Equal(HttpStatusCode.BadRequest, invalidCreate.StatusCode);
+        using (var emptyId = await client.GetAsync("/api/admin/advertisements/00000000-0000-0000-0000-000000000000"))
+            Assert.Equal(HttpStatusCode.BadRequest, emptyId.StatusCode);
+        using (var missingId = await client.GetAsync($"/api/admin/advertisements/{Guid.NewGuid()}"))
+            Assert.Equal(HttpStatusCode.NotFound, missingId.StatusCode);
+        using (var list = await client.GetAsync("/api/admin/advertisements"))
+        {
+            Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+            var listed = await list.Content.ReadFromJsonAsync<AdvertisementDto[]>();
+            Assert.NotNull(listed);
+            Assert.Contains(listed, item => item.Id == created.Id);
+        }
+        using (var invalidUpdate = await client.PutAsJsonAsync($"/api/admin/advertisements/{created.Id}", current with { EndAtUtc = current.StartAtUtc }))
+            Assert.Equal(HttpStatusCode.BadRequest, invalidUpdate.StatusCode);
+        var updateRequest = new AdvertisementUpdateRequest
+        {
+            Title = $"M7 SQL {runId} updated banner", ImageUrl = current.ImageUrl,
+            DestinationUrl = current.DestinationUrl, StartAtUtc = current.StartAtUtc,
+            EndAtUtc = current.EndAtUtc, Placement = current.Placement
+        };
+        using (var update = await client.PutAsJsonAsync($"/api/admin/advertisements/{created.Id}", updateRequest))
+            Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        using (var missingUpdate = await client.PutAsJsonAsync($"/api/admin/advertisements/{Guid.NewGuid()}", updateRequest))
+            Assert.Equal(HttpStatusCode.NotFound, missingUpdate.StatusCode);
+        using (var invalidStatus = await client.PatchAsJsonAsync($"/api/admin/advertisements/{created.Id}/status", new AdvertisementStatusUpdateRequest { Status = (AdvertisementStatus)999 }))
+            Assert.Equal(HttpStatusCode.BadRequest, invalidStatus.StatusCode);
+        using (var anonymousDenied = await anonymousClient.GetAsync("/api/admin/advertisements"))
+            Assert.Equal(HttpStatusCode.Unauthorized, anonymousDenied.StatusCode);
+        using (var invalidJwt = factory.CreateClient())
+        {
+            invalidJwt.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "invalid.jwt.token");
+            using var denied = await invalidJwt.GetAsync("/api/admin/advertisements");
+            Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+        }
+        using (var imageForm = new MultipartFormDataContent())
+        using (var imageFile = new ByteArrayContent(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }))
+        {
+            imageFile.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+            imageForm.Add(imageFile, "file", "fixture.png");
+            using var disabledImage = await client.PostAsync($"/api/admin/advertisements/{created.Id}/image", imageForm);
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, disabledImage.StatusCode);
+        }
         using var activeResponse = await client.PatchAsJsonAsync($"/api/admin/advertisements/{created.Id}/status", new AdvertisementStatusUpdateRequest { Status = AdvertisementStatus.Active });
         Assert.Equal(HttpStatusCode.OK, activeResponse.StatusCode);
 
@@ -134,10 +178,43 @@ public sealed class M7SqlAdvertisementHttpE2ETests
     {
         var value = Environment.GetEnvironmentVariable("WAYHUNTER_M7_TEST_SQL_CONNECTION");
         if (string.IsNullOrWhiteSpace(value)) throw new InvalidOperationException("The M7 SQL connection is missing.");
-        var builder = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(value);
-        if (!string.Equals(builder.DataSource, @"(localdb)\MSSQLLocalDB", StringComparison.OrdinalIgnoreCase) ||
-            !builder.InitialCatalog.StartsWith("Wayhunter_Test_", StringComparison.OrdinalIgnoreCase) || !builder.IntegratedSecurity)
+        if (!TryValidateConnectionString(value))
             throw new InvalidOperationException("Only an authorized disposable LocalDB catalog is allowed.");
+        var builder = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(value);
         return builder.ConnectionString;
+    }
+
+    [Theory]
+    [InlineData("Server=(localdb)\\WayhunterTest2026;Database=Wayhunter_Test_M7_0123456789abcdef0123456789abcdef;Integrated Security=True;TrustServerCertificate=True", true)]
+    [InlineData("Server=(localdb)\\MSSQLLocalDB;Database=Wayhunter_Test_M7_0123456789abcdef0123456789abcdef;Integrated Security=True", true)]
+    [InlineData("Server=localhost;Database=Wayhunter_Test_M7_0123456789abcdef0123456789abcdef;Integrated Security=True", false)]
+    [InlineData("Server=(localdb)\\Other;Database=Wayhunter_Test_M7_0123456789abcdef0123456789abcdef;Integrated Security=True", false)]
+    [InlineData("Server=(localdb)\\WayhunterTest2026;Database=Wayhunter_Test_other;Integrated Security=True", false)]
+    [InlineData("Server=(localdb)\\WayhunterTest2026;Database=db82600;Integrated Security=True", false)]
+    [InlineData("Server=(localdb)\\WayhunterTest2026;Database=Wayhunter_Test_M7_0123456789abcdef0123456789abcdef;User ID=test;Password=test", false)]
+    public void ConnectionGuard_OnlyAllowsNamedLocalDbAndM7Catalog(string connection, bool expected)
+    {
+        var accepted = TryValidateConnectionString(connection);
+        Assert.Equal(expected, accepted);
+    }
+
+    private static bool TryValidateConnectionString(string value)
+    {
+        try
+        {
+            var builder = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(value);
+            var permittedInstance =
+                string.Equals(builder.DataSource, @"(localdb)\MSSQLLocalDB", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(builder.DataSource, @"(localdb)\WayhunterTest2026", StringComparison.OrdinalIgnoreCase);
+            return permittedInstance &&
+                System.Text.RegularExpressions.Regex.IsMatch(builder.InitialCatalog, @"\AWayhunter_Test_M7_[a-f0-9]{32}\z", System.Text.RegularExpressions.RegexOptions.IgnoreCase) &&
+                builder.IntegratedSecurity && builder.AttachDBFilename.Length == 0 &&
+                string.IsNullOrWhiteSpace(builder.UserID) && string.IsNullOrWhiteSpace(builder.Password) &&
+                !builder.InitialCatalog.Equals("db82600", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 }
