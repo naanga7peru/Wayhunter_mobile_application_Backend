@@ -38,23 +38,75 @@ public sealed class SqlSuggestedTripPlansReader : ISuggestedTripPlansReader
             throw new ArgumentOutOfRangeException(nameof(maxResults));
         }
 
-        return await EligiblePlans(authenticatedUserId)
+        var summaries = await EligibleTrips(authenticatedUserId)
+            .Select(trip => new
+            {
+                TripPlanId = trip.Id,
+                trip.TripName,
+                trip.StartDate,
+                trip.EndDate,
+                trip.BudgetLkr,
+                trip.VehicleType,
+                trip.Headcount,
+                StopCount = _db.TripStops.Count(stop => stop.TripPlanId == trip.Id),
+                CompletedAtUtc = _db.LiveTripSessions
+                    .Where(session => session.TripPlanId == trip.Id &&
+                                      session.Status == LiveTripStatus.Finished &&
+                                      session.FinishedAtUtc.HasValue &&
+                                      session.FinishedAtUtc.Value >= session.StartedAtUtc)
+                    .Select(session => session.FinishedAtUtc)
+                    .Max()
+            })
             .OrderByDescending(plan => plan.CompletedAtUtc)
             .ThenBy(plan => plan.TripPlanId)
             .Take(maxResults)
             .ToListAsync(cancellationToken);
+
+        return summaries.Select(plan => new SuggestedTripPlanDto(
+            plan.TripPlanId,
+            plan.TripName,
+            plan.StartDate,
+            plan.EndDate,
+            plan.BudgetLkr,
+            plan.VehicleType,
+            plan.Headcount,
+            plan.StopCount,
+            plan.CompletedAtUtc!.Value)).ToArray();
     }
 
-    public Task<SuggestedTripPlanDto?> GetEligibleByIdAsync(
+    public async Task<SuggestedTripPlanDto?> GetEligibleByIdAsync(
         string authenticatedUserId, Guid tripPlanId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentException.ThrowIfNullOrWhiteSpace(authenticatedUserId);
-        return EligiblePlans(authenticatedUserId)
-            .SingleOrDefaultAsync(plan => plan.TripPlanId == tripPlanId, cancellationToken);
+        var plan = await EligibleTrips(authenticatedUserId)
+            .Where(trip => trip.Id == tripPlanId)
+            .Select(trip => new
+            {
+                TripPlanId = trip.Id,
+                trip.TripName,
+                trip.StartDate,
+                trip.EndDate,
+                trip.BudgetLkr,
+                trip.VehicleType,
+                trip.Headcount,
+                StopCount = _db.TripStops.Count(stop => stop.TripPlanId == trip.Id),
+                CompletedAtUtc = _db.LiveTripSessions
+                    .Where(session => session.TripPlanId == trip.Id &&
+                                      session.Status == LiveTripStatus.Finished &&
+                                      session.FinishedAtUtc.HasValue &&
+                                      session.FinishedAtUtc.Value >= session.StartedAtUtc)
+                    .Select(session => session.FinishedAtUtc)
+                    .Max()
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+        return plan is null ? null : new SuggestedTripPlanDto(
+            plan.TripPlanId, plan.TripName, plan.StartDate, plan.EndDate,
+            plan.BudgetLkr, plan.VehicleType, plan.Headcount, plan.StopCount,
+            plan.CompletedAtUtc!.Value);
     }
 
-    private IQueryable<SuggestedTripPlanDto> EligiblePlans(string authenticatedUserId)
+    private IQueryable<Wayhunter.Domain.Modules.TravelPlanning.Entities.TripPlan> EligibleTrips(string authenticatedUserId)
     {
         // The access test runs in the database for EVERY request.
         // A removed member, invitation alone, or another user's plan
@@ -76,24 +128,6 @@ public sealed class SqlSuggestedTripPlansReader : ISuggestedTripPlansReader
             // If a trip has been started again, it is not yet finished.
             .Where(trip => !_db.LiveTripSessions.Any(session =>
                 session.TripPlanId == trip.Id &&
-                session.Status != LiveTripStatus.Finished))
-            .Select(trip => new SuggestedTripPlanDto(
-                trip.Id,
-                trip.TripName,
-                trip.StartDate,
-                trip.EndDate,
-                trip.BudgetLkr,
-                trip.VehicleType,
-                trip.Headcount,
-                _db.TripStops.Count(stop => stop.TripPlanId == trip.Id),
-                _db.LiveTripSessions
-                    .Where(session =>
-                        session.TripPlanId == trip.Id &&
-                        session.Status == LiveTripStatus.Finished &&
-                        session.FinishedAtUtc.HasValue &&
-                        session.FinishedAtUtc.Value >= session.StartedAtUtc)
-                    .OrderByDescending(session => session.FinishedAtUtc)
-                    .Select(session => session.FinishedAtUtc!.Value)
-                    .FirstOrDefault()));
+                session.Status != LiveTripStatus.Finished));
     }
 }
