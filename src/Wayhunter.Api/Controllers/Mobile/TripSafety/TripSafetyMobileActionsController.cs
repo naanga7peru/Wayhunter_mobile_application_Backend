@@ -121,6 +121,48 @@ public sealed class TripSafetyMobileActionsController
     // LIVE TRIP SESSION
     // ==============================================
 
+    // GET /api/mobile/trips/{tripPlanId}/sessions/current
+    // Only the trip owner may discover its open session.
+    [HttpGet("api/mobile/trips/{tripPlanId:guid}/sessions/current")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> GetCurrentSession(
+        Guid tripPlanId,
+        CancellationToken cancellationToken)
+    {
+        Response.Headers.CacheControl = "no-store";
+
+        if (!TryUserId(out var userId))
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            await _access.EnsureOwnerAsync(
+                tripPlanId,
+                userId,
+                cancellationToken);
+
+            var session = await _sessionRepository
+                .GetOpenByTripPlanIdAsync(
+                    tripPlanId,
+                    cancellationToken);
+
+            return Ok(new
+            {
+                session = session is null
+                    ? null
+                    : TripSessionDto.FromDomain(session)
+            });
+        }
+        catch (Exception exception)
+            when (exception is KeyNotFoundException or UnauthorizedAccessException)
+        {
+            // Do not reveal whether a trip exists to a non-owner.
+            return NotFound();
+        }
+    }
+
     // POST /api/mobile/trips/{tripPlanId}/sessions
     // Only the trip owner may start a trip.
 
