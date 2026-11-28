@@ -38,23 +38,39 @@ public sealed class SqlSuggestedTripPlansReader : ISuggestedTripPlansReader
             throw new ArgumentOutOfRangeException(nameof(maxResults));
         }
 
-        return await EligiblePlans(authenticatedUserId)
+        var eligible = EligibleTripSummaries(authenticatedUserId);
+        var summaries = await eligible
             .OrderByDescending(plan => plan.CompletedAtUtc)
             .ThenBy(plan => plan.TripPlanId)
             .Take(maxResults)
             .ToListAsync(cancellationToken);
+
+        return summaries.Select(plan => new SuggestedTripPlanDto(
+            plan.TripPlanId,
+            plan.TripName,
+            plan.StartDate,
+            plan.EndDate,
+            plan.BudgetLkr,
+            plan.VehicleType,
+            plan.Headcount,
+            plan.StopCount,
+            plan.CompletedAtUtc!.Value)).ToArray();
     }
 
-    public Task<SuggestedTripPlanDto?> GetEligibleByIdAsync(
+    public async Task<SuggestedTripPlanDto?> GetEligibleByIdAsync(
         string authenticatedUserId, Guid tripPlanId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentException.ThrowIfNullOrWhiteSpace(authenticatedUserId);
-        return EligiblePlans(authenticatedUserId)
-            .SingleOrDefaultAsync(plan => plan.TripPlanId == tripPlanId, cancellationToken);
+        var plan = await EligibleTripSummaries(authenticatedUserId)
+            .SingleOrDefaultAsync(item => item.TripPlanId == tripPlanId, cancellationToken);
+        return plan is null ? null : new SuggestedTripPlanDto(
+            plan.TripPlanId, plan.TripName, plan.StartDate, plan.EndDate,
+            plan.BudgetLkr, plan.VehicleType, plan.Headcount, plan.StopCount,
+            plan.CompletedAtUtc!.Value);
     }
 
-    private IQueryable<SuggestedTripPlanDto> EligiblePlans(string authenticatedUserId)
+    private IQueryable<EligibleTripSummary> EligibleTripSummaries(string authenticatedUserId)
     {
         // The access test runs in the database for EVERY request.
         // A removed member, invitation alone, or another user's plan
@@ -77,7 +93,7 @@ public sealed class SqlSuggestedTripPlansReader : ISuggestedTripPlansReader
             .Where(trip => !_db.LiveTripSessions.Any(session =>
                 session.TripPlanId == trip.Id &&
                 session.Status != LiveTripStatus.Finished))
-            .Select(trip => new SuggestedTripPlanDto(
+            .Select(trip => new EligibleTripSummary(
                 trip.Id,
                 trip.TripName,
                 trip.StartDate,
@@ -92,8 +108,18 @@ public sealed class SqlSuggestedTripPlansReader : ISuggestedTripPlansReader
                         session.Status == LiveTripStatus.Finished &&
                         session.FinishedAtUtc.HasValue &&
                         session.FinishedAtUtc.Value >= session.StartedAtUtc)
-                    .OrderByDescending(session => session.FinishedAtUtc)
-                    .Select(session => session.FinishedAtUtc!.Value)
-                    .FirstOrDefault()));
+                    .Select(session => session.FinishedAtUtc)
+                    .Max()));
     }
+
+    private sealed record EligibleTripSummary(
+        Guid TripPlanId,
+        string TripName,
+        DateOnly StartDate,
+        DateOnly EndDate,
+        decimal BudgetLkr,
+        string VehicleType,
+        int Headcount,
+        int StopCount,
+        DateTimeOffset? CompletedAtUtc);
 }
