@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -404,6 +405,129 @@ public sealed class ValidJwtCrossModuleHttpTests
         Assert.Equal(HttpStatusCode.OK, repeated.StatusCode);
         Assert.Equal(first, await repeated.Content.ReadFromJsonAsync<TripSessionDto>());
         Assert.NotNull(registry.Find("other-session"));
+    }
+
+    [Fact]
+    public async Task M3_CurrentSession_IsOwnerScopedAndReturnsOpenSessionOrExplicitNull()
+    {
+        using var factory = new AuthenticatedFactory();
+        using var owner = factory.OwnerClient();
+        using var other = factory.OtherClient();
+        using var anonymous = factory.CreateClient();
+
+        var now = DateTimeOffset.UtcNow;
+        var activeTrip = await SeedCurrentSessionTripAsync(factory, "Current active trip", now);
+        var pausedTrip = await SeedCurrentSessionTripAsync(factory, "Current paused trip", now);
+        var emptyTrip = await SeedCurrentSessionTripAsync(factory, "Current empty trip", now);
+        var finishedTrip = await SeedCurrentSessionTripAsync(factory, "Current finished trip", now);
+        var nonOwnerTrip = await SeedCurrentSessionTripAsync(factory, "Current private trip", now);
+        var memberTrip = await SeedCurrentSessionTripAsync(factory, "Current member trip", now);
+
+        var memberships = factory.Services.GetRequiredService<
+            InMemoryTripMembershipRevocationRepository>();
+        var invitation = TripInvitation.Create(
+            Guid.NewGuid(), memberTrip.Id, factory.Owner.UserId,
+            factory.Other.UserId, now.AddMinutes(-2));
+        invitation.Accept(now.AddMinutes(-1));
+        await memberships.AddMemberAsync(
+            TripMember.FromAcceptedInvitation(Guid.NewGuid(), invitation));
+
+        var sessions = factory.Services.GetRequiredService<
+            InMemoryLiveTripSessionRepository>();
+        var activeSession = LiveTripSession.Start(
+            Guid.NewGuid(), activeTrip.Id, now.AddMinutes(-10));
+        var pausedSession = LiveTripSession.Start(
+            Guid.NewGuid(), pausedTrip.Id, now.AddMinutes(-9));
+        pausedSession.Pause();
+        var finishedSession = LiveTripSession.Start(
+            Guid.NewGuid(), finishedTrip.Id, now.AddMinutes(-8));
+        finishedSession.Finish(now.AddMinutes(-2));
+        await sessions.AddAsync(activeSession);
+        await sessions.AddAsync(pausedSession);
+        await sessions.AddAsync(finishedSession);
+
+        using (var response = await anonymous.GetAsync(CurrentSessionPath(activeTrip.Id)))
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        using (var response = await other.GetAsync(CurrentSessionPath(nonOwnerTrip.Id)))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        using (var response = await other.GetAsync(CurrentSessionPath(memberTrip.Id)))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        using (var response = await owner.GetAsync(CurrentSessionPath(Guid.NewGuid())))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        using (var response = await owner.GetAsync(CurrentSessionPath(Guid.Empty)))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        await AssertCurrentSessionAsync(owner, activeSession, LiveTripStatus.Active);
+        await AssertCurrentSessionAsync(owner, pausedSession, LiveTripStatus.Paused);
+        await AssertExplicitNullCurrentSessionAsync(owner, emptyTrip.Id);
+        await AssertExplicitNullCurrentSessionAsync(owner, finishedTrip.Id);
+
+        // A discovery GET must not mutate either open or finished session state.
+        Assert.Equal(LiveTripStatus.Active, activeSession.Status);
+        Assert.Equal(LiveTripStatus.Paused, pausedSession.Status);
+        Assert.Equal(LiveTripStatus.Finished, finishedSession.Status);
+    }
+
+    private static async Task<TripPlan> SeedCurrentSessionTripAsync(
+        AuthenticatedFactory factory,
+        string name,
+        DateTimeOffset now)
+    {
+        var startDate = DateOnly.FromDateTime(now.UtcDateTime);
+        var trip = new TripPlan(
+            factory.Owner.UserId, name, startDate, startDate.AddDays(1),
+            5000m, "Car", 2);
+        await factory.Services.GetRequiredService<
+            InMemoryTripMembershipRevocationRepository>().AddTripAsync(trip);
+        return trip;
+    }
+
+    private static string CurrentSessionPath(Guid tripPlanId)
+        => $"/api/mobile/trips/{tripPlanId}/sessions/current";
+
+    private static async Task AssertCurrentSessionAsync(
+        HttpClient owner,
+        LiveTripSession expected,
+        LiveTripStatus expectedStatus)
+    {
+        using var response = await owner.GetAsync(CurrentSessionPath(expected.TripPlanId));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+
+        using var document = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync());
+        var session = document.RootElement.GetProperty("session");
+        Assert.Equal(expected.SessionId, session.GetProperty("sessionId").GetGuid());
+        Assert.Equal(expected.TripPlanId, session.GetProperty("tripPlanId").GetGuid());
+        Assert.Equal((int)expectedStatus, session.GetProperty("status").GetInt32());
+    }
+
+    private static async Task AssertExplicitNullCurrentSessionAsync(
+        HttpClient owner,
+        Guid tripPlanId)
+    {
+        using var response = await owner.GetAsync(CurrentSessionPath(tripPlanId));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+
+        using var document = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync());
+        Assert.True(document.RootElement.TryGetProperty("session", out var session));
+        Assert.Equal(JsonValueKind.Null, session.ValueKind);
     }
 
     [Fact]
