@@ -136,6 +136,11 @@ public sealed class TripSafetyMobileActionsController
             return Unauthorized();
         }
 
+        if (tripPlanId == Guid.Empty)
+        {
+            return NotFound();
+        }
+
         try
         {
             await _access.EnsureOwnerAsync(

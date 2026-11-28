@@ -466,6 +466,11 @@ public sealed class ValidJwtCrossModuleHttpTests
             Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         }
 
+        using (var response = await owner.GetAsync(CurrentSessionPath(Guid.Empty)))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
         await AssertCurrentSessionAsync(owner, activeSession, LiveTripStatus.Active);
         await AssertCurrentSessionAsync(owner, pausedSession, LiveTripStatus.Paused);
         await AssertExplicitNullCurrentSessionAsync(owner, emptyTrip.Id);
