@@ -1,3 +1,4 @@
+using System.Data.SqlTypes;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
@@ -13,6 +14,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Wayhunter.Application.Modules.TravelPlanning.Dtos;
 using Wayhunter.Domain.Modules.IdentitySocial.Entities;
+using Wayhunter.Domain.Modules.TravelPlanning.Entities;
+using Wayhunter.Domain.Modules.TripSafety.Entities;
 using Wayhunter.Infrastructure.Persistence.DbContexts;
 using Wayhunter.Infrastructure.Persistence.Repositories.TravelPlanning;
 using Xunit;
@@ -150,6 +153,104 @@ public sealed class M2SqlTripPlanHttpTests
         outsideOwner.DefaultRequestHeaders.Add("X-Test-User", Guid.NewGuid().ToString("D"));
         using var forbiddenRead = await outsideOwner.GetAsync($"/api/mobile/trip-plans/{created.TripPlanId}");
         Assert.Equal(HttpStatusCode.NotFound, forbiddenRead.StatusCode);
+    }
+
+    [M2SqlTripPlanHttpFact]
+    public async Task SuggestedTrips_SqlReaderHandlesEmptyListAndOrdersLimitsAndFiltersEligibleTrips()
+    {
+        var options = new DbContextOptionsBuilder<WayhunterSharedDbContext>()
+            .UseSqlServer(GetConnectionString()).Options;
+        await using var db = new WayhunterSharedDbContext(options);
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        var reader = new SqlSuggestedTripPlansReader(db);
+        var now = DateTimeOffset.UtcNow;
+        var viewer = NewSuggestedTripUser(now);
+        var owner = NewSuggestedTripUser(now);
+        db.Users.AddRange(viewer, owner);
+        await db.SaveChangesAsync();
+
+        Assert.Empty(await reader.GetEligibleAsync(viewer.UserId, 20));
+
+        var older = AddTrip("Older", owner.UserId);
+        var firstTie = AddTrip("Newest A", owner.UserId);
+        var secondTie = AddTrip("Newest B", owner.UserId);
+        var ownTrip = AddTrip("Owned by viewer", viewer.UserId);
+        var cancelled = AddTrip("Cancelled", owner.UserId);
+        var removed = AddTrip("Removed membership", owner.UserId);
+        var invitationOnly = AddTrip("Pending invitation", owner.UserId);
+        var unshared = AddTrip("Unshared", owner.UserId);
+        var unfinished = AddTrip("Unfinished", owner.UserId);
+        var restarted = AddTrip("Restarted", owner.UserId);
+        firstTie.AddStop("First stop");
+        firstTie.AddStop("Second stop");
+
+        foreach (var trip in new[] { older, firstTie, secondTie, cancelled, unfinished, restarted })
+            AddInvitation(trip, accept: true);
+        var removedMember = AddInvitation(removed, accept: true);
+        removedMember!.Remove(now);
+        AddInvitation(invitationOnly, accept: false);
+        // Give the viewer membership even on their own trip to exercise the owner exclusion.
+        AddInvitation(ownTrip, accept: true);
+        cancelled.Cancel();
+
+        var newest = now.AddMinutes(-10);
+        var olderCompletion = now.AddMinutes(-20);
+        AddFinishedSession(older, olderCompletion);
+        AddFinishedSession(firstTie, now.AddMinutes(-30));
+        AddFinishedSession(firstTie, newest);
+        AddFinishedSession(secondTie, newest);
+        foreach (var trip in new[] { ownTrip, cancelled, removed, invitationOnly, unshared, restarted })
+            AddFinishedSession(trip, now.AddMinutes(-5));
+        db.LiveTripSessions.Add(LiveTripSession.Start(Guid.NewGuid(), unfinished.Id, now));
+        db.LiveTripSessions.Add(LiveTripSession.Start(Guid.NewGuid(), restarted.Id, now));
+        await db.SaveChangesAsync();
+
+        // SQL Server orders uniqueidentifier values differently from Guid.CompareTo.
+        var orderedTies = new[] { firstTie.Id, secondTie.Id }.OrderBy(id => new SqlGuid(id)).ToArray();
+        var results = await reader.GetEligibleAsync(viewer.UserId, 20);
+        Assert.Equal(orderedTies.Append(older.Id).ToArray(), results.Select(plan => plan.TripPlanId).ToArray());
+        Assert.Equal(new[] { newest, newest, olderCompletion }, results.Select(plan => plan.CompletedAtUtc).ToArray());
+        Assert.Equal(orderedTies[0], Assert.Single(await reader.GetEligibleAsync(viewer.UserId, 1)).TripPlanId);
+
+        var detail = await reader.GetEligibleByIdAsync(viewer.UserId, firstTie.Id);
+        Assert.NotNull(detail);
+        Assert.Equal(2, detail.StopCount);
+        Assert.Equal(results.Single(plan => plan.TripPlanId == firstTie.Id), detail);
+        Assert.Null(await reader.GetEligibleByIdAsync(viewer.UserId, removed.Id));
+        await transaction.RollbackAsync();
+
+        TripPlan AddTrip(string name, string ownerId)
+        {
+            var date = DateOnly.FromDateTime(now.UtcDateTime);
+            var trip = new TripPlan(ownerId, name, date, date, 1000m, "Car", 2);
+            db.Trips.Add(trip);
+            return trip;
+        }
+
+        TripMember? AddInvitation(TripPlan trip, bool accept)
+        {
+            var invitation = TripInvitation.Create(Guid.NewGuid(), trip.Id, owner.UserId, viewer.UserId, now.AddHours(-2));
+            db.TripInvitations.Add(invitation);
+            if (!accept) return null;
+            invitation.Accept(now.AddHours(-1));
+            var member = TripMember.FromAcceptedInvitation(Guid.NewGuid(), invitation);
+            db.TripMembers.Add(member);
+            return member;
+        }
+
+        void AddFinishedSession(TripPlan trip, DateTimeOffset finishedAt)
+        {
+            var session = LiveTripSession.Start(Guid.NewGuid(), trip.Id, finishedAt.AddMinutes(-1));
+            session.Finish(finishedAt);
+            db.LiveTripSessions.Add(session);
+        }
+    }
+
+    private static UserAccount NewSuggestedTripUser(DateTimeOffset now)
+    {
+        var user = UserAccount.RegisterPending("Suggested trip test", $"m2-{Guid.NewGuid():N}@example.invalid", "test-password-hash", now);
+        user.ActivateAfterVerifiedOtp(now);
+        return user;
     }
 
     private static string GetConnectionString()
